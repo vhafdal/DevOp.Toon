@@ -1,0 +1,63 @@
+pipeline {
+    agent { label 'dotnet' }
+
+    parameters {
+        booleanParam(
+            name: 'PUSH_NUGET',
+            defaultValue: false,
+            description: 'Push generated NuGet packages to NuGet.org after pack'
+        )
+    }
+
+    environment {
+        PROJECT = './src/DevOp.Toon/DevOp.Toon.csproj'
+        CONFIG = 'Release'
+        NUGET_OUTPUT = './nupkg'
+        NUGET_SOURCE = 'https://api.nuget.org/v3/index.json'
+        DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+        DOTNET_NOLOGO = 'true'
+    }
+
+    stages {
+        stage('Build & Pack') {
+            steps {
+                container('dotnet') {
+                    sh """
+                        dotnet --info
+                        dotnet restore ${PROJECT}
+                        dotnet build ${PROJECT} -c ${CONFIG} --no-restore
+                        dotnet test ${PROJECT} -c ${CONFIG} --no-build --logger "trx;LogFileName=test-results.trx"
+                        dotnet pack ${PROJECT} -c ${CONFIG} --no-build -o ${NUGET_OUTPUT}
+                    """
+                }
+            }
+        }
+
+        stage('Push NuGet Package') {
+            when {
+                expression { params.PUSH_NUGET }
+            }
+            steps {
+                container('dotnet') {
+                    withCredentials([string(credentialsId: 'nuget-org-api-key', variable: 'NUGET_API_KEY')]) {
+                        sh '''
+                            for pkg in ./nupkg/*.nupkg; do
+                                echo "Pushing $pkg to NuGet.org"
+                                dotnet nuget push "$pkg" \
+                                  --source "$NUGET_SOURCE" \
+                                  --api-key "$NUGET_API_KEY" \
+                                  --skip-duplicate
+                            done
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'nupkg/**', fingerprint: true, allowEmptyArchive: true
+        }
+    }
+}

@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>DevOp.Toon.Benchmarks</RootNamespace>
+    <AssemblyName>DevOp.Toon.Benchmarks</AssemblyName>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <BenchmarkLibraryTargetFramework Condition="'$(BenchmarkLibraryTargetFramework)' == ''">$(TargetFramework)</BenchmarkLibraryTargetFramework>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>DevOp.snk</AssemblyOriginatorKeyFile>
+    <PublicSign>true</PublicSign>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="DevOp.Toon.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DevOp.Toon\DevOp.Toon.csproj" SetTargetFramework="TargetFramework=$(BenchmarkLibraryTargetFramework)" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(BenchmarkLibraryTargetFramework)' != 'netstandard2.0'">
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="ApiResponseBenchmarks.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="TestData\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

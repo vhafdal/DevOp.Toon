@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "DevOp.Toon.SpecGenerator": {
+      "commandName": "Project",
+      "commandLineArgs": "--url=\"https://github.com/toon-format/spec.git\" --output=\"../../../../../tests/DevOp.Toon.Tests\" --branch=\"v2.0.0\" --loglevel=\"Information\" --ignore=\"../../../../../\""
+    }
+  }
+}

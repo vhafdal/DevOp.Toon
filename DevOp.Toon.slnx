@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/DevOp.Toon.Benchmarks/DevOp.Toon.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/external/">
+    <Project Path="../DevOp.Toon.API/src/DevOp.Toon.API/DevOp.Toon.API.csproj" />
+    <Project Path="../DevOp.Toon.Core/DevOp.Toon.Core.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/DevOp.Toon.API.TestHost/DevOp.Toon.API.TestHost.csproj" />
+    <Project Path="src/DevOp.Toon/DevOp.Toon.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DevOp.Toon.SpecGenerator/DevOp.Toon.SpecGenerator.csproj" />
+    <Project Path="tests/DevOp.Toon.Tests/DevOp.Toon.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>$(TestTargetFrameworks)</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>DevOp.Toon.Tests</RootNamespace>
+    <AssemblyName>DevOp.Toon.Tests</AssemblyName>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="System.Text.Json" Version="10.0.2" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="DevOp.Toon.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DevOp.Toon\DevOp.Toon.csproj" />
+  </ItemGroup>
+
+  <Target Name="BuildNetStandardCompatibilityTarget" BeforeTargets="Build">
+    <!-- xUnit cannot execute on netstandard directly, so test runs explicitly build the compatibility target. -->
+    <MSBuild
+      Projects="..\..\src\DevOp.Toon\DevOp.Toon.csproj"
+      Targets="Build"
+      Properties="Configuration=$(Configuration);TargetFramework=netstandard2.0" />
+  </Target>
+
+</Project>

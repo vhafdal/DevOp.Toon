@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(ToonApiProjectPath)" Condition="'$(Configuration)' == 'Debug' and '$(ToonApiProjectPath)' != ''" />
+    <PackageReference Include="DevOp.Toon.API" Version="0.1.1" Condition="'$(Configuration)' != 'Debug' or '$(ToonApiProjectPath)' == ''" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\benchmarks\DevOp.Toon.Benchmarks\Models\Product.cs"
+             Link="Models\Product.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\benchmarks\DevOp.Toon.Benchmarks\TestData\prods.json"
+             Link="TestData\prods.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>
