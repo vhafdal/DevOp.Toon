@@ -28,7 +28,7 @@ This repository uses xUnit with `coverlet.collector`. Name test files with the f
 
 ## Documentation Process
 
-Maintain documentation in Markdown inside this repository. Update `README.md`, `src/DevOp.Toon/README.md`, `Documentation/`, and `Documentation/DocMost/` when package usage, benchmarks, protocol notes, or development workflow change. Do not update Confluence as part of the workflow. If the DocMost site should reflect the change, call out the specific pages that need manual syncing.
+Maintain documentation in Markdown inside this repository where useful, but treat the live Wiki.js site as the published documentation source of truth. Update `README.md`, `src/DevOp.Toon/README.md`, and relevant `Documentation/` files when package usage, benchmarks, protocol notes, or development workflow change. Do not update Confluence as part of the workflow. Do not assume `Documentation/DocMost/` is current; it is legacy reference material unless the user explicitly asks to use it.
 
 ## Commit & Pull Request Guidelines
 

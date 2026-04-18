@@ -192,7 +192,7 @@ When benchmark claims change, update:
 2. Chat-ready markdown output:
    - a concise benchmark summary
    - framework winners and caveats
-   - any manual follow-up notes for DocMost sync or other channels
+   - any manual follow-up notes for Wiki.js or other channels
 
 ## Recommended Public Messaging
 

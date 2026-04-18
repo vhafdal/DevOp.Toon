@@ -10,13 +10,13 @@
 
 		<!-- Package Information -->
 		<PackageId>DevOp.Toon</PackageId>
-		<Version>0.2.3</Version>
+		<Version>0.2.4</Version>
 		<Authors>Þorvaldur Hafdal</Authors>
 		<Company>DevOp</Company>
 		<Description>Token-Oriented Object Notation (TOON) - a token-efficient JSON alternative for LLM prompts</Description>
 		<PackageTags>toon;format;llm;token;serialization;json</PackageTags>
 		<PackageLicenseFile>LICENSE.md</PackageLicenseFile>
-		<PackageProjectUrl>https://docs.devop.is/share/uyyq1coc9q/p/toon-format-home-gjGqQ3R1Ko</PackageProjectUrl>
+		<PackageProjectUrl>https://wiki.devop.is/devop-toon/home</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/vhafdal/DevOp.Toon</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
@@ -46,7 +46,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
-		<PackageReference Include="DevOp.Toon.Core" Version="0.1.2" Condition="'$(Configuration)' != 'Debug' or '$(ToonCoreProjectPath)' == ''" />
+		<PackageReference Include="DevOp.Toon.Core" Version="0.1.3" Condition="'$(Configuration)' != 'Debug' or '$(ToonCoreProjectPath)' == ''" />
 	</ItemGroup>
 
 	<ItemGroup Condition="'$(Configuration)' == 'Debug' and '$(ToonCoreProjectPath)' != ''">

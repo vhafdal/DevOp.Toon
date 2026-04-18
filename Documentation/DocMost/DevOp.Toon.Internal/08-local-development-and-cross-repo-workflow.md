@@ -53,4 +53,4 @@ Do not rely on local overrides for release packaging or CI. `Release` builds sho
 
 ## Current repo note
 
-There is already a public DocMost export under `Documentation/DocMost/DevOp.Toon`. This internal space is the engineering companion, not a replacement.
+There is legacy export material under `Documentation/DocMost/DevOp.Toon`, but the live Wiki.js site is now the published documentation source of truth.

@@ -67,5 +67,5 @@ Check all of these before shipping:
 - `ToonEncoder.cs`
 - benchmark defaults in `benchmarks/.../Program.cs`
 - `README.md`
-- DocMost export pages
+- live Wiki.js pages when public documentation is affected
 - tests that assume current defaults
