@@ -71,6 +71,11 @@ public static class Program
         {
             return;
         }
+
+        if (NetworkLatencyProfiler.TryRun(args))
+        {
+            return;
+        }
 #endif
 
         /*
