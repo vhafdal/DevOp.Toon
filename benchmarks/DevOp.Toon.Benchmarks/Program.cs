@@ -12,12 +12,19 @@ public static class Program
     {
         ToonEncoder.DefaultOptions = new ToonEncodeOptions
         {
-            KeyFolding = ToonKeyFolding.Safe,
-            Delimiter = ToonDelimiter.TAB,
-            Indent = 2,
-            ObjectArrayLayout = ToonObjectArrayLayout.Columnar
+            KeyFolding = ToonKeyFolding.Off,
+            Delimiter = ToonDelimiter.COMMA,
+            Indent = 1,
+            ObjectArrayLayout = ToonObjectArrayLayout.Columnar,
+            ExcludeEmptyArrays = true,
+            IgnoreNullOrEmpty = true
         };
-
+        /*
+        var sourceJson = File.ReadAllText(BenchmarkDataPaths.ProductsJsonPath);
+        var objects = System.Text.Json.JsonSerializer.Deserialize<List<Product>>(sourceJson);
+        var tStr = ToonEncoder.Encode(objects);
+        File.WriteAllText(Path.Combine(BenchmarkDataPaths.BaseDirectory, "TestData", "prods2.toon"), tStr);
+*/
         ToonDecoder.DefaultOptions = new ToonDecodeOptions
         {
             ExpandPaths = ToonPathExpansion.Safe,

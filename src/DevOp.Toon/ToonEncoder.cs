@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Buffers;
 using System.ComponentModel;
 using System.IO;
 using System.Text;
@@ -388,6 +389,66 @@ public static class ToonEncoder
         return true;
     }
 
+    private static bool TryWriteFastToStream(object? data, ResolvedEncodeOptions options, Stream destination)
+    {
+        if (!ClrObjectArrayFastEncoder.TryEncodeToCompactBuffer(data, options, out var compactWriter))
+        {
+            return false;
+        }
+
+        using (compactWriter)
+        {
+            var (charBuffer, charCount) = compactWriter.GetCharBuffer();
+            var maxByteCount = Utf8WithoutBom.GetMaxByteCount(charCount);
+            var byteBuffer = ArrayPool<byte>.Shared.Rent(maxByteCount);
+            try
+            {
+                var byteCount = Utf8WithoutBom.GetBytes(charBuffer, 0, charCount, byteBuffer, 0);
+                destination.Write(byteBuffer, 0, byteCount);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(byteBuffer);
+            }
+        }
+
+        return true;
+    }
+
+    private static async Task<bool> TryWriteFastToStreamAsync(
+        object? data,
+        ResolvedEncodeOptions options,
+        Stream destination,
+        CancellationToken cancellationToken)
+    {
+        if (!ClrObjectArrayFastEncoder.TryEncodeToCompactBuffer(data, options, out var compactWriter))
+        {
+            return false;
+        }
+
+        using (compactWriter)
+        {
+            var (charBuffer, charCount) = compactWriter.GetCharBuffer();
+            var maxByteCount = Utf8WithoutBom.GetMaxByteCount(charCount);
+            var byteBuffer = ArrayPool<byte>.Shared.Rent(maxByteCount);
+            try
+            {
+                var byteCount = Utf8WithoutBom.GetBytes(charBuffer, 0, charCount, byteBuffer, 0);
+#if NETSTANDARD2_0
+                await destination.WriteAsync(byteBuffer, 0, byteCount, cancellationToken).ConfigureAwait(false);
+#else
+                await destination.WriteAsync(byteBuffer.AsMemory(0, byteCount), cancellationToken).ConfigureAwait(false);
+#endif
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(byteBuffer);
+            }
+        }
+
+        return true;
+    }
+
     internal static byte[] EncodeToBytesResolved(object? data, ResolvedEncodeOptions resolvedOptions)
     {
         if (TryEncodeToBytesFast(data, resolvedOptions, out var fastBytes))
@@ -401,15 +462,14 @@ public static class ToonEncoder
 
     internal static void EncodeToStreamResolved(object? data, Stream destination, ResolvedEncodeOptions resolvedOptions)
     {
-        // Large buffer avoids frequent StreamWriter flushes for a ~1.5 MB output.
-        using var writer = new StreamWriter(destination, Utf8WithoutBom, 4096, leaveOpen: true);
-        if (ClrObjectArrayFastEncoder.TryWriteToTextWriter(data, resolvedOptions, writer))
+        if (TryWriteFastToStream(data, resolvedOptions, destination))
         {
-            writer.Flush();
             return;
         }
 
         // Fallback: exotic types that the fast path doesn't handle.
+        // Large buffer avoids frequent StreamWriter flushes for a ~1.5 MB output.
+        using var writer = new StreamWriter(destination, Utf8WithoutBom, 4096, leaveOpen: true);
         var text = NativeEncoders.EncodeValue(NativeNormalize.Normalize(data), resolvedOptions);
         writer.Write(text);
         writer.Flush();
@@ -418,18 +478,13 @@ public static class ToonEncoder
     internal static async Task EncodeToStreamResolvedAsync(object? data, Stream destination, ResolvedEncodeOptions resolvedOptions, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        using var writer = new StreamWriter(destination, Utf8WithoutBom, 4096, leaveOpen: true);
-        if (await ClrObjectArrayFastEncoder.TryWriteToTextWriterAsync(data, resolvedOptions, writer, cancellationToken).ConfigureAwait(false))
+        if (await TryWriteFastToStreamAsync(data, resolvedOptions, destination, cancellationToken).ConfigureAwait(false))
         {
-#if NET8_0_OR_GREATER
-            await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
-#else
-            await writer.FlushAsync().ConfigureAwait(false);
-#endif
             return;
         }
 
         // Fallback: exotic types that the fast path doesn't handle.
+        using var writer = new StreamWriter(destination, Utf8WithoutBom, 4096, leaveOpen: true);
         var text = NativeEncoders.EncodeValue(NativeNormalize.Normalize(data), resolvedOptions);
         await writer.WriteAsync(text).ConfigureAwait(false);
         await writer.FlushAsync().ConfigureAwait(false);

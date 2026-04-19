@@ -8,7 +8,7 @@ using DevOp.Toon.Benchmarks.Models;
 
 namespace DevOp.Toon.Benchmarks;
 
-[ShortRunJob]
+[Config(typeof(InProcessShortRunConfig))]
 [MemoryDiagnoser]
 [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
 [CategoriesColumn]

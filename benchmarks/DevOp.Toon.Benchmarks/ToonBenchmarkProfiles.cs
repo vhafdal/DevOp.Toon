@@ -41,8 +41,7 @@ internal static class ToonBenchmarkProfiles
             };
         }
 
-        if (string.Equals(mode, "compact", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(mode, "default", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(mode, "compact", StringComparison.OrdinalIgnoreCase))
         {
             return new ToonEncodeOptions
             {
@@ -53,12 +52,28 @@ internal static class ToonBenchmarkProfiles
             };
         }
 
+        if (string.Equals(mode, "optimal", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(mode, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ToonEncodeOptions
+            {
+                Indent = 1,
+                KeyFolding = ToonKeyFolding.Off,
+                ObjectArrayLayout = ToonObjectArrayLayout.Columnar,
+                Delimiter = ToonDelimiter.COMMA,
+                ExcludeEmptyArrays = true,
+                IgnoreNullOrEmpty = true
+            };
+        }
+
         return new ToonEncodeOptions
         {
             Indent = 1,
-            KeyFolding = ToonKeyFolding.Safe,
+            KeyFolding = ToonKeyFolding.Off,
             ObjectArrayLayout = ToonObjectArrayLayout.Columnar,
-            Delimiter = ToonDelimiter.COMMA
+            Delimiter = ToonDelimiter.COMMA,
+            ExcludeEmptyArrays = true,
+            IgnoreNullOrEmpty = true
         };
     }
 

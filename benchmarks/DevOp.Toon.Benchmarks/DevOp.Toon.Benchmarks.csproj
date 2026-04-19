@@ -7,15 +7,19 @@
     <LangVersion>latest</LangVersion>
     <RootNamespace>DevOp.Toon.Benchmarks</RootNamespace>
     <AssemblyName>DevOp.Toon.Benchmarks</AssemblyName>
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
-    <BenchmarkLibraryTargetFramework Condition="'$(BenchmarkLibraryTargetFramework)' == ''">$(TargetFramework)</BenchmarkLibraryTargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net10.0</TargetFrameworks>
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>DevOp.snk</AssemblyOriginatorKeyFile>
     <PublicSign>true</PublicSign>
+    <DefineConstants>$(DefineConstants);HAS_API_BENCHMARKS</DefineConstants>
+    <NoWarn>$(NoWarn);NU1202</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+    <PackageReference Include="DevOp.Toon.API" Version="0.1.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,15 +27,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\DevOp.Toon\DevOp.Toon.csproj" SetTargetFramework="TargetFramework=$(BenchmarkLibraryTargetFramework)" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(BenchmarkLibraryTargetFramework)' != 'netstandard2.0'">
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\src\DevOp.Toon\DevOp.Toon.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="ApiResponseBenchmarks.cs" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>

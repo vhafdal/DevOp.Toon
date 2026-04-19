@@ -10,15 +10,18 @@ using DevOp.Toon.Benchmarks.Models;
 
 namespace DevOp.Toon.Benchmarks;
 
-[ShortRunJob]
+[Config(typeof(InProcessShortRunConfig))]
 [MemoryDiagnoser]
 [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
 [CategoriesColumn]
 public class ParsingBenchmarks
 {
+    private static readonly ToonService ToonService = new();
+
     private string toonText = string.Empty;
     private string jsonText = string.Empty;
     private byte[] jsonUtf8 = [];
+    private ToonDecodeOptions toonDecodeOptions;
 
     [Params(10, 100, 1_000)]
     public int ItemCount { get; set; }
@@ -30,6 +33,7 @@ public class ParsingBenchmarks
         jsonText = JsonSerializer.Serialize(payload, BenchmarkPayloadFactory.SerializerOptions);
         jsonUtf8 = JsonSerializer.SerializeToUtf8Bytes(payload, BenchmarkPayloadFactory.SerializerOptions);
         toonText = ToonEncoder.Encode(payload);
+        toonDecodeOptions = ToonService.DetectDecodeOptions(toonText);
     }
 
     [Benchmark(Baseline = true)]
@@ -43,7 +47,7 @@ public class ParsingBenchmarks
     [BenchmarkCategory("DOM")]
     public ToonNode? ToonDecode()
     {
-        return ToonDecoder.Decode(toonText);
+        return ToonDecoder.Decode(toonText, toonDecodeOptions);
     }
 
     [Benchmark]
@@ -55,7 +59,7 @@ public class ParsingBenchmarks
     }
 }
 
-[ShortRunJob]
+[Config(typeof(InProcessShortRunConfig))]
 [MemoryDiagnoser]
 [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
 [CategoriesColumn]
@@ -67,18 +71,16 @@ public class ProductDeserializationBenchmarks
         NumberHandling = JsonNumberHandling.AllowReadingFromString
     };
 
-    private static readonly ToonDecodeOptions ToonDeserializeOptions = new()
-    {
-        Indent = 2,
-        ExpandPaths = ToonPathExpansion.Safe,
-    };
-    
+    private static readonly ToonService ToonService = new();
+
     private static readonly ToonEncodeOptions ToonSerializerOptions = new()
     {
-        Indent = 2,
-        KeyFolding = ToonKeyFolding.Safe,
+        Indent = 1,
+        KeyFolding = ToonKeyFolding.Off,
         ObjectArrayLayout = ToonObjectArrayLayout.Columnar,
-        Delimiter = ToonDelimiter.COMMA
+        Delimiter = ToonDelimiter.COMMA,
+        ExcludeEmptyArrays = true,
+        IgnoreNullOrEmpty = true
     };
     
     private static List<Product>? allProducts;
@@ -86,7 +88,8 @@ public class ProductDeserializationBenchmarks
 
     private string jsonText = string.Empty;
     private string toonText = string.Empty;
-    
+    private ToonDecodeOptions toonDecodeOptions;
+
     [Params(100, 1000)]
     public int ProductCount { get; set; }
 
@@ -106,7 +109,8 @@ public class ProductDeserializationBenchmarks
         var products = allProducts.Take(ProductCount).ToList();
         var toonProducts = allProductsFromToon.Take(ProductCount).ToList();
         jsonText = JsonSerializer.Serialize(products, ProductSerializerOptions);
-        toonText = ToonEncoder.Encode(toonProducts,ToonSerializerOptions );
+        toonText = ToonEncoder.Encode(toonProducts, ToonSerializerOptions);
+        toonDecodeOptions = ToonService.DetectDecodeOptions(toonText);
     }
 
     [Benchmark(Baseline = true)]
@@ -120,7 +124,7 @@ public class ProductDeserializationBenchmarks
     [BenchmarkCategory("Typed")]
     public List<Product>? ToonDecodeProducts()
     {
-        return ToonDecoder.Decode<List<Product>>(toonText);
+        return ToonDecoder.Decode<List<Product>>(toonText, toonDecodeOptions);
     }
 
     private static List<Product> LoadProducts()
@@ -147,7 +151,8 @@ public class ProductDeserializationBenchmarks
         }
 
         var sourceToon = File.ReadAllText(BenchmarkDataPaths.ProductsToonPath);
-        return ToonDecoder.Decode<List<Product>>(sourceToon,ToonDeserializeOptions)
+        var opts = ToonService.DetectDecodeOptions(sourceToon);
+        return ToonDecoder.Decode<List<Product>>(sourceToon, opts)
             ?? throw new InvalidOperationException("Failed to deserialize products from the TOON benchmark input.");
     }
 

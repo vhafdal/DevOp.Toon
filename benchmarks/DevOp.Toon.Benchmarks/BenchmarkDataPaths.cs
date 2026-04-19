@@ -4,7 +4,7 @@ namespace DevOp.Toon.Benchmarks;
 
 internal static class BenchmarkDataPaths
 {
-    private static readonly string BaseDirectory = ResolveBaseDirectory();
+    public static readonly string BaseDirectory = ResolveBaseDirectory();
 
     public static string ProductsJsonPath => Path.Combine(BaseDirectory, "TestData", "prods.json");
 
