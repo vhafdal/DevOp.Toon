@@ -68,9 +68,9 @@ var services = new ServiceCollection();
 
 services.AddToon(options =>
 {
-    options.Indent = 2;
+    options.Indent = 1;
     options.Delimiter = ToonDelimiter.COMMA;
-    options.KeyFolding = ToonKeyFolding.Safe;
+    options.KeyFolding = ToonKeyFolding.Off;
     options.Strict = true;
     options.ExpandPaths = ToonPathExpansion.Safe;
 });

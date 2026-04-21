@@ -93,7 +93,9 @@ public sealed class ToonServiceOptions
             Delimiter = Encode.Delimiter,
             KeyFolding = Encode.KeyFolding,
             FlattenDepth = Encode.FlattenDepth,
-            ObjectArrayLayout = Encode.ObjectArrayLayout
+            ObjectArrayLayout = Encode.ObjectArrayLayout,
+            IgnoreNullOrEmpty = Encode.IgnoreNullOrEmpty,
+            ExcludeEmptyArrays = Encode.ExcludeEmptyArrays
         };
     }
 

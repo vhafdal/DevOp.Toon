@@ -41,7 +41,7 @@ active: true
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -65,7 +65,7 @@ value: null
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -87,7 +87,7 @@ value: null
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -110,7 +110,7 @@ note: "a:b"
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -133,7 +133,7 @@ note: "a,b"
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -157,7 +157,7 @@ text: "line1\nline2"
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -180,7 +180,7 @@ text: "say \"hello\""
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -203,7 +203,7 @@ text: " padded "
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -226,7 +226,7 @@ text: "  "
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -249,7 +249,7 @@ v: "true"
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -272,7 +272,7 @@ v: "42"
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -295,7 +295,7 @@ v: "-7.5"
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -330,7 +330,7 @@ a:
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input, new ToonEncodeOptions());
+        var result = ToonEncoder.Encode(input, new LegacyToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -357,7 +357,7 @@ user:
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }

@@ -428,10 +428,11 @@ public class ToonDecoderTests
         };
 
         var toon = ToonEncoder.Encode(products);
-        var decoded = ToonDecoder.Decode<List<ProductRecord>>(toon, new ToonDecodeOptions
+        var decodeOptions = ToonDecoder.DetectOptions(toon, new ToonDecodeOptions
         {
             ExpandPaths = ToonPathExpansion.Safe
         });
+        var decoded = ToonDecoder.Decode<List<ProductRecord>>(toon, decodeOptions);
 
         Assert.NotNull(decoded);
         var product = Assert.Single(decoded!);

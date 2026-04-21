@@ -22,10 +22,12 @@ public static class ToonEncoder
 
     private static ToonEncodeOptions defaultOptions = new ToonEncodeOptions()
     {
-        Indent = 2,
-        KeyFolding = ToonKeyFolding.Safe,
+        Indent = 1,
+        Delimiter = ToonDelimiter.COMMA,
+        KeyFolding = ToonKeyFolding.Off,
         ObjectArrayLayout = ToonObjectArrayLayout.Columnar,
-        Delimiter = ToonDelimiter.COMMA
+        IgnoreNullOrEmpty = true,
+        ExcludeEmptyArrays = true
     };
 
     /// <summary>

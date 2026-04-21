@@ -19,12 +19,7 @@ public static class Program
             ExcludeEmptyArrays = true,
             IgnoreNullOrEmpty = true
         };
-        /*
-        var sourceJson = File.ReadAllText(BenchmarkDataPaths.ProductsJsonPath);
-        var objects = System.Text.Json.JsonSerializer.Deserialize<List<Product>>(sourceJson);
-        var tStr = ToonEncoder.Encode(objects);
-        File.WriteAllText(Path.Combine(BenchmarkDataPaths.BaseDirectory, "TestData", "prods2.toon"), tStr);
-*/
+        
         ToonDecoder.DefaultOptions = new ToonDecodeOptions
         {
             ExpandPaths = ToonPathExpansion.Safe,
@@ -57,6 +52,11 @@ public static class Program
         }
 
         if (ServiceEncodeProfiler.TryRun(args))
+        {
+            return;
+        }
+
+        if (DefaultEncodeProfiler.TryRun(args))
         {
             return;
         }

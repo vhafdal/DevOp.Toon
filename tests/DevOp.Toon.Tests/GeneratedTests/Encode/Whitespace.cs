@@ -37,7 +37,7 @@ id: 123
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -74,7 +74,7 @@ items[2]: a,b
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -105,7 +105,7 @@ user:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Indent = 4,
         };

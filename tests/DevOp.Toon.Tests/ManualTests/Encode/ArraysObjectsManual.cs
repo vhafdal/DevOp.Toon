@@ -42,7 +42,7 @@ items[1]{status,count}:
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -87,7 +87,7 @@ items[2]{status}:
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }
@@ -128,7 +128,7 @@ data[1]:
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input);
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
 
         Assert.Equal(expected, result);
     }

@@ -22,6 +22,9 @@ internal static class NativeNormalize
         if (value is ToonNode toonNode)
             return ToonNodeConverter.ToNativeNode(toonNode);
 
+        if (value is object jsonValue && TryNormalizeJsonValue(jsonValue, out var jsonNode))
+            return jsonNode;
+
         if (value is IDictionary dict)
         {
             var objectNode = new NativeObjectNode();
@@ -65,6 +68,9 @@ internal static class NativeNormalize
 
         if (value is ToonNode toonNode)
             return ToonNodeConverter.ToNativeNode(toonNode);
+
+        if (value is object jsonValue && TryNormalizeJsonValue(jsonValue, out var jsonNode))
+            return jsonNode;
 
         if (value is IDictionary dict)
         {
@@ -165,6 +171,43 @@ internal static class NativeNormalize
                 primitive = default!;
                 return false;
         }
+    }
+
+    private static bool TryNormalizeJsonValue(object value, out NativeNode? node)
+    {
+        var type = value.GetType();
+        if (string.Equals(type.FullName, "System.Text.Json.JsonElement", StringComparison.Ordinal))
+        {
+            node = NormalizeJsonElement(value, type);
+            return true;
+        }
+
+        if (string.Equals(type.FullName, "System.Text.Json.JsonDocument", StringComparison.Ordinal))
+        {
+            var rootElement = type.GetProperty("RootElement")?.GetValue(value);
+            if (rootElement is null)
+            {
+                node = new NativePrimitiveNode(null);
+                return true;
+            }
+
+            node = NormalizeJsonElement(rootElement, rootElement.GetType());
+            return true;
+        }
+
+        node = null;
+        return false;
+    }
+
+    private static NativeNode? NormalizeJsonElement(object value, Type type)
+    {
+        var rawText = type.GetMethod("GetRawText", Type.EmptyTypes)?.Invoke(value, null) as string;
+        if (rawText is null)
+        {
+            return new NativePrimitiveNode(null);
+        }
+
+        return ToonNodeConverter.ToNativeNode(ToonNode.Parse(rawText));
     }
 
     internal static bool IsPrimitiveClrType(Type type)

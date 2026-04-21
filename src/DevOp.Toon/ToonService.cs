@@ -113,7 +113,7 @@ public sealed class ToonService : IToonService
     /// <returns>The decoded node graph.</returns>
     public ToonNode? Decode(string toonString)
     {
-        return ToonDecoder.Decode(toonString, CloneDecodeOptions(decodeOptions));
+        return ToonDecoder.Decode(toonString, DetectDecodeOptions(toonString));
     }
 
     /// <summary>
@@ -135,7 +135,7 @@ public sealed class ToonService : IToonService
     /// <returns>The decoded value.</returns>
     public T? Decode<T>(string toonString)
     {
-        return ToonDecoder.Decode<T>(toonString, CloneDecodeOptions(decodeOptions));
+        return ToonDecoder.Decode<T>(toonString, DetectDecodeOptions(toonString));
     }
 
     /// <summary>
@@ -158,7 +158,7 @@ public sealed class ToonService : IToonService
     /// <returns>A task containing the decoded node graph.</returns>
     public Task<ToonNode?> DecodeAsync(string toonString, CancellationToken cancellationToken = default)
     {
-        return ToonDecoder.DecodeAsync(toonString, CloneDecodeOptions(decodeOptions), cancellationToken);
+        return ToonDecoder.DecodeAsync(toonString, DetectDecodeOptions(toonString), cancellationToken);
     }
 
     /// <summary>
@@ -182,7 +182,7 @@ public sealed class ToonService : IToonService
     /// <returns>A task containing the decoded value.</returns>
     public Task<T?> DecodeAsync<T>(string toonString, CancellationToken cancellationToken = default)
     {
-        return ToonDecoder.DecodeAsync<T>(toonString, CloneDecodeOptions(decodeOptions), cancellationToken);
+        return ToonDecoder.DecodeAsync<T>(toonString, DetectDecodeOptions(toonString), cancellationToken);
     }
 
     /// <summary>
@@ -215,7 +215,7 @@ public sealed class ToonService : IToonService
     /// <returns>The converted JSON payload.</returns>
     public string Toon2Json(string toonString)
     {
-        return ToonDecoder.Toon2Json(toonString, CloneDecodeOptions(decodeOptions));
+        return ToonDecoder.Toon2Json(toonString, DetectDecodeOptions(toonString));
     }
 
     /// <summary>

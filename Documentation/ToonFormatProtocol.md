@@ -170,10 +170,12 @@ This is not plain tabular output and not plain list output. It is a mixed layout
 ## Default Behavior In This Repository
 
 The encoder defaults in this repository are:
-- `Indent = 2`
-- `KeyFolding = Safe`
+- `Indent = 1`
+- `KeyFolding = Off`
 - `ObjectArrayLayout = Columnar`
 - `Delimiter = COMMA`
+- `IgnoreNullOrEmpty = true`
+- `ExcludeEmptyArrays = true`
 
 Implementation reference:
 - [ToonEncoder.cs](/home/valdi/Projects/toon-dotnet/src/DevOp.Toon/ToonEncoder.cs)

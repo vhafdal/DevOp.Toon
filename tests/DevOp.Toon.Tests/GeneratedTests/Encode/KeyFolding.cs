@@ -47,7 +47,7 @@ a.b.c: 1
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             KeyFolding = ToonKeyFolding.Safe,
         };
@@ -89,7 +89,7 @@ data.meta.items[2]: x,y
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             KeyFolding = ToonKeyFolding.Safe,
         };
@@ -143,7 +143,7 @@ a.b.items[2]{id,name}:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             KeyFolding = ToonKeyFolding.Safe,
         };
@@ -188,7 +188,7 @@ a.b:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             KeyFolding = ToonKeyFolding.Safe,
             FlattenDepth = 2,
@@ -232,7 +232,7 @@ a.b.c.d: 1
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             KeyFolding = ToonKeyFolding.Safe,
         };
@@ -272,7 +272,7 @@ a:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             KeyFolding = ToonKeyFolding.Safe,
             FlattenDepth = 0,
@@ -313,7 +313,7 @@ a:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             KeyFolding = ToonKeyFolding.Safe,
             FlattenDepth = 1,
@@ -354,7 +354,7 @@ a:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             KeyFolding = ToonKeyFolding.Off,
         };
@@ -396,7 +396,7 @@ a.b.c:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             KeyFolding = ToonKeyFolding.Safe,
         };
@@ -433,7 +433,7 @@ a.b[2]: 1,2
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             KeyFolding = ToonKeyFolding.Safe,
         };
@@ -480,7 +480,7 @@ short.path: 3
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             KeyFolding = ToonKeyFolding.Safe,
         };

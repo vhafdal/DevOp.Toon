@@ -27,7 +27,7 @@
 		<Title>DevOp Toon</Title>
 		<Copyright>Þorvaldur Hafdal(DevOp)</Copyright>
 		<PackageIcon>Assets\DevOp.Toon-128.png</PackageIcon>
-		<PackageReleaseNotes>Improves fast-path TOON stream encoding to write UTF-8 output directly with lower overhead for compact payloads.</PackageReleaseNotes>
+		<PackageReleaseNotes>Updates default encoding to compact columnar output and fixes JsonElement object-list normalization.</PackageReleaseNotes>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
 

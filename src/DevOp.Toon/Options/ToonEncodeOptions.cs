@@ -10,11 +10,11 @@ namespace DevOp.Toon;
 /// </summary>
 public class ToonEncodeOptions
 {
-    private int indent = 2;
+    private int indent = 1;
     private ToonDelimiter delimiter = Constants.DEFAULT_DELIMITER_ENUM;
     private ToonKeyFolding keyFolding = ToonKeyFolding.Off;
     private int? flattenDepth = int.MaxValue;
-    private ToonObjectArrayLayout objectArrayLayout = ToonObjectArrayLayout.Auto;
+    private ToonObjectArrayLayout objectArrayLayout = ToonObjectArrayLayout.Columnar;
     private bool ignoreNullOrEmpty = true;
     private bool excludeEmptyArrays = true;
     private ResolvedEncodeOptions? cachedResolvedOptions;
@@ -22,7 +22,7 @@ public class ToonEncodeOptions
     /// <summary>
     /// Number of spaces per indentation level.
     /// </summary>
-    /// <remarks>Default is 2</remarks>
+    /// <remarks>Default is 1</remarks>
     public int Indent
     {
         get => indent;
@@ -96,7 +96,7 @@ public class ToonEncodeOptions
     /// <summary>
     /// Controls how arrays of objects are encoded.
     /// </summary>
-    /// <remarks>Default is <see cref="ToonObjectArrayLayout.Auto"/></remarks>
+    /// <remarks>Default is <see cref="ToonObjectArrayLayout.Columnar"/></remarks>
     public ToonObjectArrayLayout ObjectArrayLayout
     {
         get => objectArrayLayout;

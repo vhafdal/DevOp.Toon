@@ -39,7 +39,7 @@ public static class ToonDecoder
     /// <exception cref="ToonFormatException">Thrown when the TOON format is invalid.</exception>
     public static ToonNode? Decode(string toonString)
     {
-        return Decode(toonString, DefaultOptions);
+        return Decode(toonString, DetectOptions(toonString));
     }
 
     /// <summary>
@@ -50,7 +50,7 @@ public static class ToonDecoder
     /// <returns>The deserialized value of type T.</returns>
     public static T? Decode<T>(string toonString)
     {
-        return Decode<T>(toonString, DefaultOptions);
+        return Decode<T>(toonString, DetectOptions(toonString));
     }
 
     /// <summary>
@@ -62,7 +62,7 @@ public static class ToonDecoder
     /// <exception cref="ToonFormatException">Thrown when the TOON format is invalid.</exception>
     public static string Toon2Json(string toonString)
     {
-        return Toon2Json(toonString, DefaultOptions);
+        return Toon2Json(toonString, DetectOptions(toonString));
     }
 
     /// <summary>
@@ -340,7 +340,9 @@ public static class ToonDecoder
     /// <returns>The decoded ToonNode object.</returns>
     public static ToonNode? Decode(byte[] utf8Bytes)
     {
-        return Decode(utf8Bytes, DefaultOptions);
+        if (utf8Bytes == null)
+            throw new ArgumentNullException(nameof(utf8Bytes));
+        return Decode(Encoding.UTF8.GetString(utf8Bytes));
     }
 
     /// <summary>
@@ -364,7 +366,9 @@ public static class ToonDecoder
     /// <param name="utf8Bytes">UTF-8 encoded TOON text.</param>
     public static T? Decode<T>(byte[] utf8Bytes)
     {
-        return Decode<T>(utf8Bytes, DefaultOptions);
+        if (utf8Bytes == null)
+            throw new ArgumentNullException(nameof(utf8Bytes));
+        return Decode<T>(Encoding.UTF8.GetString(utf8Bytes));
     }
 
     /// <summary>
@@ -388,7 +392,11 @@ public static class ToonDecoder
     /// <returns>The decoded ToonNode object.</returns>
     public static ToonNode? Decode(Stream stream)
     {
-        return Decode(stream, DefaultOptions);
+        if (stream == null)
+            throw new ArgumentNullException(nameof(stream));
+
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+        return Decode(reader.ReadToEnd());
     }
 
     /// <summary>
@@ -415,7 +423,11 @@ public static class ToonDecoder
     /// <param name="stream">The input stream to read from.</param>
     public static T? Decode<T>(Stream stream)
     {
-        return Decode<T>(stream, DefaultOptions);
+        if (stream == null)
+            throw new ArgumentNullException(nameof(stream));
+
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+        return Decode<T>(reader.ReadToEnd());
     }
 
     /// <summary>
@@ -447,7 +459,7 @@ public static class ToonDecoder
     /// <exception cref="ToonFormatException">Thrown when the TOON format is invalid.</exception>
     public static Task<ToonNode?> DecodeAsync(string toonString, CancellationToken cancellationToken = default)
     {
-        return DecodeAsync(toonString, DefaultOptions, cancellationToken);
+        return DecodeAsync(toonString, DetectOptions(toonString), cancellationToken);
     }
 
     /// <summary>
@@ -475,7 +487,7 @@ public static class ToonDecoder
     /// <returns>A task that represents the asynchronous operation. The task result contains the deserialized value.</returns>
     public static Task<T?> DecodeAsync<T>(string toonString, CancellationToken cancellationToken = default)
     {
-        return DecodeAsync<T>(toonString, DefaultOptions, cancellationToken);
+        return DecodeAsync<T>(toonString, DetectOptions(toonString), cancellationToken);
     }
 
     /// <summary>
@@ -501,7 +513,7 @@ public static class ToonDecoder
     /// <returns>A task that represents the asynchronous operation. The task result contains the decoded ToonNode.</returns>
     public static Task<ToonNode?> DecodeAsync(Stream stream, CancellationToken cancellationToken = default)
     {
-        return DecodeAsync(stream, DefaultOptions, cancellationToken);
+        return DecodeAsync(stream, null, cancellationToken);
     }
 
     /// <summary>
@@ -519,7 +531,9 @@ public static class ToonDecoder
 
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
         var text = await reader.ReadToEndAsync().ConfigureAwait(false);
-        return await DecodeAsync(text, options ?? new ToonDecodeOptions(), cancellationToken: cancellationToken);
+        return options is null
+            ? await DecodeAsync(text, cancellationToken).ConfigureAwait(false)
+            : await DecodeAsync(text, options, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -531,7 +545,7 @@ public static class ToonDecoder
     /// <returns>A task that represents the asynchronous operation. The task result contains the deserialized value.</returns>
     public static Task<T?> DecodeAsync<T>(Stream stream, CancellationToken cancellationToken = default)
     {
-        return DecodeAsync<T>(stream, DefaultOptions, cancellationToken);
+        return DecodeAsync<T>(stream, null, cancellationToken);
     }
 
     /// <summary>
@@ -550,7 +564,9 @@ public static class ToonDecoder
 
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
         var text = await reader.ReadToEndAsync().ConfigureAwait(false);
-        return await DecodeAsync<T>(text, options ?? new ToonDecodeOptions(), cancellationToken: cancellationToken);
+        return options is null
+            ? await DecodeAsync<T>(text, cancellationToken).ConfigureAwait(false)
+            : await DecodeAsync<T>(text, options, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     #endregion

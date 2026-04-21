@@ -124,7 +124,7 @@ internal class FixtureWriter<TTestCase, TIn, TOut>(Fixtures<TTestCase, TIn, TOut
                 var hasEncodeOptions = encodeTestCase.Options != null;
                 if (hasEncodeOptions)
                 {
-                    WriteLineIndented(writer, "var options = new ToonEncodeOptions");
+                    WriteLineIndented(writer, "var options = new LegacyToonEncodeOptions");
                     WriteLineIndented(writer, "{");
                     Indent();
 
@@ -148,7 +148,7 @@ internal class FixtureWriter<TTestCase, TIn, TOut>(Fixtures<TTestCase, TIn, TOut
                 }
                 else
                 {
-                    WriteLineIndented(writer, $"var result = ToonEncoder.Encode(input);");
+                    WriteLineIndented(writer, $"var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());");
                 }
 
                 WriteLine(writer);

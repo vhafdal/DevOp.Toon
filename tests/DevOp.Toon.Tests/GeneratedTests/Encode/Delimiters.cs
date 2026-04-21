@@ -42,7 +42,7 @@ tags[3	]: reading	gaming	coding
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.TAB,
         };
@@ -75,7 +75,7 @@ tags[3|]: reading|gaming|coding
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.PIPE,
         };
@@ -108,7 +108,7 @@ tags[3]: reading,gaming,coding
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.COMMA,
         };
@@ -154,7 +154,7 @@ items[2	]{sku	qty	price}:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.TAB,
         };
@@ -200,7 +200,7 @@ items[2|]{sku|qty|price}:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.PIPE,
         };
@@ -242,7 +242,7 @@ pairs[2	]:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.TAB,
         };
@@ -284,7 +284,7 @@ pairs[2|]:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.PIPE,
         };
@@ -313,7 +313,7 @@ pairs[2|]:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.TAB,
         };
@@ -342,7 +342,7 @@ pairs[2|]:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.PIPE,
         };
@@ -380,7 +380,7 @@ pairs[2|]:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.TAB,
         };
@@ -418,7 +418,7 @@ pairs[2|]:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.PIPE,
         };
@@ -451,7 +451,7 @@ items[3	]: a	"b\tc"	d
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.TAB,
         };
@@ -484,7 +484,7 @@ items[3|]: a|"b|c"|d
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.PIPE,
         };
@@ -516,7 +516,7 @@ items[2	]: a,b	c,d
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.TAB,
         };
@@ -548,7 +548,7 @@ items[2|]: a,b|c,d
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.PIPE,
         };
@@ -592,7 +592,7 @@ items[2]{id,note}:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.COMMA,
         };
@@ -636,7 +636,7 @@ items[2	]{id	note}:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.TAB,
         };
@@ -664,7 +664,7 @@ note: a,b
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.PIPE,
         };
@@ -692,7 +692,7 @@ note: a,b
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.TAB,
         };
@@ -728,7 +728,7 @@ pairs[1|]:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.PIPE,
         };
@@ -764,7 +764,7 @@ pairs[1	]:
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.TAB,
         };
@@ -797,7 +797,7 @@ items[3|]: "true"|"42"|"-3.14"
 """;
 
         // Act & Assert
-        var options = new ToonEncodeOptions
+        var options = new LegacyToonEncodeOptions
         {
             Delimiter = ToonDelimiter.PIPE,
         };

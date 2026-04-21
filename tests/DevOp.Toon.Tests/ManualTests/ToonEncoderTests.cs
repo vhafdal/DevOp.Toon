@@ -10,6 +10,31 @@ namespace DevOp.Toon.Tests;
 public class ToonEncoderTests
 {
     [Fact]
+    public void NewEncodeOptions_UseCompactColumnarDefaults()
+    {
+        var options = new ToonEncodeOptions();
+
+        Assert.Equal(1, options.Indent);
+        Assert.Equal(ToonDelimiter.COMMA, options.Delimiter);
+        Assert.Equal(ToonKeyFolding.Off, options.KeyFolding);
+        Assert.Equal(ToonObjectArrayLayout.Columnar, options.ObjectArrayLayout);
+        Assert.True(options.IgnoreNullOrEmpty);
+        Assert.True(options.ExcludeEmptyArrays);
+    }
+
+    [Fact]
+    public void Encode_DefaultCompactOutput_DecodesWithDefaultDecoder()
+    {
+        var data = new[] { new { id = 1, name = "Alice" } };
+
+        var encoded = ToonEncoder.Encode(data);
+        var decoded = ToonDecoder.Decode(encoded);
+
+        Assert.StartsWith("[1]{id,name}:", encoded);
+        Assert.Equal("Alice", decoded?[0]?["name"]?.GetValue<string>());
+    }
+
+    [Fact]
     public void Encode_SimpleObject_ReturnsValidToon()
     {
         // Arrange
@@ -208,7 +233,15 @@ public class ToonEncoderTests
                          18324448539@s.whatsapp.net,"http://www.\\u0138roger.com/anniversary","0",2,2,18324448539@s.whatsapp.net,"0","0","10","696",2017-11,"531829799","http://www.xn--roger-t5a.com/anniversary"
                        """;
 
-        var result = ToonEncoder.Encode(data);
+        var result = ToonEncoder.Encode(data, new ToonEncodeOptions
+        {
+            Indent = 2,
+            Delimiter = ToonDelimiter.COMMA,
+            KeyFolding = ToonKeyFolding.Safe,
+            ObjectArrayLayout = ToonObjectArrayLayout.Columnar,
+            IgnoreNullOrEmpty = true,
+            ExcludeEmptyArrays = true
+        });
 
         Assert.Equal(expected, result);
     }
@@ -238,5 +271,25 @@ public class ToonEncoderTests
 
         Assert.Equal(expectedDocument.RootElement.GetProperty("message").GetString(), actualDocument.RootElement.GetProperty("message").GetString());
         Assert.Equal(expectedDocument.RootElement.GetProperty("quote").GetString(), actualDocument.RootElement.GetProperty("quote").GetString());
+    }
+
+    [Fact]
+    public void Encode_JsonElementList_EncodesObjectFields()
+    {
+        var json = """[{"id":"abc","name":"session","version":{"major":5,"minor":2}},{"id":"def","name":"other","version":{"major":5,"minor":3}}]""";
+        var objects = JsonSerializer.Deserialize<List<object>>(json);
+        Assert.NotNull(objects);
+
+        var result = ToonEncoder.Encode(objects);
+
+        Assert.Contains("[2]{id,name}:", result);
+        Assert.Contains("abc,session", result);
+        Assert.Contains("def,other", result);
+        Assert.Contains("version:", result);
+        Assert.DoesNotContain("""
+                              [2]:
+                                -
+                                -
+                              """, result);
     }
 }
