@@ -9,15 +9,7 @@ builder.Services.Configure<ProductDataOptions>(options =>
     options.DataPath = Path.Combine(AppContext.BaseDirectory, "TestData", "prods.json");
 });
 builder.Services.AddSingleton<ProductDataService>();
-builder.Services.AddControllers().AddToon(options =>
-{
-    options.Encode.IgnoreNullOrEmpty = true;
-    options.Encode.Delimiter = ToonDelimiter.COMMA;
-    options.Encode.Indent = 1;
-    options.Encode.ExcludeEmptyArrays = true;
-    options.Encode.KeyFolding = ToonKeyFolding.Off;
-    options.Encode.ObjectArrayLayout = ToonObjectArrayLayout.Columnar;
-},true);
+builder.Services.AddControllers().AddToon(true);
 
 var app = builder.Build();
 
