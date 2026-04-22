@@ -3,6 +3,9 @@ using System.Text.RegularExpressions;
 
 namespace DevOp.Toon.Internal.Shared
 {
+    /// <summary>
+    /// Numeric helpers for canonical decimal emission and target-framework-independent finite-number checks.
+    /// </summary>
     internal static class NumericUtils
     {
         /// <summary>
@@ -22,6 +25,12 @@ namespace DevOp.Toon.Internal.Shared
             return decimalValue;
         }
 
+        /// <summary>
+        /// Attempts to convert a double to a decimal in canonical form without throwing on overflow.
+        /// </summary>
+        /// <param name="value">The input double value.</param>
+        /// <param name="decimalValue">The canonical decimal value when conversion succeeds.</param>
+        /// <returns><see langword="true"/> when the value can be represented as a decimal.</returns>
         public static bool TryEmitCanonicalDecimalForm(double value, out decimal decimalValue)
         {
             var scientificString = value.ToString("G17");
@@ -86,6 +95,11 @@ namespace DevOp.Toon.Internal.Shared
             return true;
         }
 
+        /// <summary>
+        /// Returns whether a double is neither NaN nor infinity.
+        /// </summary>
+        /// <param name="value">The value to inspect.</param>
+        /// <returns><see langword="true"/> when the value is finite.</returns>
         public static bool IsFinite(double value)
         {
 #if NETSTANDARD2_0
@@ -95,6 +109,11 @@ namespace DevOp.Toon.Internal.Shared
 #endif
         }
 
+        /// <summary>
+        /// Returns whether a float is neither NaN nor infinity.
+        /// </summary>
+        /// <param name="value">The value to inspect.</param>
+        /// <returns><see langword="true"/> when the value is finite.</returns>
         public static bool IsFinite(float value)
         {
 #if NETSTANDARD2_0

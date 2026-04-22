@@ -7,13 +7,17 @@ using DevOp.Toon.Core;
 namespace DevOp.Toon.Internal.Decode
 {
     /// <summary>
-    /// Options for decoding TOON format.
+    /// Normalized decode options copied from public options so internal decoders can use resolved defaults consistently.
     /// </summary>
     internal class ResolvedDecodeOptions
     {
+        /// <summary>Gets or sets the number of spaces per indentation level.</summary>
         public int Indent { get; set; } = 2;
+        /// <summary>Gets or sets whether strict structural validation is enabled.</summary>
         public bool Strict { get; set; } = false;
+        /// <summary>Gets or sets how dotted keys should be expanded after parsing.</summary>
         public ToonPathExpansion ExpandPaths { get; set; } = ToonPathExpansion.Off;
+        /// <summary>Gets or sets the expected or detected object-array layout.</summary>
         public ToonObjectArrayLayout ObjectArrayLayout { get; set; } = ToonObjectArrayLayout.Auto;
     }
 

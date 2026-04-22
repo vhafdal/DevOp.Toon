@@ -4,16 +4,36 @@ using DevOp.Toon.Internal.Encode;
 
 namespace DevOp.Toon.Internal.Decode
 {
+    /// <summary>
+    /// Coordinates typed TOON decoding by trying the direct materializer first and falling back to native-node materialization.
+    /// </summary>
     internal static class TypedDecoder
     {
+        /// <summary>
+        /// Tracks direct materializer misses by target type so performance regressions can be observed in tests or profiling.
+        /// </summary>
         internal static readonly ConcurrentDictionary<string, int> DirectMaterializerMisses = new();
 
+        /// <summary>
+        /// Scans and decodes TOON text into the requested CLR type.
+        /// </summary>
+        /// <typeparam name="T">The target CLR type.</typeparam>
+        /// <param name="toonString">The source TOON payload.</param>
+        /// <param name="options">Resolved decode options.</param>
+        /// <returns>The materialized value.</returns>
         public static T? Decode<T>(string toonString, ResolvedDecodeOptions options)
         {
             var scanResult = Scanner.ToParsedLines(toonString, options.Indent, options.Strict);
             return Decode<T>(scanResult, options);
         }
 
+        /// <summary>
+        /// Decodes an existing scan result into the requested CLR type.
+        /// </summary>
+        /// <typeparam name="T">The target CLR type.</typeparam>
+        /// <param name="scanResult">Pre-scanned TOON lines.</param>
+        /// <param name="options">Resolved decode options.</param>
+        /// <returns>The materialized value.</returns>
         public static T? Decode<T>(ScanResult scanResult, ResolvedDecodeOptions options)
         {
             if (scanResult.Lines.Count == 0)

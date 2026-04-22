@@ -10,6 +10,9 @@ using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Decode
 {
+    /// <summary>
+    /// High-performance typed decoder that materializes CLR objects directly from scanned TOON lines without first building a native node graph.
+    /// </summary>
     internal static class DirectMaterializer
     {
         private static readonly object SyncRoot = new object();
@@ -17,6 +20,14 @@ namespace DevOp.Toon.Internal.Decode
         private static readonly ConcurrentDictionary<string, ArrayHeaderParseResult> ArrayHeaderCache =
             new ConcurrentDictionary<string, ArrayHeaderParseResult>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Attempts to decode the value at the cursor into the requested CLR type using cached reflection and primitive setter plans.
+        /// </summary>
+        /// <typeparam name="T">The target CLR type.</typeparam>
+        /// <param name="cursor">The cursor positioned at the value to decode.</param>
+        /// <param name="options">Resolved decode options.</param>
+        /// <param name="value">The decoded value when materialization succeeds.</param>
+        /// <returns><see langword="true"/> when the direct path supports and materializes the target type; otherwise, <see langword="false"/>.</returns>
         public static bool TryDecode<T>(LineCursor cursor, ResolvedDecodeOptions options, out T? value)
         {
             var plan = GetPlan(typeof(T));
@@ -69,6 +80,11 @@ namespace DevOp.Toon.Internal.Decode
                 if (type == typeof(object))
                 {
                     return TypePlan.Any(type);
+                }
+
+                if (type.IsEnum)
+                {
+                    return TypePlan.Primitive(type);
                 }
 
                 var nullableType = Nullable.GetUnderlyingType(type);
@@ -743,15 +759,16 @@ namespace DevOp.Toon.Internal.Decode
 
         private static bool TryReadPrimitiveLikeValue(TypePlan plan, string source, int start, int endExclusive, out object? value, bool alreadyTrimmed = false)
         {
+            NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
+            if (IsNullToken(source, start, endExclusive) &&
+                (plan.Kind == PlanKind.Any || plan.Kind == PlanKind.Nullable || !plan.Type.IsValueType))
+            {
+                value = null;
+                return true;
+            }
+
             if (plan.Kind == PlanKind.Nullable && plan.UnderlyingPlan != null)
             {
-                NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
-                if (IsNullToken(source, start, endExclusive))
-                {
-                    value = null;
-                    return true;
-                }
-
                 return TryReadPrimitiveLikeValue(plan.UnderlyingPlan, source, start, endExclusive, out value, alreadyTrimmed: true);
             }
 
@@ -792,6 +809,19 @@ namespace DevOp.Toon.Internal.Decode
 
             var token = source.AsSpan(start, endExclusive - start);
 
+            if (type == typeof(char))
+            {
+                var text = ReadStringValue(source, start, endExclusive);
+                if (text.Length == 1)
+                {
+                    value = text[0];
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
             if (type == typeof(bool))
             {
                 if (token.SequenceEqual(Constants.TRUE_LITERAL))
@@ -803,6 +833,70 @@ namespace DevOp.Toon.Internal.Decode
                 if (token.SequenceEqual(Constants.FALSE_LITERAL))
                 {
                     value = false;
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
+            if (type == typeof(byte))
+            {
+#if NETSTANDARD2_0
+                if (byte.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var byteValue))
+#else
+                if (byte.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var byteValue))
+#endif
+                {
+                    value = byteValue;
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
+            if (type == typeof(sbyte))
+            {
+#if NETSTANDARD2_0
+                if (sbyte.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var sbyteValue))
+#else
+                if (sbyte.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sbyteValue))
+#endif
+                {
+                    value = sbyteValue;
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
+            if (type == typeof(short))
+            {
+#if NETSTANDARD2_0
+                if (short.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var shortValue))
+#else
+                if (short.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var shortValue))
+#endif
+                {
+                    value = shortValue;
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
+            if (type == typeof(ushort))
+            {
+#if NETSTANDARD2_0
+                if (ushort.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ushortValue))
+#else
+                if (ushort.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ushortValue))
+#endif
+                {
+                    value = ushortValue;
                     return true;
                 }
 
@@ -826,6 +920,22 @@ namespace DevOp.Toon.Internal.Decode
                 return false;
             }
 
+            if (type == typeof(uint))
+            {
+#if NETSTANDARD2_0
+                if (uint.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var uintValue))
+#else
+                if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var uintValue))
+#endif
+                {
+                    value = uintValue;
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
             if (type == typeof(long))
             {
 #if NETSTANDARD2_0
@@ -835,6 +945,22 @@ namespace DevOp.Toon.Internal.Decode
 #endif
                 {
                     value = longValue;
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
+            if (type == typeof(ulong))
+            {
+#if NETSTANDARD2_0
+                if (ulong.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ulongValue))
+#else
+                if (ulong.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ulongValue))
+#endif
+                {
+                    value = ulongValue;
                     return true;
                 }
 
@@ -948,6 +1074,44 @@ namespace DevOp.Toon.Internal.Decode
                 return false;
             }
 
+            if (type == typeof(TimeSpan))
+            {
+                if (TryParseTimeSpan(source, start, endExclusive, out var timeSpanValue, alreadyTrimmed: true))
+                {
+                    value = timeSpanValue;
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
+            if (type == typeof(Uri))
+            {
+                var uriText = ReadStringValue(source, start, endExclusive);
+                if (Uri.TryCreate(uriText, UriKind.RelativeOrAbsolute, out var uriValue))
+                {
+                    value = uriValue;
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
+            if (type == typeof(Version))
+            {
+                var versionText = ReadStringValue(source, start, endExclusive);
+                if (Version.TryParse(versionText, out var versionValue))
+                {
+                    value = versionValue;
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
 #if NET6_0_OR_GREATER
             if (type == typeof(DateOnly))
             {
@@ -1001,6 +1165,77 @@ namespace DevOp.Toon.Internal.Decode
 
                 value = null;
                 return false;
+            }
+
+            if (type.IsEnum)
+            {
+                if (TryConvertEnum(type, source, start, endExclusive, out value, alreadyTrimmed: true))
+                {
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
+            value = null;
+            return false;
+        }
+
+        private static bool TryConvertEnum(Type enumType, string source, int start, int endExclusive, out object? value, bool alreadyTrimmed = false)
+        {
+            NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
+            if (start >= endExclusive)
+            {
+                value = null;
+                return false;
+            }
+
+            if (source[start] == Constants.DOUBLE_QUOTE)
+            {
+                var parsed = Parser.ParseStringLiteral(source, start, endExclusive);
+                if (Enum.IsDefined(enumType, parsed))
+                {
+                    value = Enum.Parse(enumType, parsed, false);
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
+            var token = source.AsSpan(start, endExclusive - start);
+            var underlyingType = Enum.GetUnderlyingType(enumType);
+            if (underlyingType == typeof(ulong) || underlyingType == typeof(uint) || underlyingType == typeof(ushort) || underlyingType == typeof(byte))
+            {
+#if NETSTANDARD2_0
+                if (ulong.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var unsignedValue))
+#else
+                if (ulong.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var unsignedValue))
+#endif
+                {
+                    value = Enum.ToObject(enumType, unsignedValue);
+                    return true;
+                }
+            }
+            else
+            {
+#if NETSTANDARD2_0
+                if (long.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var signedValue))
+#else
+                if (long.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var signedValue))
+#endif
+                {
+                    value = Enum.ToObject(enumType, signedValue);
+                    return true;
+                }
+            }
+
+            var enumName = token.ToString();
+            if (Enum.IsDefined(enumType, enumName))
+            {
+                value = Enum.Parse(enumType, enumName, false);
+                return true;
             }
 
             value = null;
@@ -1743,19 +1978,30 @@ namespace DevOp.Toon.Internal.Decode
         private static bool IsPrimitiveType(Type type)
         {
             return type == typeof(string) ||
+                   type == typeof(char) ||
                    type == typeof(bool) ||
+                   type == typeof(byte) ||
+                   type == typeof(sbyte) ||
+                   type == typeof(short) ||
+                   type == typeof(ushort) ||
                    type == typeof(int) ||
+                   type == typeof(uint) ||
                    type == typeof(long) ||
+                   type == typeof(ulong) ||
                    type == typeof(double) ||
                    type == typeof(float) ||
                    type == typeof(decimal) ||
                    type == typeof(DateTime) ||
                    type == typeof(DateTimeOffset) ||
+                   type == typeof(TimeSpan) ||
+                   type == typeof(Uri) ||
+                   type == typeof(Version) ||
 #if NET6_0_OR_GREATER
                    type == typeof(DateOnly) ||
                    type == typeof(TimeOnly) ||
 #endif
-                   type == typeof(Guid);
+                   type == typeof(Guid) ||
+                   type.IsEnum;
         }
 
         private static Func<object> CreateFactory(ConstructorInfo constructor)
@@ -1813,9 +2059,16 @@ namespace DevOp.Toon.Internal.Decode
 
             if (propertyType == typeof(string))
             {
-                var setter = CreateTypedSetter<string>(property);
+                var setter = CreateTypedSetter<string?>(property);
                 return (instance, source, start, endExclusive, alreadyTrimmed) =>
                 {
+                    NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
+                    if (IsNullToken(source, start, endExclusive))
+                    {
+                        setter(instance, null);
+                        return true;
+                    }
+
                     setter(instance, ReadStringValue(source, start, endExclusive));
                     return true;
                 };
@@ -2424,6 +2677,31 @@ namespace DevOp.Toon.Internal.Decode
 #endif
         }
 
+        private static bool TryParseTimeSpan(string source, int start, int endExclusive, out TimeSpan value, bool alreadyTrimmed = false)
+        {
+            NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
+            if (start < endExclusive && source[start] == Constants.DOUBLE_QUOTE)
+            {
+                if (TryGetSimpleQuotedContentRange(source, start, endExclusive, out var contentStart, out var contentEndExclusive))
+                {
+#if NETSTANDARD2_0
+                    return TimeSpan.TryParse(source.Substring(contentStart, contentEndExclusive - contentStart), CultureInfo.InvariantCulture, out value);
+#else
+                    return TimeSpan.TryParse(source.AsSpan(contentStart, contentEndExclusive - contentStart), CultureInfo.InvariantCulture, out value);
+#endif
+                }
+
+                var parsed = Parser.ParseStringLiteral(source, start, endExclusive);
+                return TimeSpan.TryParse(parsed, CultureInfo.InvariantCulture, out value);
+            }
+
+#if NETSTANDARD2_0
+            return TimeSpan.TryParse(source.Substring(start, endExclusive - start), CultureInfo.InvariantCulture, out value);
+#else
+            return TimeSpan.TryParse(source.AsSpan(start, endExclusive - start), CultureInfo.InvariantCulture, out value);
+#endif
+        }
+
 #if NET6_0_OR_GREATER
         private static bool TryParseDateOnly(string source, int start, int endExclusive, out DateOnly value, bool alreadyTrimmed = false)
         {
@@ -2487,6 +2765,12 @@ namespace DevOp.Toon.Internal.Decode
 
         private sealed class PropertyPlan
         {
+            /// <summary>
+            /// Initializes a property assignment plan.
+            /// </summary>
+            /// <param name="plan">The type plan for the property value.</param>
+            /// <param name="setter">A compiled setter for assigning boxed values.</param>
+            /// <param name="primitiveSetter">An optional zero-allocation primitive setter for scalar source ranges.</param>
             public PropertyPlan(TypePlan plan, Action<object, object?> setter, PrimitiveSetterDelegate? primitiveSetter)
             {
                 Plan = plan;
@@ -2494,48 +2778,92 @@ namespace DevOp.Toon.Internal.Decode
                 PrimitiveSetter = primitiveSetter;
             }
 
+            /// <summary>Gets the plan used to materialize this property's value.</summary>
             public TypePlan Plan { get; }
+            /// <summary>Gets the compiled setter used for object, collection, and fallback scalar assignments.</summary>
             public Action<object, object?> Setter { get; }
+            /// <summary>Gets the optimized primitive setter, when the property type can be parsed directly from a source range.</summary>
             public PrimitiveSetterDelegate? PrimitiveSetter { get; }
 
+            /// <summary>
+            /// Attempts to parse and assign a primitive value from a source string range.
+            /// </summary>
+            /// <param name="instance">The target object instance.</param>
+            /// <param name="source">The original source string.</param>
+            /// <param name="start">The inclusive start index of the primitive token.</param>
+            /// <param name="endExclusive">The exclusive end index of the primitive token.</param>
+            /// <param name="alreadyTrimmed">Whether the supplied range is already trimmed.</param>
+            /// <returns><see langword="true"/> when the primitive setter parsed and assigned the value.</returns>
             public bool TrySetPrimitiveLikeValue(object instance, string source, int start, int endExclusive, bool alreadyTrimmed = false)
             {
                 return PrimitiveSetter != null && PrimitiveSetter(instance, source, start, endExclusive, alreadyTrimmed);
             }
         }
 
+        /// <summary>
+        /// Assigns a primitive property directly from a token range in the original source string.
+        /// </summary>
         private delegate bool PrimitiveSetterDelegate(object instance, string source, int start, int endExclusive, bool alreadyTrimmed);
 
+        /// <summary>
+        /// Maps an encoded TOON property name to its property plan.
+        /// </summary>
         private readonly struct PropertyAlias
         {
+            /// <summary>
+            /// Initializes an encoded-name alias for a property.
+            /// </summary>
+            /// <param name="name">The encoded TOON field name.</param>
+            /// <param name="property">The property plan assigned by the alias.</param>
             public PropertyAlias(string name, PropertyPlan property)
             {
                 Name = name;
                 Property = property;
             }
 
+            /// <summary>Gets the encoded TOON field name.</summary>
             public string Name { get; }
+            /// <summary>Gets the property plan assigned by this alias.</summary>
             public PropertyPlan Property { get; }
         }
 
+        /// <summary>
+        /// Classifies the materialization strategy for a target type.
+        /// </summary>
         private enum PlanKind
         {
+            /// <summary>The type cannot be handled by the direct materializer.</summary>
             Unsupported,
+            /// <summary>The type is scalar and can be parsed from a primitive token.</summary>
             Primitive,
+            /// <summary>The type is <see cref="Nullable{T}"/> and delegates to an underlying plan.</summary>
             Nullable,
+            /// <summary>The type is a writable class with a parameterless constructor.</summary>
             Object,
+            /// <summary>The type is a supported collection.</summary>
             Collection,
+            /// <summary>The type is an array.</summary>
             Array,
+            /// <summary>The type is <see cref="object"/> and should materialize native values dynamically.</summary>
             Any
         }
 
+        /// <summary>
+        /// Classifies a parsed source field before value materialization.
+        /// </summary>
         private enum ParsedFieldKind
         {
+            /// <summary>The field is a primitive value without an object key.</summary>
             Primitive,
+            /// <summary>The field is a key/value pair.</summary>
             KeyValue,
+            /// <summary>The field is an array header.</summary>
             ArrayHeader
         }
 
+        /// <summary>
+        /// Stores the parsed shape of a field while preserving source ranges for direct primitive assignment.
+        /// </summary>
         private sealed class ParsedFieldInfo
         {
             private ParsedFieldInfo(ParsedFieldKind kind)
@@ -2543,12 +2871,19 @@ namespace DevOp.Toon.Internal.Decode
                 Kind = kind;
             }
 
+            /// <summary>Gets the parsed field category.</summary>
             public ParsedFieldKind Kind { get; }
+            /// <summary>Gets the materialized key when it was parsed as text.</summary>
             public string? Key { get; private set; }
+            /// <summary>Gets the inclusive source start for the key token when available.</summary>
             public int KeyStart { get; private set; } = -1;
+            /// <summary>Gets the exclusive source end for the key token when available.</summary>
             public int KeyEndExclusive { get; private set; } = -1;
+            /// <summary>Gets whether this field has a source range for the key token.</summary>
             public bool HasKeyRange => KeyStart >= 0;
+            /// <summary>Gets the inclusive source start for the primitive value token.</summary>
             public int ValueStart { get; private set; } = -1;
+            /// <summary>Gets parsed array header metadata when this field is an array header.</summary>
             public ArrayHeaderParseResult? ArrayHeader { get; private set; }
 
             public static ParsedFieldInfo Primitive() => new ParsedFieldInfo(ParsedFieldKind.Primitive);

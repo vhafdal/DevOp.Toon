@@ -2,16 +2,19 @@ using System;
 
 namespace DevOp.Toon.Internal.Shared
 {
+    /// <summary>
+    /// Floating-point helpers used to compare numeric values and normalize values before canonical literal emission.
+    /// </summary>
     internal static class FloatUtils
     {
         /// <summary>
-        /// Tolerance comparison applicable to general business: Taking into account both absolute error and relative error simultaneously
+        /// Compares two doubles using both absolute and relative tolerance.
         /// </summary>
-        /// <param name="a"></param>
-        /// <param name="b"></param>
-        /// <param name="absEps"></param>
-        /// <param name="relEps"></param>
-        /// <returns></returns>
+        /// <param name="a">The first value to compare.</param>
+        /// <param name="b">The second value to compare.</param>
+        /// <param name="absEps">The absolute tolerance used near zero.</param>
+        /// <param name="relEps">The relative tolerance used for larger magnitudes.</param>
+        /// <returns><see langword="true"/> when the values are equal within tolerance.</returns>
         public static bool NearlyEqual(double a, double b, double absEps = 1e-12, double relEps = 1e-9)
         {
             if (double.IsNaN(a) && double.IsNaN(b)) return true;
@@ -27,14 +30,16 @@ namespace DevOp.Toon.Internal.Shared
         /// <summary>
         /// Explicitly change -0.0 to +0.0 to avoid exposing the sign difference in subsequent operations such as 1.0/x.
         /// </summary>
-        /// <param name="v"></param>
-        /// <returns></returns>
+        /// <param name="v">The value to normalize.</param>
+        /// <returns>Positive zero when <paramref name="v"/> is negative zero; otherwise, <paramref name="v"/>.</returns>
         public static double NormalizeSignedZero(double v) =>
             BitConverter.DoubleToInt64Bits(v) == BitConverter.DoubleToInt64Bits(-0.0) ? 0.0 : v;
 
         /// <summary>
         /// Explicitly change -0.0f to +0.0f for float values.
         /// </summary>
+        /// <param name="v">The value to normalize.</param>
+        /// <returns>Positive zero when <paramref name="v"/> is negative zero; otherwise, <paramref name="v"/>.</returns>
         public static float NormalizeSignedZero(float v)
         {
 #if NETSTANDARD2_0

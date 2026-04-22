@@ -4,7 +4,7 @@ using System;
 namespace System.Runtime.CompilerServices
 {
     /// <summary>
-    /// Indicates that a compiler feature is required.
+    /// Identifies a compiler feature required by a member for target frameworks that do not provide this attribute.
     /// </summary>
     [AttributeUsage(AttributeTargets.All, AllowMultiple = true, Inherited = false)]
     public sealed class CompilerFeatureRequiredAttribute : Attribute
@@ -12,14 +12,14 @@ namespace System.Runtime.CompilerServices
         /// <summary>
         /// Initializes a new instance of the <see cref="CompilerFeatureRequiredAttribute"/> class.
         /// </summary>
-        /// <param name="featureName">The name of the feature.</param>
+        /// <param name="featureName">The compiler feature name required by the annotated member.</param>
         public CompilerFeatureRequiredAttribute(string featureName)
         {
             FeatureName = featureName;
         }
 
         /// <summary>
-        /// Gets the name of the feature.
+        /// Gets the compiler feature name required by the annotated member.
         /// </summary>
         public string FeatureName { get; }
     }

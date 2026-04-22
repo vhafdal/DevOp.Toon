@@ -23,6 +23,8 @@ namespace DevOp.Toon.Internal.Shared
         private static readonly ConcurrentDictionary<string, bool> SafeUnquotedPipeCache = new(StringComparer.Ordinal);
 
         /// <summary>Whether the key name can be without quotes.</summary>
+        /// <param name="key">The key to validate.</param>
+        /// <returns><see langword="true"/> when the key can be emitted without quotes.</returns>
         internal static bool IsValidUnquotedKey(string key)
         {
             if (string.IsNullOrEmpty(key))
@@ -47,6 +49,11 @@ namespace DevOp.Toon.Internal.Shared
             });
         }
 
+        /// <summary>
+        /// Returns whether a dotted-path segment is a valid identifier for safe key folding or path expansion.
+        /// </summary>
+        /// <param name="key">The path segment to validate.</param>
+        /// <returns><see langword="true"/> when the segment starts and continues with valid identifier characters.</returns>
         internal static bool IsIdentifierSegment(string key)
         {
             if (string.IsNullOrEmpty(key))
@@ -68,6 +75,9 @@ namespace DevOp.Toon.Internal.Shared
         }
 
         /// <summary>Whether the string value can be safely without quotes.</summary>
+        /// <param name="value">The string value to inspect.</param>
+        /// <param name="delimiter">The active delimiter that would make the value ambiguous if present.</param>
+        /// <returns><see langword="true"/> when the value can be emitted without quotes.</returns>
         internal static bool IsSafeUnquoted(string value, ToonDelimiter delimiter = Constants.DEFAULT_DELIMITER_ENUM)
         {
             if (string.IsNullOrEmpty(value))

@@ -9,25 +9,34 @@ using DevOp.Toon.Internal.Shared;
 namespace DevOp.Toon.Internal.Decode
 {
     /// <summary>
-    /// Information about an array header.
+    /// Parsed information from a TOON array header such as <c>items[3]:</c> or <c>rows[2]{id,name}:</c>.
     /// </summary>
     internal class ArrayHeaderInfo
     {
+        /// <summary>Gets or sets the optional object key that owns the array.</summary>
         public string? Key { get; set; }
+        /// <summary>Gets or sets the declared number of array items or rows.</summary>
         public int Length { get; set; }
+        /// <summary>Gets or sets the delimiter used by inline values and tabular fields.</summary>
         public char Delimiter { get; set; }
+        /// <summary>Gets or sets tabular field names when the array uses row format.</summary>
         public List<string>? Fields { get; set; }
     }
 
     /// <summary>
-    /// Result of parsing an array header line.
+    /// Result of parsing a TOON array header line, including key source ranges needed for path expansion.
     /// </summary>
     internal class ArrayHeaderParseResult
     {
+        /// <summary>Gets or sets the parsed header metadata.</summary>
         public ArrayHeaderInfo Header { get; set; } = null!;
+        /// <summary>Gets or sets the inclusive source index where the key starts, or -1 when no key was present.</summary>
         public int KeyStart { get; set; } = -1;
+        /// <summary>Gets or sets the exclusive source index where the key ends, or -1 when no key was present.</summary>
         public int KeyEndExclusive { get; set; } = -1;
+        /// <summary>Gets whether the parsed header includes a source range for an owning key.</summary>
         public bool HasKeyRange => KeyStart >= 0;
+        /// <summary>Gets or sets the inline primitive values that follow the header colon, when present.</summary>
         public string? InlineValues { get; set; }
     }
 
@@ -39,13 +48,20 @@ namespace DevOp.Toon.Internal.Decode
     {
         internal readonly struct TokenRange
         {
+            /// <summary>
+            /// Initializes a parsed token range.
+            /// </summary>
+            /// <param name="start">The inclusive start index in the source span.</param>
+            /// <param name="endExclusive">The exclusive end index in the source span.</param>
             public TokenRange(int start, int endExclusive)
             {
                 Start = start;
                 EndExclusive = endExclusive;
             }
 
+            /// <summary>Gets the inclusive start index.</summary>
             public int Start { get; }
+            /// <summary>Gets the exclusive end index.</summary>
             public int EndExclusive { get; }
         }
 
@@ -164,7 +180,9 @@ namespace DevOp.Toon.Internal.Decode
 
         private class BracketSegmentResult
         {
+            /// <summary>Gets or sets the declared item count parsed from the bracket segment.</summary>
             public int Length { get; set; }
+            /// <summary>Gets or sets the delimiter parsed from the bracket segment.</summary>
             public char Delimiter { get; set; }
         }
 

@@ -4,33 +4,40 @@ using DevOp.Toon.Core;
 namespace DevOp.Toon;
 
 /// <summary>
-/// Options for decoding TOON format strings.
+/// Options that control how TOON text is parsed and materialized.
 /// </summary>
 public class ToonDecodeOptions
 {
     /// <summary>
-    /// Number of spaces per indentation level.
-    /// Default is 2.
+    /// Gets or sets the number of spaces that represent one indentation level.
     /// </summary>
+    /// <remarks>The default value is 2. Decoding throws when this value is less than or equal to zero.</remarks>
     public int Indent { get; set; } = 2;
 
     /// <summary>
-    /// When true, enforce strict validation of array lengths and tabular row counts.
-    /// Default is true.
+    /// Gets or sets whether the decoder enforces strict structural validation.
     /// </summary>
+    /// <remarks>
+    /// The default value is <see langword="true"/>. Strict mode validates declared array lengths,
+    /// tabular row counts, indentation, and other structural rules.
+    /// </remarks>
     public bool Strict { get; set; } = true;
 
     /// <summary>
-    /// Controls path expansion for dotted keys.
-    /// <see cref="ToonPathExpansion.Off" /> (default): Dotted keys are treated as literal keys.
-    /// <see cref="ToonPathExpansion.Safe" />: Expand eligible dotted keys into nested objects.
+    /// Gets or sets how dotted object keys are handled during decoding.
     /// </summary>
+    /// <remarks>
+    /// The default value is <see cref="ToonPathExpansion.Off"/>, which treats dotted keys as literal property names.
+    /// Use <see cref="ToonPathExpansion.Safe"/> to expand eligible unquoted dotted keys into nested objects.
+    /// </remarks>
     public ToonPathExpansion ExpandPaths { get; set; } = ToonPathExpansion.Off;
 
     /// <summary>
-    /// Tracks the detected object-array layout.
-    /// This is informational for auto-detection; the decoder already handles hybrid arrays automatically.
-    /// Default is <see cref="ToonObjectArrayLayout.Auto"/>.
+    /// Gets or sets the expected object-array layout for decoded payloads.
     /// </summary>
+    /// <remarks>
+    /// The default value is <see cref="ToonObjectArrayLayout.Auto"/>. The decoder can read both classic and
+    /// columnar object arrays; this property is also populated by option detection to describe the detected layout.
+    /// </remarks>
     public ToonObjectArrayLayout ObjectArrayLayout { get; set; } = ToonObjectArrayLayout.Auto;
 }

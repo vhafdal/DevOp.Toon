@@ -6,8 +6,16 @@ using DevOp.Toon.Internal.Encode;
 
 namespace DevOp.Toon.Internal.Shared;
 
+/// <summary>
+/// Writes the internal native node graph as minified JSON for <c>Toon2Json</c> conversions.
+/// </summary>
 internal static class JsonTextConverter
 {
+    /// <summary>
+    /// Serializes a native node graph to minified JSON text.
+    /// </summary>
+    /// <param name="node">The native node graph to write.</param>
+    /// <returns>A minified JSON representation of the node graph.</returns>
     public static string Write(NativeNode? node)
     {
         var builder = new StringBuilder(256);

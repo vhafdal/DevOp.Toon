@@ -19,8 +19,7 @@ public static class ToonDecoder
 {
     private static ToonDecodeOptions defaultOptions = new ToonDecodeOptions();
 
-
-/// <summary>
+    /// <summary>
     /// Gets or sets the default decode options used by overloads that do not accept an explicit options argument.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when set to null.</exception>
@@ -83,6 +82,7 @@ public static class ToonDecoder
     /// </summary>
     /// <param name="toonString">The TOON-formatted string to inspect.</param>
     /// <returns>A new options instance seeded from <see cref="DefaultOptions"/> and adjusted from the input text.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="toonString"/> is <see langword="null"/>.</exception>
     public static ToonDecodeOptions DetectOptions(string toonString)
     {
         return DetectOptions(toonString, DefaultOptions);
@@ -94,6 +94,7 @@ public static class ToonDecoder
     /// <param name="toonString">The TOON-formatted string to inspect.</param>
     /// <param name="fallbackOptions">Fallback options used for settings that cannot be inferred from source text.</param>
     /// <returns>A new options instance based on the fallback options and adjusted from the input text.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="toonString"/> is <see langword="null"/>.</exception>
     public static ToonDecodeOptions DetectOptions(string toonString, ToonDecodeOptions? fallbackOptions)
     {
         return ToonDecoderOptionsDetector.Detect(toonString, fallbackOptions);
@@ -169,6 +170,10 @@ public static class ToonDecoder
     /// <param name="toonString">The TOON-formatted string to decode.</param>
     /// <param name="options">Decoding options to customize parsing behavior.</param>
     /// <returns>The deserialized value of type T.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when toonString is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when options specify a non-positive indentation width.</exception>
+    /// <exception cref="ToonFormatException">Thrown when the TOON format is invalid.</exception>
+    /// <exception cref="NotSupportedException">Thrown when the requested target type cannot be materialized from TOON data.</exception>
     public static T? Decode<T>(string toonString, ToonDecodeOptions? options)
     {
         var resolvedOptions = options ?? new ToonDecodeOptions();
@@ -364,6 +369,8 @@ public static class ToonDecoder
     /// </summary>
     /// <typeparam name="T">Target type to deserialize into.</typeparam>
     /// <param name="utf8Bytes">UTF-8 encoded TOON text.</param>
+    /// <returns>The deserialized value of type T.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="utf8Bytes"/> is <see langword="null"/>.</exception>
     public static T? Decode<T>(byte[] utf8Bytes)
     {
         if (utf8Bytes == null)
@@ -377,6 +384,8 @@ public static class ToonDecoder
     /// <typeparam name="T">Target type to deserialize into.</typeparam>
     /// <param name="utf8Bytes">UTF-8 encoded TOON text.</param>
     /// <param name="options">Decoding options to customize parsing behavior.</param>
+    /// <returns>The deserialized value of type T.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="utf8Bytes"/> is <see langword="null"/>.</exception>
     public static T? Decode<T>(byte[] utf8Bytes, ToonDecodeOptions? options)
     {
         if (utf8Bytes == null)
@@ -421,6 +430,8 @@ public static class ToonDecoder
     /// </summary>
     /// <typeparam name="T">Target type to deserialize into.</typeparam>
     /// <param name="stream">The input stream to read from.</param>
+    /// <returns>The deserialized value of type T.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="stream"/> is <see langword="null"/>.</exception>
     public static T? Decode<T>(Stream stream)
     {
         if (stream == null)
@@ -436,6 +447,8 @@ public static class ToonDecoder
     /// <typeparam name="T">Target type to deserialize into.</typeparam>
     /// <param name="stream">The input stream to read from.</param>
     /// <param name="options">Decoding options to customize parsing behavior.</param>
+    /// <returns>The deserialized value of type T.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="stream"/> is <see langword="null"/>.</exception>
     public static T? Decode<T>(Stream stream, ToonDecodeOptions? options)
     {
         if (stream == null)

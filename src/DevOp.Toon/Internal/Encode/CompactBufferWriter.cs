@@ -4,6 +4,9 @@ using System.Buffers;
 
 namespace DevOp.Toon.Internal.Encode;
 
+/// <summary>
+/// Pooled character writer optimized for compact TOON output and direct UTF-8 conversion without creating intermediate strings.
+/// </summary>
 internal sealed class CompactBufferWriter : IDisposable
 {
     private char[] _buffer;
@@ -12,6 +15,11 @@ internal sealed class CompactBufferWriter : IDisposable
     private readonly string _newLine;
     private bool _disposed;
 
+    /// <summary>
+    /// Initializes a pooled writer with the requested indentation size and initial character capacity.
+    /// </summary>
+    /// <param name="indentSize">The number of spaces written for each indentation depth.</param>
+    /// <param name="initialCapacity">The initial rented character capacity.</param>
     public CompactBufferWriter(int indentSize, int initialCapacity = 1024)
     {
         _indentSize = indentSize;
@@ -19,18 +27,33 @@ internal sealed class CompactBufferWriter : IDisposable
         _buffer = ArrayPool<char>.Shared.Rent(Math.Max(initialCapacity, 256));
     }
 
+    /// <summary>
+    /// Starts a new TOON line at the specified depth and appends content.
+    /// </summary>
+    /// <param name="depth">The indentation depth to write.</param>
+    /// <param name="content">The line content to append after indentation.</param>
     public void Push(int depth, string content)
     {
         StartLine(depth);
         Append(content);
     }
 
+    /// <summary>
+    /// Starts a new TOON line at the specified depth and lets the callback append line content directly.
+    /// </summary>
+    /// <param name="depth">The indentation depth to write.</param>
+    /// <param name="contentWriter">The callback that appends content for the line.</param>
     public void Push(int depth, Action<CompactBufferWriter> contentWriter)
     {
         StartLine(depth);
         contentWriter(this);
     }
 
+    /// <summary>
+    /// Starts a new list-item line and lets the callback append content after the list marker.
+    /// </summary>
+    /// <param name="depth">The indentation depth to write.</param>
+    /// <param name="contentWriter">The callback that appends content after <c>- </c>.</param>
     public void PushListItem(int depth, Action<CompactBufferWriter> contentWriter)
     {
         Push(depth, writer =>
@@ -40,6 +63,10 @@ internal sealed class CompactBufferWriter : IDisposable
         });
     }
 
+    /// <summary>
+    /// Appends a preformatted block, inserting a line break first when the buffer already contains content.
+    /// </summary>
+    /// <param name="content">The raw TOON block to append.</param>
     public void PushRawBlock(string content)
     {
         if (_position > 0)
@@ -50,12 +77,20 @@ internal sealed class CompactBufferWriter : IDisposable
         Append(content);
     }
 
+    /// <summary>
+    /// Appends a single character to the buffer.
+    /// </summary>
+    /// <param name="value">The character to append.</param>
     public void Append(char value)
     {
         EnsureCapacity(1);
         _buffer[_position++] = value;
     }
 
+    /// <summary>
+    /// Appends a string when it is non-null and non-empty.
+    /// </summary>
+    /// <param name="value">The string to append.</param>
     public void Append(string? value)
     {
         if (value is not { Length: > 0 } text)
@@ -68,6 +103,10 @@ internal sealed class CompactBufferWriter : IDisposable
         _position += text.Length;
     }
 
+    /// <summary>
+    /// Appends a span of characters directly into the pooled buffer.
+    /// </summary>
+    /// <param name="value">The characters to append.</param>
     public void Append(ReadOnlySpan<char> value)
     {
         if (value.IsEmpty)
@@ -80,6 +119,10 @@ internal sealed class CompactBufferWriter : IDisposable
         _position += value.Length;
     }
 
+    /// <summary>
+    /// Materializes the buffered characters as a string.
+    /// </summary>
+    /// <returns>The current buffer contents.</returns>
     public override string ToString()
     {
         return new string(_buffer, 0, _position);
@@ -91,6 +134,10 @@ internal sealed class CompactBufferWriter : IDisposable
     /// </summary>
     internal (char[] buffer, int length) GetCharBuffer() => (_buffer, _position);
 
+    /// <summary>
+    /// Appends an integer using invariant-culture formatting.
+    /// </summary>
+    /// <param name="value">The integer value to append.</param>
     public void Append(int value)
     {
 #if NETSTANDARD2_0
@@ -104,6 +151,9 @@ internal sealed class CompactBufferWriter : IDisposable
 #endif
     }
 
+    /// <summary>
+    /// Returns the rented buffer to the shared array pool and clears writer state.
+    /// </summary>
     public void Dispose()
     {
         if (_disposed)
@@ -117,6 +167,10 @@ internal sealed class CompactBufferWriter : IDisposable
         _disposed = true;
     }
 
+    /// <summary>
+    /// Starts a line by appending a newline when needed and writing indentation spaces.
+    /// </summary>
+    /// <param name="depth">The indentation depth to write.</param>
     internal void StartLine(int depth)
     {
         if (_position > 0)

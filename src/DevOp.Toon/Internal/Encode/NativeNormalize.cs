@@ -3,17 +3,24 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Encode;
 
+/// <summary>
+/// Converts arbitrary supported CLR values into the internal native node graph consumed by the TOON encoders.
+/// </summary>
 internal static class NativeNormalize
 {
     private static readonly ConcurrentDictionary<Type, PropertyMetadata[]> PropertyCache = new();
 
+    /// <summary>
+    /// Normalizes a boxed CLR value, dictionary, enumerable, <see cref="ToonNode"/>, JSON DOM value, or plain object into native nodes.
+    /// </summary>
+    /// <param name="value">The value to normalize.</param>
+    /// <returns>The normalized native node, or a null primitive for unsupported leaf values.</returns>
     public static NativeNode? Normalize(object? value)
     {
         if (TryNormalizePrimitive(value, out var primitive))
@@ -61,6 +68,12 @@ internal static class NativeNormalize
         return new NativePrimitiveNode(null);
     }
 
+    /// <summary>
+    /// Normalizes a generic CLR value while preserving compile-time type information for common scalar checks.
+    /// </summary>
+    /// <typeparam name="T">The compile-time value type.</typeparam>
+    /// <param name="value">The value to normalize.</param>
+    /// <returns>The normalized native node, or a null primitive for unsupported leaf values.</returns>
     public static NativeNode? Normalize<T>(T value)
     {
         if (TryNormalizePrimitive(value, out var primitive))
@@ -108,19 +121,69 @@ internal static class NativeNormalize
         return new NativePrimitiveNode(null);
     }
 
+    /// <summary>
+    /// Returns whether a native node is a primitive value or null.
+    /// </summary>
+    /// <param name="value">The native node to test.</param>
+    /// <returns><see langword="true"/> for null and scalar nodes.</returns>
     public static bool IsPrimitive(NativeNode? value) => value is null || value is NativePrimitiveNode;
 
+    /// <summary>
+    /// Returns whether a native node is an array node.
+    /// </summary>
+    /// <param name="value">The native node to test.</param>
+    /// <returns><see langword="true"/> when the node is a <see cref="NativeArrayNode"/>.</returns>
     public static bool IsArray(NativeNode? value) => value is NativeArrayNode;
 
+    /// <summary>
+    /// Returns whether a native node is an object node.
+    /// </summary>
+    /// <param name="value">The native node to test.</param>
+    /// <returns><see langword="true"/> when the node is a <see cref="NativeObjectNode"/>.</returns>
     public static bool IsObject(NativeNode? value) => value is NativeObjectNode;
 
+    /// <summary>
+    /// Returns whether a native node is an object with no properties.
+    /// </summary>
+    /// <param name="value">The native node to test.</param>
+    /// <returns><see langword="true"/> when the node is an empty object.</returns>
     public static bool IsEmptyObject(NativeNode? value) => value is NativeObjectNode objectNode && objectNode.Count == 0;
 
-    public static bool IsArrayOfPrimitives(NativeArrayNode array) => array.All(IsPrimitive);
+    /// <summary>
+    /// Returns whether all array items are primitive values or null.
+    /// </summary>
+    /// <param name="array">The array to inspect.</param>
+    /// <returns><see langword="true"/> when every item is scalar or null.</returns>
+    public static bool IsArrayOfPrimitives(NativeArrayNode array)
+    {
+        foreach (var item in array)
+            if (!IsPrimitive(item)) return false;
+        return true;
+    }
 
-    public static bool IsArrayOfArrays(NativeArrayNode array) => array.All(IsArray);
+    /// <summary>
+    /// Returns whether all array items are arrays.
+    /// </summary>
+    /// <param name="array">The array to inspect.</param>
+    /// <returns><see langword="true"/> when every item is a native array node.</returns>
+    public static bool IsArrayOfArrays(NativeArrayNode array)
+    {
+        foreach (var item in array)
+            if (!IsArray(item)) return false;
+        return true;
+    }
 
-    public static bool IsArrayOfObjects(NativeArrayNode array) => array.All(IsObject);
+    /// <summary>
+    /// Returns whether all array items are objects.
+    /// </summary>
+    /// <param name="array">The array to inspect.</param>
+    /// <returns><see langword="true"/> when every item is a native object node.</returns>
+    public static bool IsArrayOfObjects(NativeArrayNode array)
+    {
+        foreach (var item in array)
+            if (!IsObject(item)) return false;
+        return true;
+    }
 
     /// <summary>
     /// Returns true if <paramref name="value"/> is a primitive value (including null) without allocating any objects.
@@ -128,13 +191,20 @@ internal static class NativeNormalize
     /// </summary>
     internal static bool IsPrimitiveOrNull(object? value) => value switch
     {
-        null or string or bool or int or long or decimal or byte or sbyte or short or ushort or uint or ulong or double or float or DateTime or DateTimeOffset => true,
+        null or string or char or bool or int or long or decimal or byte or sbyte or short or ushort or uint or ulong or double or float or DateTime or DateTimeOffset or TimeSpan or Guid or Uri or Version => true,
 #if NET6_0_OR_GREATER
         DateOnly or TimeOnly => true,
 #endif
+        Enum => true,
         _ => false
     };
 
+    /// <summary>
+    /// Attempts to normalize a CLR scalar into a native primitive node.
+    /// </summary>
+    /// <param name="value">The candidate scalar value.</param>
+    /// <param name="primitive">The normalized primitive node when supported.</param>
+    /// <returns><see langword="true"/> when the value is supported as a scalar primitive.</returns>
     internal static bool TryNormalizePrimitive(object? value, out NativePrimitiveNode primitive)
     {
         switch (value)
@@ -142,7 +212,7 @@ internal static class NativeNormalize
             case null:
                 primitive = new NativePrimitiveNode(null);
                 return true;
-            case string or bool or int or long or decimal or byte or sbyte or short or ushort or uint or ulong:
+            case string or char or bool or int or long or decimal or byte or sbyte or short or ushort or uint or ulong:
                 primitive = new NativePrimitiveNode(value);
                 return true;
             case double d:
@@ -158,6 +228,21 @@ internal static class NativeNormalize
                 return true;
             case DateTimeOffset dto:
                 primitive = new NativePrimitiveNode(new DeferredDateTimeOffsetValue(dto));
+                return true;
+            case TimeSpan timeSpan:
+                primitive = new NativePrimitiveNode(timeSpan);
+                return true;
+            case Guid guid:
+                primitive = new NativePrimitiveNode(guid);
+                return true;
+            case Uri uri:
+                primitive = new NativePrimitiveNode(uri);
+                return true;
+            case Version version:
+                primitive = new NativePrimitiveNode(version);
+                return true;
+            case Enum enumValue:
+                primitive = new NativePrimitiveNode(enumValue);
                 return true;
 #if NET6_0_OR_GREATER
             case DateOnly dateOnly:
@@ -214,6 +299,7 @@ internal static class NativeNormalize
     {
         var actualType = Nullable.GetUnderlyingType(type) ?? type;
         return actualType == typeof(string)
+            || actualType == typeof(char)
             || actualType == typeof(bool)
             || actualType == typeof(int)
             || actualType == typeof(long)
@@ -228,6 +314,11 @@ internal static class NativeNormalize
             || actualType == typeof(float)
             || actualType == typeof(DateTime)
             || actualType == typeof(DateTimeOffset)
+            || actualType == typeof(TimeSpan)
+            || actualType == typeof(Guid)
+            || actualType == typeof(Uri)
+            || actualType == typeof(Version)
+            || actualType.IsEnum
 #if NET6_0_OR_GREATER
             || actualType == typeof(DateOnly)
             || actualType == typeof(TimeOnly)
@@ -297,8 +388,21 @@ internal static class NativeNormalize
         return metadata.ToArray();
     }
 
+    /// <summary>
+    /// Stores reflection metadata and cached accessors for an encoded CLR property.
+    /// </summary>
     internal readonly struct PropertyMetadata
     {
+        /// <summary>
+        /// Initializes property metadata used by normalization and fast typed encoding.
+        /// </summary>
+        /// <param name="info">The reflected property.</param>
+        /// <param name="name">The effective TOON property name.</param>
+        /// <param name="encodedName">The pre-encoded TOON key.</param>
+        /// <param name="getter">A compiled getter for the property value.</param>
+        /// <param name="enumerableElementType">The enumerable element type when the property is a non-string enumerable.</param>
+        /// <param name="cachedEmptyEnumerableHeader">A cached empty array header for enumerable properties.</param>
+        /// <param name="nestedObjectProperties">Cached nested properties when the property type is a plain object.</param>
         public PropertyMetadata(
             PropertyInfo info,
             string name,
@@ -317,18 +421,25 @@ internal static class NativeNormalize
             NestedObjectProperties = nestedObjectProperties;
         }
 
+        /// <summary>Gets the reflected property.</summary>
         public PropertyInfo Info { get; }
 
+        /// <summary>Gets the effective TOON property name.</summary>
         public string Name { get; }
 
+        /// <summary>Gets the encoded TOON key for this property.</summary>
         public string EncodedName { get; }
 
+        /// <summary>Gets the compiled property getter.</summary>
         public Func<object, object?> Getter { get; }
 
+        /// <summary>Gets the element type for non-string enumerable properties.</summary>
         public Type? EnumerableElementType { get; }
 
+        /// <summary>Gets a cached empty array header for enumerable properties when available.</summary>
         public string? CachedEmptyEnumerableHeader { get; }
 
+        /// <summary>Gets cached nested object properties when the property type is a plain object.</summary>
         public PropertyMetadata[]? NestedObjectProperties { get; }
     }
 

@@ -27,8 +27,19 @@ namespace DevOp.Toon.Internal.Decode
             LineNumber = lineNumber;
         }
 
+        /// <summary>
+        /// Gets the number of leading spaces before content on the source line.
+        /// </summary>
         public int Indent { get; }
+
+        /// <summary>
+        /// Gets the computed logical nesting depth for the line.
+        /// </summary>
         public int Depth { get; }
+
+        /// <summary>
+        /// Gets the 1-based source line number.
+        /// </summary>
         public int LineNumber { get; }
 
         /// <summary>True when this is the sentinel (default) value returned instead of null.</summary>
@@ -61,8 +72,11 @@ namespace DevOp.Toon.Internal.Decode
     /// </summary>
     internal struct BlankLineInfo
     {
+        /// <summary>Gets or sets the 1-based source line number of the blank line.</summary>
         public int LineNumber { get; set; }
+        /// <summary>Gets or sets the leading-space count before the blank line content.</summary>
         public int Indent { get; set; }
+        /// <summary>Gets or sets the computed depth for the blank line.</summary>
         public int Depth { get; set; }
     }
 
@@ -71,7 +85,14 @@ namespace DevOp.Toon.Internal.Decode
     /// </summary>
     internal class ScanResult
     {
+        /// <summary>
+        /// Gets or sets non-blank parsed lines in source order.
+        /// </summary>
         public List<ParsedLine> Lines { get; set; } = new();
+
+        /// <summary>
+        /// Gets or sets blank-line metadata retained for strict-mode validation.
+        /// </summary>
         public List<BlankLineInfo> BlankLines { get; set; } = new();
     }
 
@@ -92,35 +113,66 @@ namespace DevOp.Toon.Internal.Decode
             _index = 0;
         }
 
+        /// <summary>
+        /// Gets blank-line metadata associated with the scanned source.
+        /// </summary>
+        /// <returns>The blank-line list from the scan result.</returns>
         public List<BlankLineInfo> GetBlankLines() => _blankLines;
 
+        /// <summary>
+        /// Peeks at the current line without advancing the cursor.
+        /// </summary>
+        /// <returns>The current parsed line, or the default sentinel when the cursor is at the end.</returns>
         public ParsedLine Peek()
         {
             return _index < _lines.Count ? _lines[_index] : default;
         }
 
+        /// <summary>
+        /// Returns the current line and advances the cursor.
+        /// </summary>
+        /// <returns>The current parsed line, or the default sentinel when the cursor is at the end.</returns>
         public ParsedLine Next()
         {
             return _index < _lines.Count ? _lines[_index++] : default;
         }
 
+        /// <summary>
+        /// Returns the most recently consumed line.
+        /// </summary>
+        /// <returns>The current consumed line, or the default sentinel when no line has been consumed.</returns>
         public ParsedLine Current()
         {
             return _index > 0 ? _lines[_index - 1] : default;
         }
 
+        /// <summary>
+        /// Advances the cursor by one line.
+        /// </summary>
         public void Advance()
         {
             _index++;
         }
 
+        /// <summary>
+        /// Returns whether the cursor has consumed all parsed lines.
+        /// </summary>
+        /// <returns><see langword="true"/> when no more parsed lines remain.</returns>
         public bool AtEnd()
         {
             return _index >= _lines.Count;
         }
 
+        /// <summary>
+        /// Gets the total number of parsed non-blank lines.
+        /// </summary>
         public int Length => _lines.Count;
 
+        /// <summary>
+        /// Peeks at the current line only when it belongs to the requested depth.
+        /// </summary>
+        /// <param name="targetDepth">The logical depth to match.</param>
+        /// <returns>The current line when its depth matches; otherwise, the default sentinel.</returns>
         public ParsedLine PeekAtDepth(int targetDepth)
         {
             var line = Peek();
@@ -131,6 +183,11 @@ namespace DevOp.Toon.Internal.Decode
             return default;
         }
 
+        /// <summary>
+        /// Returns whether the cursor has another line at the requested depth.
+        /// </summary>
+        /// <param name="targetDepth">The logical depth to match.</param>
+        /// <returns><see langword="true"/> when <see cref="PeekAtDepth"/> returns a real line.</returns>
         public bool HasMoreAtDepth(int targetDepth)
         {
             return !PeekAtDepth(targetDepth).IsNone;
@@ -146,6 +203,10 @@ namespace DevOp.Toon.Internal.Decode
         /// <summary>
         /// Parses source text into a list of structured lines with depth information.
         /// </summary>
+        /// <param name="source">The TOON source text to scan.</param>
+        /// <param name="indentSize">The configured number of spaces per indentation level.</param>
+        /// <param name="strict">Whether indentation should be validated strictly while scanning.</param>
+        /// <returns>The non-blank parsed lines plus retained blank-line metadata.</returns>
         public static ScanResult ToParsedLines(string source, int indentSize, bool strict)
         {
             int estimatedLines = 1;

@@ -14,14 +14,31 @@ using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Encode;
 
+/// <summary>
+/// Fast path encoder for typed CLR root objects and homogeneous CLR object arrays using cached reflection metadata and compiled field writers.
+/// </summary>
 internal static class ClrObjectArrayFastEncoder
 {
+    /// <summary>
+    /// Emits a nested property directly to the line writer.
+    /// </summary>
     private delegate void LineWriterPropertyEmitter(object instance, LineWriter writer, int depth, ResolvedEncodeOptions options);
+
+    /// <summary>
+    /// Emits a nested property directly to the pooled compact writer.
+    /// </summary>
     private delegate void CompactWriterPropertyEmitter(object instance, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options);
 
     private static readonly ConcurrentDictionary<Type, RowLayoutMetadata> RowLayoutCache = new();
     private static readonly ConcurrentDictionary<Type, CompactWriterPropertyEmitter[]> PlainObjectEmitterCache = new();
 
+    /// <summary>
+    /// Attempts to encode a supported CLR object or homogeneous CLR object array directly to a string.
+    /// </summary>
+    /// <param name="data">The value to encode.</param>
+    /// <param name="options">Resolved encode options.</param>
+    /// <param name="encoded">The encoded TOON text when the fast path succeeds.</param>
+    /// <returns><see langword="true"/> when the value was handled by the fast path; otherwise, <see langword="false"/>.</returns>
     public static bool TryEncode(object? data, ResolvedEncodeOptions options, out string encoded)
     {
         if (!TryEncodeToCompactBuffer(data, options, out var compactWriter))
@@ -40,10 +57,12 @@ internal static class ClrObjectArrayFastEncoder
     }
 
     /// <summary>
-    /// Encodes data to a pooled CompactBufferWriter. Caller must Dispose() the writer after use.
-    /// Preferred for bytes output — avoids the intermediate string allocation.
-    /// Returns false if data cannot be encoded by the fast path.
+    /// Encodes data to a pooled <see cref="CompactBufferWriter"/> so callers can avoid intermediate string allocation.
     /// </summary>
+    /// <param name="data">The value to encode.</param>
+    /// <param name="options">Resolved encode options.</param>
+    /// <param name="compactWriter">The rented writer containing encoded TOON when the fast path succeeds. The caller must dispose it.</param>
+    /// <returns><see langword="true"/> when the value was handled by the fast path; otherwise, <see langword="false"/>.</returns>
     internal static bool TryEncodeToCompactBuffer(object? data, ResolvedEncodeOptions options, out CompactBufferWriter compactWriter)
     {
         compactWriter = null!;
@@ -131,6 +150,13 @@ internal static class ClrObjectArrayFastEncoder
         return true;
     }
 
+    /// <summary>
+    /// Attempts to encode data through the fast path and write the result to a text writer.
+    /// </summary>
+    /// <param name="data">The value to encode.</param>
+    /// <param name="options">Resolved encode options.</param>
+    /// <param name="writer">The destination writer.</param>
+    /// <returns><see langword="true"/> when the value was handled by the fast path; otherwise, <see langword="false"/>.</returns>
     public static bool TryWriteToTextWriter(object? data, ResolvedEncodeOptions options, TextWriter writer)
     {
         if (!TryEncodeToCompactBuffer(data, options, out var compactWriter))
@@ -147,6 +173,14 @@ internal static class ClrObjectArrayFastEncoder
         return true;
     }
 
+    /// <summary>
+    /// Attempts to encode data through the fast path and asynchronously write the result to a text writer.
+    /// </summary>
+    /// <param name="data">The value to encode.</param>
+    /// <param name="options">Resolved encode options.</param>
+    /// <param name="writer">The destination writer.</param>
+    /// <param name="cancellationToken">A token that can cancel before the write starts.</param>
+    /// <returns><see langword="true"/> when the value was handled by the fast path; otherwise, <see langword="false"/>.</returns>
     public static async Task<bool> TryWriteToTextWriterAsync(object? data, ResolvedEncodeOptions options, TextWriter writer, CancellationToken cancellationToken)
     {
         if (!TryEncodeToCompactBuffer(data, options, out var compactWriter))
@@ -1720,8 +1754,22 @@ internal static class ClrObjectArrayFastEncoder
         return active.ToArray();
     }
 
+    /// <summary>
+    /// Cached row layout and compiled field writers for one CLR object-array element type.
+    /// </summary>
     private readonly struct RowLayoutMetadata
     {
+        /// <summary>
+        /// Initializes cached row layout metadata.
+        /// </summary>
+        /// <param name="headerProperties">Scalar properties written into the row header.</param>
+        /// <param name="headerNames">Encoded field names for header properties.</param>
+        /// <param name="cachedHeaderFieldBlock">Pre-joined encoded header fields when available.</param>
+        /// <param name="stringBuilderFieldWriters">Compiled field writers for string builder output.</param>
+        /// <param name="compactFieldWriters">Compiled field writers for compact writer output.</param>
+        /// <param name="nonHeaderProperties">Properties emitted as nested spill fields.</param>
+        /// <param name="lineWriterNonHeaderEmitters">Compiled spill emitters for line writer output.</param>
+        /// <param name="compactNonHeaderEmitters">Compiled spill emitters for compact writer output.</param>
         public RowLayoutMetadata(
             NativeNormalize.PropertyMetadata[] headerProperties,
             string[] headerNames,
@@ -1742,20 +1790,28 @@ internal static class ClrObjectArrayFastEncoder
             CompactNonHeaderEmitters = compactNonHeaderEmitters;
         }
 
+        /// <summary>Gets scalar properties written into the row header.</summary>
         public NativeNormalize.PropertyMetadata[] HeaderProperties { get; }
 
+        /// <summary>Gets encoded field names for header properties.</summary>
         public string[] HeaderNames { get; }
 
+        /// <summary>Gets a pre-joined encoded header field block when no column suppression is active.</summary>
         public string? CachedHeaderFieldBlock { get; }
 
+        /// <summary>Gets compiled scalar field writers for <see cref="StringBuilder"/> output.</summary>
         public StringBuilderFieldWriter[] StringBuilderFieldWriters { get; }
 
+        /// <summary>Gets compiled scalar field writers for <see cref="CompactBufferWriter"/> output.</summary>
         public CompactFieldWriter[] CompactFieldWriters { get; }
 
+        /// <summary>Gets properties emitted as nested spill fields below the row.</summary>
         public NativeNormalize.PropertyMetadata[] NonHeaderProperties { get; }
 
+        /// <summary>Gets compiled spill emitters for line writer output.</summary>
         public LineWriterPropertyEmitter[] LineWriterNonHeaderEmitters { get; }
 
+        /// <summary>Gets compiled spill emitters for compact writer output.</summary>
         public CompactWriterPropertyEmitter[] CompactNonHeaderEmitters { get; }
 
         public void AppendHeaderRow(StringBuilder builder, object row, char delimiter)

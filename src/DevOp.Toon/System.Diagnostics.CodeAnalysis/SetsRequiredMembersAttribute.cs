@@ -3,7 +3,7 @@
 namespace System.Diagnostics.CodeAnalysis
 {
     /// <summary>
-    /// Compiler attribute for setting required members
+    /// Indicates that a constructor initializes all required members for target frameworks that do not provide this attribute.
     /// </summary>
     [AttributeUsage(AttributeTargets.Constructor, AllowMultiple = false, Inherited = true)]
     public sealed class SetsRequiredMembersAttribute : Attribute { }

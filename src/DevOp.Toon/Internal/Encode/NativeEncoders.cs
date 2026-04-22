@@ -10,8 +10,17 @@ using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Encode;
 
+/// <summary>
+/// Encodes the internal native node graph into TOON text, choosing primitive, inline array, tabular array, list, and object layouts.
+/// </summary>
 internal static class NativeEncoders
 {
+    /// <summary>
+    /// Encodes a complete native value using the supplied resolved options.
+    /// </summary>
+    /// <param name="value">The native value to encode.</param>
+    /// <param name="options">Resolved encode options.</param>
+    /// <returns>The TOON-formatted representation.</returns>
     public static string EncodeValue(NativeNode? value, ResolvedEncodeOptions options)
     {
         if (NativeNormalize.IsPrimitive(value))
@@ -28,31 +37,36 @@ internal static class NativeEncoders
 
     private static void EncodeObject(NativeObjectNode value, LineWriter writer, int depth, ResolvedEncodeOptions options, IReadOnlyCollection<string>? rootLiteralKeys = null, string? pathPrefix = null, int? remainingDepth = null)
     {
-        var keys = new string[value.Count];
-        int keysIndex = 0;
-        foreach (var kvp in value)
-            keys[keysIndex++] = kvp.Key;
-
         if (depth == 0 && rootLiteralKeys == null)
         {
             HashSet<string>? literalKeys = null;
-            for (int i = 0; i < keys.Length; i++)
+            foreach (var kvp in value)
             {
-                if (keys[i].Contains('.'))
+                if (kvp.Key.Contains('.'))
                 {
                     literalKeys ??= new HashSet<string>(StringComparer.Ordinal);
-                    literalKeys.Add(keys[i]);
+                    literalKeys.Add(kvp.Key);
                 }
             }
 
             rootLiteralKeys = (IReadOnlyCollection<string>?)literalKeys ?? Array.Empty<string>();
         }
 
+        IReadOnlyCollection<string>? siblings = null;
+        if (options.KeyFolding == ToonKeyFolding.Safe)
+        {
+            var keys = new string[value.Count];
+            int i = 0;
+            foreach (var kvp in value)
+                keys[i++] = kvp.Key;
+            siblings = keys;
+        }
+
         var effectiveFlattenDepth = remainingDepth ?? options.FlattenDepth;
 
         foreach (var kvp in value)
         {
-            EncodeKeyValuePair(kvp.Key, kvp.Value, writer, depth, options, keys, rootLiteralKeys, pathPrefix, effectiveFlattenDepth);
+            EncodeKeyValuePair(kvp.Key, kvp.Value, writer, depth, options, siblings, rootLiteralKeys, pathPrefix, effectiveFlattenDepth);
         }
     }
 
@@ -595,6 +609,9 @@ internal static class NativeEncoders
     }
 }
 
+/// <summary>
+/// Encodes scalar values, keys, delimited rows, and array headers according to TOON literal rules.
+/// </summary>
 internal static class NativePrimitives
 {
     private const int StringLiteralCacheMaxLength = 128;
@@ -628,6 +645,12 @@ internal static class NativePrimitives
         return result;
     }
 
+    /// <summary>
+    /// Encodes a native primitive node as a TOON literal.
+    /// </summary>
+    /// <param name="value">The native primitive node, or null.</param>
+    /// <param name="delimiter">The active delimiter used to decide string quoting.</param>
+    /// <returns>The encoded primitive literal.</returns>
     public static string EncodePrimitive(NativeNode? value, char delimiter = Constants.COMMA)
     {
         var builder = new StringBuilder();
@@ -635,6 +658,12 @@ internal static class NativePrimitives
         return builder.ToString();
     }
 
+    /// <summary>
+    /// Appends a native primitive node as a TOON literal.
+    /// </summary>
+    /// <param name="builder">The destination builder.</param>
+    /// <param name="value">The native primitive node, or null.</param>
+    /// <param name="delimiter">The active delimiter used to decide string quoting.</param>
     public static void AppendPrimitive(StringBuilder builder, NativeNode? value, char delimiter = Constants.COMMA)
     {
         if (value is not NativePrimitiveNode primitive)
@@ -646,6 +675,12 @@ internal static class NativePrimitives
         AppendPrimitiveRaw(builder, primitive.Value, delimiter);
     }
 
+    /// <summary>
+    /// Appends a raw CLR scalar as a TOON primitive literal.
+    /// </summary>
+    /// <param name="builder">The destination builder.</param>
+    /// <param name="value">The raw scalar value to encode.</param>
+    /// <param name="delimiter">The active delimiter used to decide string quoting.</param>
     public static void AppendPrimitiveRaw(StringBuilder builder, object? value, char delimiter = Constants.COMMA)
     {
         switch (value)
@@ -655,6 +690,9 @@ internal static class NativePrimitives
                 return;
             case bool boolValue:
                 builder.Append(boolValue ? Constants.TRUE_LITERAL : Constants.FALSE_LITERAL);
+                return;
+            case char charValue:
+                AppendStringLiteral(builder, charValue.ToString(), delimiter);
                 return;
             case int intValue:
                 AppendInvariant(builder, intValue);
@@ -706,11 +744,26 @@ internal static class NativePrimitives
             case string stringValue:
                 AppendStringLiteral(builder, stringValue, delimiter);
                 return;
+            case Enum enumValue:
+                AppendEnumRaw(builder, enumValue);
+                return;
             case DateTime dateTime:
                 AppendDateTimeRaw(builder, dateTime);
                 return;
             case DateTimeOffset dateTimeOffset:
                 AppendDateTimeRaw(builder, dateTimeOffset);
+                return;
+            case TimeSpan timeSpan:
+                AppendStringLiteral(builder, timeSpan.ToString("c", CultureInfo.InvariantCulture), delimiter);
+                return;
+            case Guid guid:
+                AppendStringLiteral(builder, guid.ToString("D"), delimiter);
+                return;
+            case Uri uri:
+                AppendStringLiteral(builder, uri.ToString(), delimiter);
+                return;
+            case Version version:
+                AppendStringLiteral(builder, version.ToString(), delimiter);
                 return;
             case DeferredDateTimeValue dateTimeValue:
                 AppendDateTimeRaw(builder, dateTimeValue.Value);
@@ -758,6 +811,9 @@ internal static class NativePrimitives
                 return;
             case bool boolValue:
                 writer.Append(boolValue ? Constants.TRUE_LITERAL : Constants.FALSE_LITERAL);
+                return;
+            case char charValue:
+                AppendStringLiteral(writer, charValue.ToString(), delimiter);
                 return;
             case int intValue:
                 AppendInvariant(writer, intValue);
@@ -809,11 +865,26 @@ internal static class NativePrimitives
             case string stringValue:
                 AppendStringLiteral(writer, stringValue, delimiter);
                 return;
+            case Enum enumValue:
+                AppendEnumRaw(writer, enumValue);
+                return;
             case DateTime dateTime:
                 AppendDateTimeRaw(writer, dateTime);
                 return;
             case DateTimeOffset dateTimeOffset:
                 AppendDateTimeRaw(writer, dateTimeOffset);
+                return;
+            case TimeSpan timeSpan:
+                AppendStringLiteral(writer, timeSpan.ToString("c", CultureInfo.InvariantCulture), delimiter);
+                return;
+            case Guid guid:
+                AppendStringLiteral(writer, guid.ToString("D"), delimiter);
+                return;
+            case Uri uri:
+                AppendStringLiteral(writer, uri.ToString(), delimiter);
+                return;
+            case Version version:
+                AppendStringLiteral(writer, version.ToString(), delimiter);
                 return;
             case DeferredDateTimeValue dateTimeValue:
                 AppendDateTimeRaw(writer, dateTimeValue.Value);
@@ -837,6 +908,74 @@ internal static class NativePrimitives
 #endif
             default:
                 AppendStringLiteral(writer, Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty, delimiter);
+                return;
+        }
+    }
+
+    private static void AppendEnumRaw(StringBuilder builder, Enum value)
+    {
+        switch (Type.GetTypeCode(Enum.GetUnderlyingType(value.GetType())))
+        {
+            case TypeCode.Byte:
+                AppendInvariant(builder, Convert.ToByte(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.SByte:
+                AppendInvariant(builder, Convert.ToSByte(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.Int16:
+                AppendInvariant(builder, Convert.ToInt16(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.UInt16:
+                AppendInvariant(builder, Convert.ToUInt16(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.Int32:
+                AppendInvariant(builder, Convert.ToInt32(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.UInt32:
+                AppendInvariant(builder, Convert.ToUInt32(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.Int64:
+                AppendInvariant(builder, Convert.ToInt64(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.UInt64:
+                AppendInvariant(builder, Convert.ToUInt64(value, CultureInfo.InvariantCulture));
+                return;
+            default:
+                AppendStringLiteral(builder, Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty);
+                return;
+        }
+    }
+
+    private static void AppendEnumRaw(CompactBufferWriter writer, Enum value)
+    {
+        switch (Type.GetTypeCode(Enum.GetUnderlyingType(value.GetType())))
+        {
+            case TypeCode.Byte:
+                AppendInvariant(writer, Convert.ToByte(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.SByte:
+                AppendInvariant(writer, Convert.ToSByte(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.Int16:
+                AppendInvariant(writer, Convert.ToInt16(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.UInt16:
+                AppendInvariant(writer, Convert.ToUInt16(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.Int32:
+                AppendInvariant(writer, Convert.ToInt32(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.UInt32:
+                AppendInvariant(writer, Convert.ToUInt32(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.Int64:
+                AppendInvariant(writer, Convert.ToInt64(value, CultureInfo.InvariantCulture));
+                return;
+            case TypeCode.UInt64:
+                AppendInvariant(writer, Convert.ToUInt64(value, CultureInfo.InvariantCulture));
+                return;
+            default:
+                AppendStringLiteral(writer, Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty);
                 return;
         }
     }
@@ -1420,23 +1559,50 @@ internal static class NativePrimitives
 #endif
 }
 
+/// <summary>
+/// Implements safe key-folding for single-key object chains while avoiding collisions with sibling or literal dotted keys.
+/// </summary>
 internal static class NativeFolding
 {
+    /// <summary>
+    /// Represents a collected chain of single-key objects and the leaf or remainder that terminates the chain.
+    /// </summary>
     internal sealed class KeyChain
     {
+        /// <summary>Gets or sets the ordered path segments collected from the chain.</summary>
         public IReadOnlyCollection<string> Segments { get; set; } = Array.Empty<string>();
+        /// <summary>Gets or sets a remaining subtree that could not be folded.</summary>
         public NativeNode? Tail { get; set; }
+        /// <summary>Gets or sets the leaf value reached by the folded path.</summary>
         public NativeNode LeafValue { get; set; } = new NativePrimitiveNode(null);
     }
 
+    /// <summary>
+    /// Describes the result of folding a key chain.
+    /// </summary>
     internal sealed class FoldResult
     {
+        /// <summary>Gets or sets the folded dotted key.</summary>
         public string FoldedKey { get; set; } = string.Empty;
+        /// <summary>Gets or sets the leaf value associated with the folded key.</summary>
         public NativeNode LeafValue { get; set; } = new NativePrimitiveNode(null);
+        /// <summary>Gets or sets the remaining subtree that should be emitted under the folded key.</summary>
         public NativeNode? Remainder { get; set; }
+        /// <summary>Gets or sets the number of path segments folded.</summary>
         public int SegmentCount { get; set; }
     }
 
+    /// <summary>
+    /// Attempts to fold a single-key object chain into a dotted key without colliding with sibling keys or root literal dotted keys.
+    /// </summary>
+    /// <param name="key">The current object key.</param>
+    /// <param name="value">The value under the key.</param>
+    /// <param name="siblings">Sibling keys at the same object level.</param>
+    /// <param name="options">Resolved encode options.</param>
+    /// <param name="rootLiteralKeys">Literal dotted keys seen at the root level.</param>
+    /// <param name="pathPrefix">The current absolute path prefix.</param>
+    /// <param name="flattenDepth">The remaining fold depth.</param>
+    /// <returns>A fold result when folding is safe; otherwise, <see langword="null"/>.</returns>
     public static FoldResult? TryFoldKeyChain(string key, NativeNode? value, IReadOnlyCollection<string> siblings, ResolvedEncodeOptions options, IReadOnlyCollection<string>? rootLiteralKeys = null, string? pathPrefix = null, int? flattenDepth = null)
     {
         if (options.KeyFolding != ToonKeyFolding.Safe || value is not NativeObjectNode)
@@ -1448,8 +1614,13 @@ internal static class NativeFolding
         var tail = keyChain.Tail;
         var leafValue = keyChain.LeafValue;
 
-        if (segments.Count < 2 || !segments.All(ValidationShared.IsIdentifierSegment))
+        if (segments.Count < 2)
             return null;
+        foreach (var segment in segments)
+        {
+            if (!ValidationShared.IsIdentifierSegment(segment))
+                return null;
+        }
 
         var foldedKey = string.Join(Constants.DOT.ToString(), segments);
         var absolutePath = pathPrefix != null ? $"{pathPrefix}{Constants.DOT}{foldedKey}" : foldedKey;

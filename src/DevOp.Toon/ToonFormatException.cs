@@ -9,22 +9,41 @@ namespace DevOp.Toon
     /// </summary>
     public sealed class ToonFormatException : Exception
     {
-        /// <summary>Error type (syntax, range, validation, indentation, delimiter, unknown).</summary>
+        /// <summary>
+        /// Gets the category of TOON format error that occurred.
+        /// </summary>
         public ToonErrorKind Kind { get; }
 
-        /// <summary>1-based line number.</summary>
+        /// <summary>
+        /// Gets the 1-based line number where the error occurred, when available.
+        /// </summary>
         public int? LineNumber { get; }
 
-        /// <summary>1-based column number.</summary>
+        /// <summary>
+        /// Gets the 1-based column number where the error occurred, when available.
+        /// </summary>
         public int? ColumnNumber { get; }
 
-        /// <summary>Original line text where the error occurred (may be truncated).</summary>
+        /// <summary>
+        /// Gets the original line text where the error occurred, when available.
+        /// </summary>
         public string? SourceLine { get; }
 
-        /// <summary>Indentation depth (optional, for debugging).</summary>
+        /// <summary>
+        /// Gets the parsed indentation depth associated with the error, when available.
+        /// </summary>
         public int? Depth { get; }
 
-        /// <summary>Constructs the exception, automatically concatenating messages with position and line context.</summary>
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ToonFormatException"/> class with structured location details.
+        /// </summary>
+        /// <param name="kind">The category of format error.</param>
+        /// <param name="message">The human-readable error message.</param>
+        /// <param name="lineNumber">The 1-based line number where the error occurred, when known.</param>
+        /// <param name="columnNumber">The 1-based column number where the error occurred, when known.</param>
+        /// <param name="sourceLine">The source line associated with the error, when known.</param>
+        /// <param name="depth">The parsed indentation depth associated with the error, when known.</param>
+        /// <param name="inner">The exception that caused this error, when available.</param>
         public ToonFormatException(
             ToonErrorKind kind,
             string message,
@@ -42,7 +61,16 @@ namespace DevOp.Toon
             Depth = depth;
         }
 
-        /// <summary>Syntax error factory method.</summary>
+        /// <summary>
+        /// Creates an exception for invalid TOON syntax, such as malformed keys, literals, or structural tokens.
+        /// </summary>
+        /// <param name="message">The human-readable error message.</param>
+        /// <param name="lineNumber">The 1-based line number where the error occurred, when known.</param>
+        /// <param name="columnNumber">The 1-based column number where the error occurred, when known.</param>
+        /// <param name="sourceLine">The source line associated with the error, when known.</param>
+        /// <param name="depth">The parsed indentation depth associated with the error, when known.</param>
+        /// <param name="inner">The exception that caused this error, when available.</param>
+        /// <returns>A syntax-classified TOON format exception.</returns>
         public static ToonFormatException Syntax(
             string message,
             int? lineNumber = null,
@@ -52,7 +80,16 @@ namespace DevOp.Toon
             Exception? inner = null)
             => new(ToonErrorKind.Syntax, message, lineNumber, columnNumber, sourceLine, depth, inner);
 
-        /// <summary>Range error factory method (e.g., count mismatches).</summary>
+        /// <summary>
+        /// Creates an exception for range errors, such as declared array counts that do not match parsed items.
+        /// </summary>
+        /// <param name="message">The human-readable error message.</param>
+        /// <param name="lineNumber">The 1-based line number where the error occurred, when known.</param>
+        /// <param name="columnNumber">The 1-based column number where the error occurred, when known.</param>
+        /// <param name="sourceLine">The source line associated with the error, when known.</param>
+        /// <param name="depth">The parsed indentation depth associated with the error, when known.</param>
+        /// <param name="inner">The exception that caused this error, when available.</param>
+        /// <returns>A range-classified TOON format exception.</returns>
         public static ToonFormatException Range(
             string message,
             int? lineNumber = null,
@@ -62,7 +99,16 @@ namespace DevOp.Toon
             Exception? inner = null)
             => new(ToonErrorKind.Range, message, lineNumber, columnNumber, sourceLine, depth, inner);
 
-        /// <summary>Validation error factory method (extra lines/empty lines/structural rules).</summary>
+        /// <summary>
+        /// Creates an exception for strict-mode validation failures, such as unexpected extra lines or structural rule violations.
+        /// </summary>
+        /// <param name="message">The human-readable error message.</param>
+        /// <param name="lineNumber">The 1-based line number where the error occurred, when known.</param>
+        /// <param name="columnNumber">The 1-based column number where the error occurred, when known.</param>
+        /// <param name="sourceLine">The source line associated with the error, when known.</param>
+        /// <param name="depth">The parsed indentation depth associated with the error, when known.</param>
+        /// <param name="inner">The exception that caused this error, when available.</param>
+        /// <returns>A validation-classified TOON format exception.</returns>
         public static ToonFormatException Validation(
             string message,
             int? lineNumber = null,
@@ -72,7 +118,16 @@ namespace DevOp.Toon
             Exception? inner = null)
             => new(ToonErrorKind.Validation, message, lineNumber, columnNumber, sourceLine, depth, inner);
 
-        /// <summary>Indentation error factory method (in strict mode, indentation must be multiples of indent and cannot contain TAB).</summary>
+        /// <summary>
+        /// Creates an exception for indentation errors, such as tab indentation or widths that are not multiples of the configured indent.
+        /// </summary>
+        /// <param name="message">The human-readable error message.</param>
+        /// <param name="lineNumber">The 1-based line number where the error occurred, when known.</param>
+        /// <param name="columnNumber">The 1-based column number where the error occurred, when known.</param>
+        /// <param name="sourceLine">The source line associated with the error, when known.</param>
+        /// <param name="depth">The parsed indentation depth associated with the error, when known.</param>
+        /// <param name="inner">The exception that caused this error, when available.</param>
+        /// <returns>An indentation-classified TOON format exception.</returns>
         public static ToonFormatException Indentation(
             string message,
             int? lineNumber = null,
@@ -82,7 +137,16 @@ namespace DevOp.Toon
             Exception? inner = null)
             => new(ToonErrorKind.Indentation, message, lineNumber, columnNumber, sourceLine, depth, inner);
 
-        /// <summary>Delimiter-related error factory method.</summary>
+        /// <summary>
+        /// Creates an exception for delimiter-related errors, such as unsupported delimiters or malformed delimited rows.
+        /// </summary>
+        /// <param name="message">The human-readable error message.</param>
+        /// <param name="lineNumber">The 1-based line number where the error occurred, when known.</param>
+        /// <param name="columnNumber">The 1-based column number where the error occurred, when known.</param>
+        /// <param name="sourceLine">The source line associated with the error, when known.</param>
+        /// <param name="depth">The parsed indentation depth associated with the error, when known.</param>
+        /// <param name="inner">The exception that caused this error, when available.</param>
+        /// <returns>A delimiter-classified TOON format exception.</returns>
         public static ToonFormatException Delimiter(
             string message,
             int? lineNumber = null,

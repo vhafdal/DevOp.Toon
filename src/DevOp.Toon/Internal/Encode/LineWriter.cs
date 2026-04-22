@@ -39,6 +39,11 @@ namespace DevOp.Toon.Internal.Encode
             _builder.Append(content);
         }
 
+        /// <summary>
+        /// Pushes a new line and lets the callback append content directly to the backing builder.
+        /// </summary>
+        /// <param name="depth">Indentation depth level.</param>
+        /// <param name="contentWriter">Callback that appends content after indentation.</param>
         public void Push(int depth, Action<StringBuilder> contentWriter)
         {
             if (_builder.Length > 0)
@@ -53,6 +58,8 @@ namespace DevOp.Toon.Internal.Encode
         /// <summary>
         /// Starts a new line at the given depth and returns the underlying StringBuilder for direct zero-allocation writes.
         /// </summary>
+        /// <param name="depth">Indentation depth level.</param>
+        /// <returns>The underlying builder positioned after indentation for the new line.</returns>
         public StringBuilder BeginLine(int depth)
         {
             if (_builder.Length > 0)
@@ -74,6 +81,11 @@ namespace DevOp.Toon.Internal.Encode
             Push(depth, Constants.LIST_ITEM_PREFIX + content);
         }
 
+        /// <summary>
+        /// Pushes a list-item line and lets the callback append content after the list marker.
+        /// </summary>
+        /// <param name="depth">Indentation depth level.</param>
+        /// <param name="contentWriter">Callback that appends content after <c>- </c>.</param>
         public void PushListItem(int depth, Action<StringBuilder> contentWriter)
         {
             Push(depth, builder =>
@@ -86,6 +98,7 @@ namespace DevOp.Toon.Internal.Encode
         /// <summary>
         /// Returns the complete output as a single string with newlines.
         /// </summary>
+        /// <returns>The accumulated TOON text.</returns>
         public override string ToString()
         {
             return _builder.ToString();

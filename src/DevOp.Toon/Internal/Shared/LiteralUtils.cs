@@ -11,9 +11,10 @@ namespace DevOp.Toon.Internal.Shared
     internal static class LiteralUtils
     {
         /// <summary>
-        /// Checks if the token is a boolean or null literal: true, false, null.
-        /// Equivalent to TS: isBooleanOrNullLiteral
+        /// Checks whether the token is one of the reserved primitive literals: <c>true</c>, <c>false</c>, or <c>null</c>.
         /// </summary>
+        /// <param name="token">The token to inspect.</param>
+        /// <returns><see langword="true"/> when the token is a reserved literal.</returns>
         internal static bool IsBooleanOrNullLiteral(string token)
         {
             return string.Equals(token, Constants.TRUE_LITERAL, StringComparison.Ordinal)
@@ -21,6 +22,11 @@ namespace DevOp.Toon.Internal.Shared
                 || string.Equals(token, Constants.NULL_LITERAL, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// Checks whether the token span is one of the reserved primitive literals: <c>true</c>, <c>false</c>, or <c>null</c>.
+        /// </summary>
+        /// <param name="token">The token span to inspect.</param>
+        /// <returns><see langword="true"/> when the token is a reserved literal.</returns>
         internal static bool IsBooleanOrNullLiteral(ReadOnlySpan<char> token)
         {
             return token.SequenceEqual(Constants.TRUE_LITERAL)
@@ -30,10 +36,9 @@ namespace DevOp.Toon.Internal.Shared
 
         /// <summary>
         /// Checks if the token is a valid numeric literal.
-        /// Rules aligned with TS:
-        /// - Rejects leading zeros (except "0" itself or decimals like "0.xxx")
-        /// - Parses successfully and is a finite number (not NaN/Infinity)
         /// </summary>
+        /// <param name="token">The token to inspect.</param>
+        /// <returns><see langword="true"/> when the token parses as a finite number and does not use an invalid leading-zero form.</returns>
         internal static bool IsNumericLiteral(string token)
         {
             if (string.IsNullOrEmpty(token))
@@ -49,6 +54,11 @@ namespace DevOp.Toon.Internal.Shared
             return !double.IsNaN(num) && !double.IsInfinity(num);
         }
 
+        /// <summary>
+        /// Checks if the token span is a valid numeric literal.
+        /// </summary>
+        /// <param name="token">The token span to inspect.</param>
+        /// <returns><see langword="true"/> when the token parses as a finite number and does not use an invalid leading-zero form.</returns>
         internal static bool IsNumericLiteral(ReadOnlySpan<char> token)
         {
             if (token.IsEmpty)

@@ -6,8 +6,18 @@ using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Decode;
 
+/// <summary>
+/// Converts scanned TOON lines into the internal native node graph, including objects, list arrays, inline arrays, and tabular arrays.
+/// </summary>
 internal static class NativeDecoders
 {
+    /// <summary>
+    /// Decodes the next complete value from the current cursor position.
+    /// </summary>
+    /// <param name="cursor">The cursor positioned at the first line of the value.</param>
+    /// <param name="options">Resolved decode options controlling indentation, strictness, and object-array layout.</param>
+    /// <param name="quotedKeys">Optional set populated with quoted root keys so path expansion can distinguish literal dotted keys.</param>
+    /// <returns>The decoded native node.</returns>
     public static NativeNode? DecodeValueFromLines(LineCursor cursor, ResolvedDecodeOptions options, HashSet<string>? quotedKeys = null)
     {
         var first = cursor.Peek();
@@ -78,9 +88,13 @@ internal static class NativeDecoders
 
     private sealed class KeyValueDecodeResult
     {
+        /// <summary>The decoded object key.</summary>
         public string Key { get; set; } = string.Empty;
+        /// <summary>The decoded value for the key.</summary>
         public NativeNode? Value { get; set; }
+        /// <summary>The depth at which child lines for this value are expected.</summary>
         public int FollowDepth { get; set; }
+        /// <summary>Whether the key token was explicitly quoted in source.</summary>
         public bool WasQuoted { get; set; }
     }
 

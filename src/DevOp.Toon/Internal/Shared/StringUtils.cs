@@ -17,6 +17,8 @@ namespace DevOp.Toon.Internal.Shared
         /// Escapes special characters: backslash, quotes, newlines, carriage returns, tabs.
         /// Equivalent to TS escapeString.
         /// </summary>
+        /// <param name="value">The string to escape.</param>
+        /// <returns>The original string when no escaping is required; otherwise, an escaped string.</returns>
         internal static string EscapeString(string value)
         {
             if (string.IsNullOrEmpty(value)) return value ?? string.Empty;
@@ -31,6 +33,11 @@ namespace DevOp.Toon.Internal.Shared
             return builder.ToString();
         }
 
+        /// <summary>
+        /// Appends an escaped string to a <see cref="StringBuilder"/>.
+        /// </summary>
+        /// <param name="builder">The destination builder.</param>
+        /// <param name="value">The string to escape and append.</param>
         internal static void AppendEscapedString(StringBuilder builder, string value)
         {
             if (string.IsNullOrEmpty(value))
@@ -47,6 +54,11 @@ namespace DevOp.Toon.Internal.Shared
             AppendEscapedString(builder, value, firstEscapeIndex);
         }
 
+        /// <summary>
+        /// Appends an escaped string to a pooled compact writer.
+        /// </summary>
+        /// <param name="writer">The destination writer.</param>
+        /// <param name="value">The string to escape and append.</param>
         internal static void AppendEscapedString(CompactBufferWriter writer, string value)
         {
             if (string.IsNullOrEmpty(value))
@@ -169,6 +181,9 @@ namespace DevOp.Toon.Internal.Shared
         /// Unescapes the string, supporting \n, \t, \r, \\, \". Invalid sequences throw <see cref="ToonFormatException"/>.
         /// Equivalent to TS unescapeString.
         /// </summary>
+        /// <param name="value">The escaped string content without surrounding quotes.</param>
+        /// <returns>The unescaped string.</returns>
+        /// <exception cref="ToonFormatException">Thrown when an escape sequence is incomplete or unsupported.</exception>
         internal static string UnescapeString(string value)
         {
             if (string.IsNullOrEmpty(value)) return value ?? string.Empty;
@@ -218,6 +233,12 @@ namespace DevOp.Toon.Internal.Shared
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Unescapes a span of string content, supporting \n, \t, \r, \\, and \".
+        /// </summary>
+        /// <param name="value">The escaped string content without surrounding quotes.</param>
+        /// <returns>The unescaped string.</returns>
+        /// <exception cref="ToonFormatException">Thrown when an escape sequence is incomplete or unsupported.</exception>
         internal static string UnescapeString(ReadOnlySpan<char> value)
         {
             if (value.IsEmpty) return string.Empty;
@@ -271,6 +292,9 @@ namespace DevOp.Toon.Internal.Shared
         /// Finds the position of the next double quote in the string starting from 'start', considering escapes.
         /// Returns -1 if not found. Equivalent to TS findClosingQuote.
         /// </summary>
+        /// <param name="content">The content to search.</param>
+        /// <param name="start">The index of the opening quote.</param>
+        /// <returns>The index of the closing quote, or -1 when none exists.</returns>
         internal static int FindClosingQuote(string content, int start)
         {
             int i = start + 1;
@@ -291,6 +315,12 @@ namespace DevOp.Toon.Internal.Shared
             return -1;
         }
 
+        /// <summary>
+        /// Finds the position of the next double quote in the span starting from <paramref name="start"/>, considering escapes.
+        /// </summary>
+        /// <param name="content">The content to search.</param>
+        /// <param name="start">The index of the opening quote.</param>
+        /// <returns>The index of the closing quote, or -1 when none exists.</returns>
         internal static int FindClosingQuote(ReadOnlySpan<char> content, int start)
         {
             int i = start + 1;
@@ -315,6 +345,10 @@ namespace DevOp.Toon.Internal.Shared
         /// Finds the position of the target character not inside quotes; returns -1 if not found.
         /// Escape sequences inside quotes are skipped. Equivalent to TS findUnquotedChar.
         /// </summary>
+        /// <param name="content">The content to search.</param>
+        /// <param name="target">The character to find outside quoted text.</param>
+        /// <param name="start">The index where scanning starts.</param>
+        /// <returns>The index of the first unquoted target character, or -1 when none exists.</returns>
         internal static int FindUnquotedChar(string content, char target, int start = 0)
         {
             bool inQuotes = false;
@@ -345,6 +379,13 @@ namespace DevOp.Toon.Internal.Shared
             return -1;
         }
 
+        /// <summary>
+        /// Finds the position of the target character not inside quotes in a span.
+        /// </summary>
+        /// <param name="content">The content to search.</param>
+        /// <param name="target">The character to find outside quoted text.</param>
+        /// <param name="start">The index where scanning starts.</param>
+        /// <returns>The index of the first unquoted target character, or -1 when none exists.</returns>
         internal static int FindUnquotedChar(ReadOnlySpan<char> content, char target, int start = 0)
         {
             bool inQuotes = false;
@@ -380,6 +421,8 @@ namespace DevOp.Toon.Internal.Shared
         /// Generates a quoted string literal, escaping internal characters as necessary.
         /// Note: Whether quotes are needed should be determined by the caller based on ValidationShared rules.
         /// </summary>
+        /// <param name="value">The unescaped string value.</param>
+        /// <returns>The escaped string wrapped in double quotes.</returns>
         internal static string Quote(string value)
         {
             return $"\"{EscapeString(value)}\"";

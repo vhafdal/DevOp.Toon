@@ -1,13 +1,22 @@
 #nullable enable
 using System.Collections.Generic;
-using System.Linq;
 using DevOp.Toon.Internal.Encode;
 using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Decode;
 
+/// <summary>
+/// Expands eligible dotted root keys in a native object into nested native objects while preserving quoted dotted keys as literals.
+/// </summary>
 internal static class NativePathExpansion
 {
+    /// <summary>
+    /// Expands unquoted dotted keys such as <c>a.b.c</c> into nested object nodes.
+    /// </summary>
+    /// <param name="obj">The root object whose properties should be expanded.</param>
+    /// <param name="strict">Whether conflicts should throw instead of being overwritten or merged.</param>
+    /// <param name="quotedKeys">Root keys that were quoted in source and must remain literal.</param>
+    /// <returns>A cloned object graph with path expansion applied.</returns>
     public static NativeObjectNode ExpandPaths(NativeObjectNode obj, bool strict, HashSet<string>? quotedKeys = null)
     {
         var result = new NativeObjectNode();
@@ -18,10 +27,22 @@ internal static class NativePathExpansion
             var value = kvp.Value;
             bool wasQuoted = quotedKeys != null && quotedKeys.Contains(key);
 
-            if (!wasQuoted && key.Contains(Constants.DOT) && IsExpandable(key))
+            if (!wasQuoted && key.Contains(Constants.DOT))
             {
                 var segments = key.Split(Constants.DOT);
-                SetNestedValue(result, segments, value, strict);
+                bool expandable = true;
+                foreach (var segment in segments)
+                {
+                    if (!ValidationShared.IsIdentifierSegment(segment))
+                    {
+                        expandable = false;
+                        break;
+                    }
+                }
+                if (expandable)
+                    SetNestedValue(result, segments, value, strict);
+                else
+                    SetValue(result, key, value, strict);
             }
             else
             {
@@ -30,12 +51,6 @@ internal static class NativePathExpansion
         }
 
         return result;
-    }
-
-    private static bool IsExpandable(string key)
-    {
-        var segments = key.Split(Constants.DOT);
-        return segments.All(ValidationShared.IsIdentifierSegment);
     }
 
     private static void SetNestedValue(NativeObjectNode target, string[] segments, NativeNode? value, bool strict)

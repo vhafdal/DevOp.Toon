@@ -9,11 +9,21 @@ using DevOp.Toon.Internal.Encode;
 
 namespace DevOp.Toon.Internal.Decode;
 
+/// <summary>
+/// Converts the internal native node graph into CLR target types after generic parsing has completed.
+/// </summary>
 internal static class NativeTypedMaterializer
 {
     private static readonly object SyncRoot = new object();
     private static readonly Dictionary<Type, TypePlan> PlanCache = new Dictionary<Type, TypePlan>();
 
+    /// <summary>
+    /// Attempts to convert a native node into the requested CLR type.
+    /// </summary>
+    /// <typeparam name="T">The target CLR type.</typeparam>
+    /// <param name="node">The native node to convert.</param>
+    /// <param name="value">The converted value when conversion succeeds.</param>
+    /// <returns><see langword="true"/> when the node can be materialized as <typeparamref name="T"/>; otherwise, <see langword="false"/>.</returns>
     public static bool TryConvert<T>(NativeNode? node, out T? value)
     {
         if (!TryConvert(node, typeof(T), out var boxed))
@@ -26,6 +36,13 @@ internal static class NativeTypedMaterializer
         return true;
     }
 
+    /// <summary>
+    /// Attempts to convert a native node into the requested runtime type.
+    /// </summary>
+    /// <param name="node">The native node to convert.</param>
+    /// <param name="type">The target runtime type.</param>
+    /// <param name="value">The converted value when conversion succeeds.</param>
+    /// <returns><see langword="true"/> when the node can be materialized as <paramref name="type"/>; otherwise, <see langword="false"/>.</returns>
     public static bool TryConvert(NativeNode? node, Type type, out object? value)
     {
         var plan = GetPlan(type);
@@ -590,6 +607,43 @@ internal static class NativeTypedMaterializer
             return false;
         }
 
+        if (targetType == typeof(TimeSpan))
+        {
+            if (primitiveValue is string timeSpanText &&
+                TimeSpan.TryParse(timeSpanText, CultureInfo.InvariantCulture, out var timeSpan))
+            {
+                value = timeSpan;
+                return true;
+            }
+
+            value = null;
+            return false;
+        }
+
+        if (targetType == typeof(Uri))
+        {
+            if (primitiveValue is string uriText && Uri.TryCreate(uriText, UriKind.RelativeOrAbsolute, out var uri))
+            {
+                value = uri;
+                return true;
+            }
+
+            value = null;
+            return false;
+        }
+
+        if (targetType == typeof(Version))
+        {
+            if (primitiveValue is string versionText && Version.TryParse(versionText, out var version))
+            {
+                value = version;
+                return true;
+            }
+
+            value = null;
+            return false;
+        }
+
 #if NET6_0_OR_GREATER
         if (targetType == typeof(DateOnly))
         {
@@ -849,6 +903,9 @@ internal static class NativeTypedMaterializer
                type == typeof(decimal) ||
                type == typeof(DateTime) ||
                type == typeof(DateTimeOffset) ||
+               type == typeof(TimeSpan) ||
+               type == typeof(Uri) ||
+               type == typeof(Version) ||
 #if NET6_0_OR_GREATER
                type == typeof(DateOnly) ||
                type == typeof(TimeOnly) ||
@@ -925,17 +982,27 @@ internal static class NativeTypedMaterializer
 
     private sealed class PropertyPlan
     {
+        /// <summary>
+        /// Initializes a property materialization plan.
+        /// </summary>
+        /// <param name="plan">The plan used to convert the property value.</param>
+        /// <param name="setter">A compiled setter for assigning the converted value.</param>
         public PropertyPlan(TypePlan plan, Action<object, object?> setter)
         {
             Plan = plan;
             Setter = setter;
         }
 
+        /// <summary>Gets the plan used to convert the property value.</summary>
         public TypePlan Plan { get; }
 
+        /// <summary>Gets the compiled setter for assigning the property value.</summary>
         public Action<object, object?> Setter { get; }
     }
 
+    /// <summary>
+    /// Describes how a target CLR type is materialized from native nodes.
+    /// </summary>
     private sealed class TypePlan
     {
         private TypePlan(Type type, PlanKind kind)
@@ -944,24 +1011,34 @@ internal static class NativeTypedMaterializer
             Kind = kind;
         }
 
+        /// <summary>Gets the target CLR type.</summary>
         public Type Type { get; }
 
+        /// <summary>Gets the materialization category for the target type.</summary>
         public PlanKind Kind { get; }
 
+        /// <summary>Gets whether this target type is supported by the native materializer.</summary>
         public bool IsSupported => Kind != PlanKind.Unsupported;
 
+        /// <summary>Gets the underlying plan for nullable value types.</summary>
         public TypePlan? UnderlyingPlan { get; private set; }
 
+        /// <summary>Gets the element or value plan for collections, arrays, and dictionaries.</summary>
         public TypePlan? ElementPlan { get; private set; }
 
+        /// <summary>Gets the factory used to construct object targets.</summary>
         public Func<object>? Factory { get; private set; }
 
+        /// <summary>Gets writable property plans keyed by encoded TOON field name.</summary>
         public Dictionary<string, PropertyPlan>? Properties { get; private set; }
 
+        /// <summary>Gets the factory used to create mutable collection instances.</summary>
         public Func<int, IList>? CreateList { get; private set; }
 
+        /// <summary>Gets the converter used to finalize mutable list storage into the target collection type.</summary>
         public Func<IList, object>? FinalizeList { get; private set; }
 
+        /// <summary>Gets the factory used to create dictionary instances.</summary>
         public Func<IDictionary>? CreateDictionary { get; private set; }
 
         public static TypePlan Unsupported(Type type) => new TypePlan(type, PlanKind.Unsupported);

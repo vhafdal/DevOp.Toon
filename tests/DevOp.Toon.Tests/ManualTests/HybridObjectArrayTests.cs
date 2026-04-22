@@ -99,6 +99,36 @@ public class HybridObjectArrayTests
         Assert.Equal(7, decoded[1].Warehouses?[0].QuantityInStock);
     }
 
+    [Fact]
+    public void Encode_TypedColumnarObjectArray_WithNullableEnum_RoundTripsSuccessfully()
+    {
+        var rows = new List<SessionLikeRow>
+        {
+            new() { Id = 1, User = "alice", State = SessionState.Active },
+            new() { Id = 2, User = "bob", State = SessionState.Disconnected },
+            new() { Id = 3, User = "charlie", State = null }
+        };
+
+        var encoded = ToonEncoder.Encode(rows, new ToonEncodeOptions
+        {
+            ObjectArrayLayout = ToonObjectArrayLayout.Columnar
+        });
+
+        Assert.Contains("[3]{Id,User,State}:", encoded);
+        Assert.DoesNotContain("  State:", encoded);
+        Assert.Contains(" 1,alice,0", encoded);
+        Assert.Contains(" 2,bob,4", encoded);
+        Assert.Contains(" 3,charlie,null", encoded);
+
+        var decoded = ToonDecoder.Decode<List<SessionLikeRow>>(encoded);
+
+        Assert.NotNull(decoded);
+        Assert.Equal(3, decoded!.Count);
+        Assert.Equal(SessionState.Active, decoded[0].State);
+        Assert.Equal(SessionState.Disconnected, decoded[1].State);
+        Assert.Null(decoded[2].State);
+    }
+
     private static ProductRow[] CreateRows()
     {
         return
@@ -146,5 +176,19 @@ public class HybridObjectArrayTests
     {
         public string? Number { get; set; }
         public int QuantityInStock { get; set; }
+    }
+
+    private sealed class SessionLikeRow
+    {
+        public int Id { get; set; }
+        public string? User { get; set; }
+        public SessionState? State { get; set; }
+    }
+
+    private enum SessionState
+    {
+        Active = 0,
+        Connected = 1,
+        Disconnected = 4
     }
 }

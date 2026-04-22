@@ -10,7 +10,7 @@
 
 		<!-- Package Information -->
 		<PackageId>DevOp.Toon</PackageId>
-		<Version>0.2.6</Version>
+		<Version>0.2.7</Version>
 		<Authors>Þorvaldur Hafdal</Authors>
 		<Company>DevOp</Company>
 		<Description>Token-Oriented Object Notation (TOON) - a token-efficient JSON alternative for LLM prompts</Description>
@@ -27,7 +27,13 @@
 		<Title>DevOp Toon</Title>
 		<Copyright>Þorvaldur Hafdal(DevOp)</Copyright>
 		<PackageIcon>Assets\DevOp.Toon-128.png</PackageIcon>
-		<PackageReleaseNotes>Updates default encoding to compact columnar output and fixes JsonElement object-list normalization.</PackageReleaseNotes>
+		<PackageReleaseNotes>Improves encoder and decoder performance by removing LINQ allocations from hot paths and making the plan cache lock-free. Fixes typed round-tripping for nullable enums and broader BCL scalar types, and improves XML documentation across public and internal APIs.
+- Improves throughput by replacing LINQ .All() with foreach loops in NativeNormalize, NativeEncoders, and NativePathExpansion
+- Improves concurrency safety of ClrEncodePlanCache by switching from lock+Dictionary to ConcurrentDictionary.GetOrAdd
+- Improves encoder efficiency by lazy-allocating the siblings array only when KeyFolding is Safe
+- Removes unused System.Linq imports from NativeNormalize and NativePathExpansion
+- Fixes typed round-tripping for nullable enums and broader BCL scalar types
+- Improves XML documentation across public and internal APIs</PackageReleaseNotes>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
 

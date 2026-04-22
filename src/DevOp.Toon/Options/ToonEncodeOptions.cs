@@ -6,7 +6,7 @@ using DevOp.Toon.Internal.Encode;
 namespace DevOp.Toon;
 
 /// <summary>
-/// Options for encoding data to TOON format.
+/// Options that control how CLR values and TOON nodes are encoded as TOON text.
 /// </summary>
 public class ToonEncodeOptions
 {
@@ -20,9 +20,9 @@ public class ToonEncodeOptions
     private ResolvedEncodeOptions? cachedResolvedOptions;
 
     /// <summary>
-    /// Number of spaces per indentation level.
+    /// Gets or sets the number of spaces to write for each indentation level.
     /// </summary>
-    /// <remarks>Default is 1</remarks>
+    /// <remarks>The default value is 1. Encoding throws when this value is less than or equal to zero.</remarks>
     public int Indent
     {
         get => indent;
@@ -37,10 +37,9 @@ public class ToonEncodeOptions
     }
 
     /// <summary>
-    /// Delimiter to use for tabular array rows and inline primitive arrays.
-    /// Default is comma (,).
+    /// Gets or sets the delimiter used for tabular array rows and inline primitive arrays.
     /// </summary>
-    /// <remarks>Default is <see cref="ToonDelimiter.COMMA"/></remarks>
+    /// <remarks>The default value is <see cref="ToonDelimiter.COMMA"/>.</remarks>
     public ToonDelimiter Delimiter
     {
         get => delimiter;
@@ -55,12 +54,12 @@ public class ToonEncodeOptions
     }
 
     /// <summary>
-    /// Enable key folding to collapse single-key wrapper chains.
-    /// When set to <see cref="ToonKeyFolding.Safe"/>, nested objects with single keys are
-    /// collapsed into dotted paths
-    /// (e.g., data.metadata.items instead of nested indentation).
+    /// Gets or sets whether eligible single-key wrapper objects are collapsed into dotted keys.
     /// </summary>
-    /// <remarks>Default is <see cref="ToonKeyFolding.Off"/></remarks>
+    /// <remarks>
+    /// The default value is <see cref="ToonKeyFolding.Off"/>. When set to <see cref="ToonKeyFolding.Safe"/>,
+    /// chains such as <c>data.metadata.items</c> can be written as a folded path instead of nested indentation.
+    /// </remarks>
     public ToonKeyFolding KeyFolding
     {
         get => keyFolding;
@@ -75,11 +74,12 @@ public class ToonEncodeOptions
     }
 
     /// <summary>
-    /// Maximum number of segments to fold when <see cref="ToonEncodeOptions.KeyFolding"/> is enabled.
-    /// Controls how deep the folding can go in single-key chains.
-    /// Values 0 or 1 have no practical effect (treated as effectively disabled).
+    /// Gets or sets the maximum number of path segments to fold when <see cref="KeyFolding"/> is enabled.
     /// </summary>
-    /// <remarks>Default is <see cref="int.MaxValue"/></remarks>
+    /// <remarks>
+    /// The default value is <see cref="int.MaxValue"/>. A <see langword="null"/> value is treated as unlimited;
+    /// values 0 or 1 have no practical folding effect.
+    /// </remarks>
     public int? FlattenDepth
     {
         get => flattenDepth;
@@ -94,9 +94,12 @@ public class ToonEncodeOptions
     }
 
     /// <summary>
-    /// Controls how arrays of objects are encoded.
+    /// Gets or sets how arrays of objects are encoded.
     /// </summary>
-    /// <remarks>Default is <see cref="ToonObjectArrayLayout.Columnar"/></remarks>
+    /// <remarks>
+    /// The default value is <see cref="ToonObjectArrayLayout.Columnar"/>, which writes shared scalar properties
+    /// as columns and emits complex per-row fields below the row where needed.
+    /// </remarks>
     public ToonObjectArrayLayout ObjectArrayLayout
     {
         get => objectArrayLayout;
@@ -111,10 +114,12 @@ public class ToonEncodeOptions
     }
 
     /// <summary>
-    /// When <see langword="true"/>, columns where every row has a <see langword="null"/> or empty-string value
-    /// are omitted from the tabular header and all value rows, reducing output size.
+    /// Gets or sets whether all-null and all-empty-string columns are omitted from columnar object arrays.
     /// </summary>
-    /// <remarks>Default is <see langword="true"/></remarks>
+    /// <remarks>
+    /// The default value is <see langword="true"/>. Mixed columns are preserved when at least one row contains
+    /// a non-null, non-empty value.
+    /// </remarks>
     public bool IgnoreNullOrEmpty
     {
         get => ignoreNullOrEmpty;
@@ -129,10 +134,12 @@ public class ToonEncodeOptions
     }
 
     /// <summary>
-    /// When <see langword="true"/>, properties whose value is an empty array are omitted from
-    /// the output entirely — they are excluded from tabular spill rows and regular object output.
+    /// Gets or sets whether empty array properties are omitted from the encoded output.
     /// </summary>
-    /// <remarks>Default is <see langword="true"/></remarks>
+    /// <remarks>
+    /// The default value is <see langword="true"/>. This applies to regular object properties and columnar
+    /// spill rows, reducing payload size when empty collections do not need to be preserved.
+    /// </remarks>
     public bool ExcludeEmptyArrays
     {
         get => excludeEmptyArrays;

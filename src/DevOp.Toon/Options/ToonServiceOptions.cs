@@ -4,7 +4,7 @@ using DevOp.Toon.Core;
 namespace DevOp.Toon;
 
 /// <summary>
-/// Combined service options for TOON encoding and decoding.
+/// Combined encode and decode options used by <see cref="ToonService"/> and dependency injection registration.
 /// </summary>
 public sealed class ToonServiceOptions
 {
@@ -19,8 +19,9 @@ public sealed class ToonServiceOptions
     public ToonDecodeOptions Decode { get; } = new();
 
     /// <summary>
-    /// Shared indentation width applied to both encode and decode defaults.
+    /// Gets or sets the indentation width applied to both <see cref="Encode"/> and <see cref="Decode"/> defaults.
     /// </summary>
+    /// <remarks>Use this convenience property when the service should read and write the same indentation width.</remarks>
     public int Indent
     {
         get => Encode.Indent;
@@ -32,7 +33,7 @@ public sealed class ToonServiceOptions
     }
 
     /// <summary>
-    /// Encoder delimiter setting.
+    /// Gets or sets the delimiter used by the service's default encoder options.
     /// </summary>
     public ToonDelimiter Delimiter
     {
@@ -41,7 +42,7 @@ public sealed class ToonServiceOptions
     }
 
     /// <summary>
-    /// Encoder key folding setting.
+    /// Gets or sets the key folding mode used by the service's default encoder options.
     /// </summary>
     public ToonKeyFolding KeyFolding
     {
@@ -50,7 +51,7 @@ public sealed class ToonServiceOptions
     }
 
     /// <summary>
-    /// Encoder flatten depth setting.
+    /// Gets or sets the maximum folded path depth used by the service's default encoder options.
     /// </summary>
     public int? FlattenDepth
     {
@@ -59,7 +60,7 @@ public sealed class ToonServiceOptions
     }
 
     /// <summary>
-    /// Object array layout setting.
+    /// Gets or sets the object-array layout used by the service's default encoder options.
     /// </summary>
     public ToonObjectArrayLayout ObjectArrayLayout
     {
@@ -68,7 +69,7 @@ public sealed class ToonServiceOptions
     }
 
     /// <summary>
-    /// Decoder strict mode setting.
+    /// Gets or sets whether the service's default decoder options enforce strict structural validation.
     /// </summary>
     public bool Strict
     {
@@ -77,7 +78,7 @@ public sealed class ToonServiceOptions
     }
 
     /// <summary>
-    /// Decoder path expansion setting.
+    /// Gets or sets how the service's default decoder options handle dotted object keys.
     /// </summary>
     public ToonPathExpansion ExpandPaths
     {
