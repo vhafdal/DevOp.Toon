@@ -61,6 +61,11 @@ public static class Program
             return;
         }
 
+        if (ByteSequenceProfiler.TryRun(args))
+        {
+            return;
+        }
+
         if (BenchmarkReportExporter.TryRun(args))
         {
             return;

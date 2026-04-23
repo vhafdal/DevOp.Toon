@@ -19,6 +19,8 @@ internal sealed class ResolvedEncodeOptions
     public int FlattenDepth { get; set; } = int.MaxValue;
     /// <summary>Gets or sets the object-array layout strategy.</summary>
     public ToonObjectArrayLayout ObjectArrayLayout { get; set; } = ToonObjectArrayLayout.Auto;
+    /// <summary>Gets or sets how CLR byte arrays are encoded.</summary>
+    public ToonByteArrayFormat ByteArrayFormat { get; set; } = ToonByteArrayFormat.NumericArray;
     /// <summary>Gets or sets whether all-null and all-empty-string columns are suppressed.</summary>
     public bool IgnoreNullOrEmpty { get; set; } = false;
     /// <summary>Gets or sets whether empty array properties are omitted.</summary>

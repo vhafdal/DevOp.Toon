@@ -332,6 +332,34 @@ internal static class NativeTypedMaterializer
 
     private static bool TryConvertCollection(NativeNode? node, TypePlan plan, out object? value)
     {
+        if (plan.ElementPlan?.Type == typeof(byte) &&
+            node is NativePrimitiveNode { Value: string base64Text })
+        {
+            try
+            {
+                var bytes = Convert.FromBase64String(base64Text);
+                if (plan.Kind == PlanKind.Array && plan.Type == typeof(byte[]))
+                {
+                    value = bytes;
+                    return true;
+                }
+
+                var byteList = plan.CreateList!(bytes.Length);
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    byteList.Add(bytes[i]);
+                }
+
+                value = plan.FinalizeList!(byteList);
+                return true;
+            }
+            catch (FormatException)
+            {
+                value = null;
+                return false;
+            }
+        }
+
         if (node is not NativeArrayNode arrayNode || plan.ElementPlan == null || plan.CreateList == null || plan.FinalizeList == null)
         {
             value = null;

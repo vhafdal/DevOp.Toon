@@ -18,6 +18,7 @@ public class ToonEncoderTests
         Assert.Equal(ToonDelimiter.COMMA, options.Delimiter);
         Assert.Equal(ToonKeyFolding.Off, options.KeyFolding);
         Assert.Equal(ToonObjectArrayLayout.Columnar, options.ObjectArrayLayout);
+        Assert.Equal(ToonByteArrayFormat.Base64String, options.ByteArrayFormat);
         Assert.True(options.IgnoreNullOrEmpty);
         Assert.True(options.ExcludeEmptyArrays);
     }

@@ -23,6 +23,14 @@ internal static class NativeNormalize
     /// <returns>The normalized native node, or a null primitive for unsupported leaf values.</returns>
     public static NativeNode? Normalize(object? value)
     {
+        return Normalize(value, options: null);
+    }
+
+    public static NativeNode? Normalize(object? value, ResolvedEncodeOptions? options)
+    {
+        if (TryNormalizeByteSequence(value, options, out var byteSequencePrimitive))
+            return byteSequencePrimitive;
+
         if (TryNormalizePrimitive(value, out var primitive))
             return primitive;
 
@@ -37,7 +45,7 @@ internal static class NativeNormalize
             var objectNode = new NativeObjectNode();
             foreach (DictionaryEntry entry in dict)
             {
-                objectNode[entry.Key?.ToString() ?? string.Empty] = Normalize(entry.Value);
+                objectNode[entry.Key?.ToString() ?? string.Empty] = Normalize(entry.Value, options);
             }
 
             return objectNode;
@@ -48,7 +56,7 @@ internal static class NativeNormalize
             var arrayNode = new NativeArrayNode();
             foreach (var item in enumerable)
             {
-                arrayNode.Add(Normalize(item));
+                arrayNode.Add(Normalize(item, options));
             }
 
             return arrayNode;
@@ -59,7 +67,7 @@ internal static class NativeNormalize
             var objectNode = new NativeObjectNode();
             foreach (var property in GetProperties(plainObject.GetType()))
             {
-                objectNode[property.Name] = Normalize(property.Getter(plainObject));
+                objectNode[property.Name] = Normalize(property.Getter(plainObject), options);
             }
 
             return objectNode;
@@ -76,6 +84,14 @@ internal static class NativeNormalize
     /// <returns>The normalized native node, or a null primitive for unsupported leaf values.</returns>
     public static NativeNode? Normalize<T>(T value)
     {
+        return Normalize((object?)value, options: null);
+    }
+
+    public static NativeNode? Normalize<T>(T value, ResolvedEncodeOptions? options)
+    {
+        if (TryNormalizeByteSequence(value, options, out var byteSequencePrimitive))
+            return byteSequencePrimitive;
+
         if (TryNormalizePrimitive(value, out var primitive))
             return primitive;
 
@@ -90,7 +106,7 @@ internal static class NativeNormalize
             var objectNode = new NativeObjectNode();
             foreach (DictionaryEntry entry in dict)
             {
-                objectNode[entry.Key?.ToString() ?? string.Empty] = Normalize(entry.Value);
+                objectNode[entry.Key?.ToString() ?? string.Empty] = Normalize(entry.Value, options);
             }
 
             return objectNode;
@@ -101,7 +117,7 @@ internal static class NativeNormalize
             var arrayNode = new NativeArrayNode();
             foreach (var item in enumerable)
             {
-                arrayNode.Add(Normalize(item));
+                arrayNode.Add(Normalize(item, options));
             }
 
             return arrayNode;
@@ -112,13 +128,26 @@ internal static class NativeNormalize
             var objectNode = new NativeObjectNode();
             foreach (var property in GetProperties(plainObject.GetType()))
             {
-                objectNode[property.Name] = Normalize(property.Getter(plainObject));
+                objectNode[property.Name] = Normalize(property.Getter(plainObject), options);
             }
 
             return objectNode;
         }
 
         return new NativePrimitiveNode(null);
+    }
+
+    private static bool TryNormalizeByteSequence(object? value, ResolvedEncodeOptions? options, out NativePrimitiveNode primitive)
+    {
+        if (options?.ByteArrayFormat == ToonByteArrayFormat.Base64String &&
+            ByteSequenceText.TryToBase64String(value, out var base64))
+        {
+            primitive = new NativePrimitiveNode(base64);
+            return true;
+        }
+
+        primitive = default!;
+        return false;
     }
 
     /// <summary>

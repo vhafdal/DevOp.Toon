@@ -33,7 +33,7 @@ internal static class ProductDecodeProfiler
         var toonProducts = LoadProductsFromToon(productCount);
         var jsonText = JsonSerializer.Serialize(products, ProductSerializerOptions);
         var toonText = ToonEncoder.Encode(toonProducts);
-        var decodeOptions = CreateProfilingDecodeOptions();
+        var decodeOptions = CreateProfilingDecodeOptions(toonText);
         var harness = ReflectionHarness.Create(decodeOptions);
 
         // Warm up JIT and reflection plumbing before measuring.
@@ -167,15 +167,15 @@ internal static class ProductDecodeProfiler
         return null;
     }
 
-    private static ToonDecodeOptions CreateProfilingDecodeOptions()
+    private static ToonDecodeOptions CreateProfilingDecodeOptions(string toonText)
     {
         var defaults = ToonDecoder.DefaultOptions;
-        return new ToonDecodeOptions
+        return ToonDecoder.DetectOptions(toonText, new ToonDecodeOptions
         {
             ExpandPaths = defaults.ExpandPaths,
             Strict = defaults.Strict,
             Indent = defaults.Indent > 0 ? defaults.Indent : 2
-        };
+        });
     }
 
     private readonly record struct MeasurementResult(TimeSpan Elapsed, long AllocatedBytes);

@@ -10,7 +10,7 @@
 
 		<!-- Package Information -->
 		<PackageId>DevOp.Toon</PackageId>
-		<Version>0.2.7</Version>
+		<Version>0.2.8</Version>
 		<Authors>Þorvaldur Hafdal</Authors>
 		<Company>DevOp</Company>
 		<Description>Token-Oriented Object Notation (TOON) - a token-efficient JSON alternative for LLM prompts</Description>
@@ -27,11 +27,11 @@
 		<Title>DevOp Toon</Title>
 		<Copyright>Þorvaldur Hafdal(DevOp)</Copyright>
 		<PackageIcon>Assets\DevOp.Toon-128.png</PackageIcon>
-		<PackageReleaseNotes>Adds content-type-aware service deserialization for TOON and JSON payloads.
-- Adds IToonService.Deserialize&lt;T&gt; overloads that select TOON or JSON decoding from the content type
-- Adds support for application/toon, text/toon, +toon, application/json, text/json, and +json payloads
-- Improves service ergonomics by converting JSON payloads through TOON before typed decoding
-- Fixes unsupported media handling by throwing NotSupportedException for unknown content types</PackageReleaseNotes>
+		<PackageReleaseNotes>Improves byte sequence handling for TOON encode and decode workflows.
+- Adds ByteArrayFormat encode options so byte sequences can be written as Base64 strings or numeric arrays
+- Improves default byte sequence encoding by using Base64 output for byte[], List&lt;byte&gt;, and IEnumerable&lt;byte&gt;
+- Fixes typed decode so byte[], List&lt;byte&gt;, and IEnumerable&lt;byte&gt; accept Base64 strings and numeric arrays automatically
+- Improves byte sequence performance with span-based and pooled buffering paths plus dedicated benchmark coverage</PackageReleaseNotes>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
 

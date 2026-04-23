@@ -1,6 +1,8 @@
 ﻿#nullable enable
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -197,7 +199,7 @@ public static class ToonDecoder
         var scanResult = Scanner.ToParsedLines(toonString, decodeOptions.Indent, decodeOptions.Strict);
         var shouldExpandPaths = ShouldApplyRootPathExpansion(scanResult, decodeOptions.ExpandPaths);
 
-        if (!shouldExpandPaths)
+        if (!shouldExpandPaths && !RequiresNativeByteSequenceMaterialization(typeof(T)))
         {
             return TypedDecoder.Decode<T>(scanResult, decodeOptions);
         }
@@ -320,6 +322,68 @@ public static class ToonDecoder
         }
 
         return true;
+    }
+
+    private static bool RequiresNativeByteSequenceMaterialization(Type type)
+    {
+        return RequiresNativeByteSequenceMaterialization(type, new HashSet<Type>());
+    }
+
+    private static bool RequiresNativeByteSequenceMaterialization(Type type, HashSet<Type> visited)
+    {
+        if (!visited.Add(type))
+        {
+            return false;
+        }
+
+        if (type == typeof(byte[]) || IsByteSequenceCollectionType(type))
+        {
+            return true;
+        }
+
+        if (type.IsArray)
+        {
+            var elementType = type.GetElementType();
+            return elementType is not null && RequiresNativeByteSequenceMaterialization(elementType, visited);
+        }
+
+        if ((!type.IsClass && !type.IsValueType) || type == typeof(string))
+        {
+            return false;
+        }
+
+        var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        for (int i = 0; i < properties.Length; i++)
+        {
+            var property = properties[i];
+            if (!property.CanWrite || property.GetIndexParameters().Length != 0)
+            {
+                continue;
+            }
+
+            if (RequiresNativeByteSequenceMaterialization(property.PropertyType, visited))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsByteSequenceCollectionType(Type type)
+    {
+        if (!type.IsGenericType)
+        {
+            return false;
+        }
+
+        var genericDefinition = type.GetGenericTypeDefinition();
+        return (genericDefinition == typeof(List<>) ||
+                genericDefinition == typeof(IList<>) ||
+                genericDefinition == typeof(ICollection<>) ||
+                genericDefinition == typeof(IEnumerable<>) ||
+                genericDefinition == typeof(IReadOnlyList<>)) &&
+               type.GetGenericArguments()[0] == typeof(byte);
     }
 
     private static bool IsKeyValueLine(string content)

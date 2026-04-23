@@ -15,6 +15,7 @@ public class ToonEncodeOptions
     private ToonKeyFolding keyFolding = ToonKeyFolding.Off;
     private int? flattenDepth = int.MaxValue;
     private ToonObjectArrayLayout objectArrayLayout = ToonObjectArrayLayout.Columnar;
+    private ToonByteArrayFormat byteArrayFormat = ToonByteArrayFormat.Base64String;
     private bool ignoreNullOrEmpty = true;
     private bool excludeEmptyArrays = true;
     private ResolvedEncodeOptions? cachedResolvedOptions;
@@ -114,6 +115,26 @@ public class ToonEncodeOptions
     }
 
     /// <summary>
+    /// Gets or sets how CLR <see cref="byte"/> arrays are encoded.
+    /// </summary>
+    /// <remarks>
+    /// The default value is <see cref="ToonByteArrayFormat.Base64String"/>, which treats <see cref="byte"/> arrays as opaque binary payloads.
+    /// Use <see cref="ToonByteArrayFormat.NumericArray"/> to preserve JSON-like array shape.
+    /// </remarks>
+    public ToonByteArrayFormat ByteArrayFormat
+    {
+        get => byteArrayFormat;
+        set
+        {
+            if (byteArrayFormat == value)
+                return;
+
+            byteArrayFormat = value;
+            cachedResolvedOptions = null;
+        }
+    }
+
+    /// <summary>
     /// Gets or sets whether all-null and all-empty-string columns are omitted from columnar object arrays.
     /// </summary>
     /// <remarks>
@@ -162,6 +183,7 @@ public class ToonEncodeOptions
             KeyFolding = keyFolding,
             FlattenDepth = flattenDepth ?? int.MaxValue,
             ObjectArrayLayout = objectArrayLayout,
+            ByteArrayFormat = byteArrayFormat,
             IgnoreNullOrEmpty = ignoreNullOrEmpty,
             ExcludeEmptyArrays = excludeEmptyArrays
         };

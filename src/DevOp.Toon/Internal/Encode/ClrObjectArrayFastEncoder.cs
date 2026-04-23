@@ -344,6 +344,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static void EncodeClrNamedValue(string key, object? rawValue, LineWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (TryEncodeByteSequenceAsBase64(NativePrimitives.EncodeKey(key), rawValue, writer, depth, options))
+        {
+            return;
+        }
+
         if (NativeNormalize.IsPrimitiveOrNull(rawValue))
         {
             if (options.IgnoreNullOrEmpty && (rawValue is null || rawValue is string { Length: 0 }))
@@ -384,6 +389,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static void EncodeClrPropertyValue(NativeNormalize.PropertyMetadata property, object? rawValue, LineWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (TryEncodeByteSequenceAsBase64(property.EncodedName, rawValue, writer, depth, options))
+        {
+            return;
+        }
+
         if (NativeNormalize.IsPrimitiveOrNull(rawValue))
         {
             if (options.IgnoreNullOrEmpty && (rawValue is null || rawValue is string { Length: 0 }))
@@ -426,6 +436,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static void EncodeClrNamedValue(string key, object? rawValue, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (TryEncodeByteSequenceAsBase64(NativePrimitives.EncodeKey(key), rawValue, writer, depth, options))
+        {
+            return;
+        }
+
         if (NativeNormalize.IsPrimitiveOrNull(rawValue))
         {
             if (options.IgnoreNullOrEmpty && (rawValue is null || rawValue is string { Length: 0 }))
@@ -463,6 +478,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static void EncodeClrPropertyValue(NativeNormalize.PropertyMetadata property, object? rawValue, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (TryEncodeByteSequenceAsBase64(property.EncodedName, rawValue, writer, depth, options))
+        {
+            return;
+        }
+
         if (NativeNormalize.IsPrimitiveOrNull(rawValue))
         {
             if (options.IgnoreNullOrEmpty && (rawValue is null || rawValue is string { Length: 0 }))
@@ -548,6 +568,20 @@ internal static class ClrObjectArrayFastEncoder
 
     private static CompactWriterPropertyEmitter BuildPlainObjectPropertyEmitter(NativeNormalize.PropertyMetadata property)
     {
+        if (property.EnumerableElementType == typeof(byte))
+        {
+            return (instance, writer, depth, options) =>
+            {
+                var rawValue = property.Getter(instance);
+                if (TryEncodeByteSequenceAsBase64(property.EncodedName, rawValue, writer, depth, options))
+                {
+                    return;
+                }
+
+                EncodeClrPropertyValue(property, rawValue, writer, depth, options);
+            };
+        }
+
         // Primitive: use typed field writer to avoid boxing value types (int, bool, decimal, etc.)
         if (NativeNormalize.IsPrimitiveClrType(property.Info.PropertyType))
         {
@@ -1228,6 +1262,48 @@ internal static class ClrObjectArrayFastEncoder
         }
 
         return emitters;
+    }
+
+    private static bool TryEncodeByteSequenceAsBase64(string encodedKey, object? rawValue, LineWriter writer, int depth, ResolvedEncodeOptions options)
+    {
+        if (options.ByteArrayFormat != ToonByteArrayFormat.Base64String ||
+            !ByteSequenceText.TryToBase64String(rawValue, out var base64))
+        {
+            return false;
+        }
+
+        if (options.IgnoreNullOrEmpty && string.IsNullOrEmpty(base64))
+        {
+            return true;
+        }
+
+        var sb = writer.BeginLine(depth);
+        sb.Append(encodedKey);
+        sb.Append(Constants.COLON);
+        sb.Append(Constants.SPACE);
+        NativePrimitives.AppendPrimitiveRaw(sb, base64, options.Delimiter);
+        return true;
+    }
+
+    private static bool TryEncodeByteSequenceAsBase64(string encodedKey, object? rawValue, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
+    {
+        if (options.ByteArrayFormat != ToonByteArrayFormat.Base64String ||
+            !ByteSequenceText.TryToBase64String(rawValue, out var base64))
+        {
+            return false;
+        }
+
+        if (options.IgnoreNullOrEmpty && string.IsNullOrEmpty(base64))
+        {
+            return true;
+        }
+
+        writer.StartLine(depth);
+        writer.Append(encodedKey);
+        writer.Append(Constants.COLON);
+        writer.Append(Constants.SPACE);
+        NativePrimitives.AppendPrimitiveRaw(writer, base64, options.Delimiter);
+        return true;
     }
 
     private static CompactWriterPropertyEmitter[] BuildCompactNonHeaderEmitters(

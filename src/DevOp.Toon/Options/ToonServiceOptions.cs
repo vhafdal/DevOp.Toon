@@ -69,6 +69,15 @@ public sealed class ToonServiceOptions
     }
 
     /// <summary>
+    /// Gets or sets how CLR <see cref="byte"/> arrays are encoded and decoded by the service defaults.
+    /// </summary>
+    public ToonByteArrayFormat ByteArrayFormat
+    {
+        get => Encode.ByteArrayFormat;
+        set => Encode.ByteArrayFormat = value;
+    }
+
+    /// <summary>
     /// Gets or sets whether the service's default decoder options enforce strict structural validation.
     /// </summary>
     public bool Strict
@@ -95,6 +104,7 @@ public sealed class ToonServiceOptions
             KeyFolding = Encode.KeyFolding,
             FlattenDepth = Encode.FlattenDepth,
             ObjectArrayLayout = Encode.ObjectArrayLayout,
+            ByteArrayFormat = Encode.ByteArrayFormat,
             IgnoreNullOrEmpty = Encode.IgnoreNullOrEmpty,
             ExcludeEmptyArrays = Encode.ExcludeEmptyArrays
         };

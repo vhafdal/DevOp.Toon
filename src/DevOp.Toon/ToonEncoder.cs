@@ -142,7 +142,7 @@ public static class ToonEncoder
             return fastEncoded;
         }
 
-        var normalized = NativeNormalize.Normalize(data);
+        var normalized = NativeNormalize.Normalize(data, resolvedOptions);
         return NativeEncoders.EncodeValue(normalized, resolvedOptions);
     }
 
@@ -153,7 +153,7 @@ public static class ToonEncoder
             return fastEncoded;
         }
 
-        var normalized = NativeNormalize.Normalize<T>(data);
+        var normalized = NativeNormalize.Normalize(data, resolvedOptions);
         return NativeEncoders.EncodeValue(normalized, resolvedOptions);
     }
 
@@ -472,7 +472,7 @@ public static class ToonEncoder
         // Fallback: exotic types that the fast path doesn't handle.
         // Large buffer avoids frequent StreamWriter flushes for a ~1.5 MB output.
         using var writer = new StreamWriter(destination, Utf8WithoutBom, 4096, leaveOpen: true);
-        var text = NativeEncoders.EncodeValue(NativeNormalize.Normalize(data), resolvedOptions);
+        var text = NativeEncoders.EncodeValue(NativeNormalize.Normalize(data, resolvedOptions), resolvedOptions);
         writer.Write(text);
         writer.Flush();
     }
@@ -487,7 +487,7 @@ public static class ToonEncoder
 
         // Fallback: exotic types that the fast path doesn't handle.
         using var writer = new StreamWriter(destination, Utf8WithoutBom, 4096, leaveOpen: true);
-        var text = NativeEncoders.EncodeValue(NativeNormalize.Normalize(data), resolvedOptions);
+        var text = NativeEncoders.EncodeValue(NativeNormalize.Normalize(data, resolvedOptions), resolvedOptions);
         await writer.WriteAsync(text).ConfigureAwait(false);
         await writer.FlushAsync().ConfigureAwait(false);
     }
