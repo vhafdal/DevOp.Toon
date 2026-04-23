@@ -229,6 +229,58 @@ public sealed class ToonService : IToonService
         return ToonDecoder.Toon2Json(toonString, options);
     }
 
+    /// <summary>
+    /// Deserializes a payload body into the specified CLR type using the content type to select the decoder.
+    /// </summary>
+    /// <typeparam name="T">The target CLR type.</typeparam>
+    /// <param name="body">The raw payload string.</param>
+    /// <param name="contentType">The media type of the payload.</param>
+    /// <returns>The deserialized value.</returns>
+    public T? Deserialize<T>(string body, string contentType)
+    {
+        if (IsToonContentType(contentType))
+            return Decode<T>(body);
+
+        if (IsJsonContentType(contentType))
+            return Decode<T>(Json2Toon(body));
+
+        throw new NotSupportedException(
+            $"Content type '{contentType}' is not supported by Deserialize<T>. " +
+            "Use a TOON (application/toon, text/toon) or JSON (application/json, text/json) content type.");
+    }
+
+    /// <summary>
+    /// Deserializes a payload body into the specified CLR type using the content type to select the decoder,
+    /// applying the provided decode options for the TOON decode step.
+    /// </summary>
+    /// <typeparam name="T">The target CLR type.</typeparam>
+    /// <param name="body">The raw payload string.</param>
+    /// <param name="contentType">The media type of the payload.</param>
+    /// <param name="options">The decode options to apply when decoding the TOON representation.</param>
+    /// <returns>The deserialized value.</returns>
+    public T? Deserialize<T>(string body, string contentType, ToonDecodeOptions options)
+    {
+        if (IsToonContentType(contentType))
+            return Decode<T>(body, options);
+
+        if (IsJsonContentType(contentType))
+            return Decode<T>(Json2Toon(body), options);
+
+        throw new NotSupportedException(
+            $"Content type '{contentType}' is not supported by Deserialize<T>. " +
+            "Use a TOON (application/toon, text/toon) or JSON (application/json, text/json) content type.");
+    }
+
+    private static bool IsToonContentType(string contentType) =>
+        contentType.Equals(ToonMediaTypes.Application, StringComparison.OrdinalIgnoreCase)
+        || contentType.Equals(ToonMediaTypes.Text, StringComparison.OrdinalIgnoreCase)
+        || contentType.EndsWith("+toon", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsJsonContentType(string contentType) =>
+        contentType.Equals("application/json", StringComparison.OrdinalIgnoreCase)
+        || contentType.Equals("text/json", StringComparison.OrdinalIgnoreCase)
+        || contentType.EndsWith("+json", StringComparison.OrdinalIgnoreCase);
+
     private static ToonDecodeOptions CloneDecodeOptions(ToonDecodeOptions options)
     {
         return new ToonDecodeOptions

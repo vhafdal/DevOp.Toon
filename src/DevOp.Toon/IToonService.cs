@@ -149,4 +149,45 @@ public interface IToonService
     /// <param name="options">The decode options to apply for this operation.</param>
     /// <returns>A minified JSON string.</returns>
     string Toon2Json(string toonString, ToonDecodeOptions options);
+
+    /// <summary>
+    /// Deserializes a payload body into the requested target type using the <paramref name="contentType"/>
+    /// to select the appropriate decoder.
+    /// </summary>
+    /// <remarks>
+    /// Supported content types are <c>application/toon</c>, <c>text/toon</c>, any <c>+toon</c> suffix type,
+    /// <c>application/json</c>, <c>text/json</c>, and any <c>+json</c> suffix type.
+    /// JSON payloads are converted to TOON first via <see cref="Json2Toon(string)"/> before decoding.
+    /// </remarks>
+    /// <typeparam name="T">The CLR type to materialize from the payload.</typeparam>
+    /// <param name="body">The raw payload string to deserialize.</param>
+    /// <param name="contentType">The media type of the payload (e.g. <c>application/toon</c>, <c>application/json</c>).</param>
+    /// <returns>The deserialized value, or <see langword="default"/> when the payload represents a null value.</returns>
+    /// <exception cref="System.NotSupportedException">
+    /// Thrown when <paramref name="contentType"/> is not a recognized TOON or JSON media type,
+    /// or when the underlying decoder does not support materializing <typeparamref name="T"/> natively.
+    /// </exception>
+    T? Deserialize<T>(string body, string contentType);
+
+    /// <summary>
+    /// Deserializes a payload body into the requested target type using the <paramref name="contentType"/>
+    /// to select the appropriate decoder, applying the provided decode options for TOON payloads.
+    /// </summary>
+    /// <remarks>
+    /// Supported content types are <c>application/toon</c>, <c>text/toon</c>, any <c>+toon</c> suffix type,
+    /// <c>application/json</c>, <c>text/json</c>, and any <c>+json</c> suffix type.
+    /// JSON payloads are converted to TOON first via <see cref="Json2Toon(string)"/> before decoding.
+    /// The <paramref name="options"/> apply to the TOON decode step; they are not used for the initial
+    /// JSON-to-TOON conversion.
+    /// </remarks>
+    /// <typeparam name="T">The CLR type to materialize from the payload.</typeparam>
+    /// <param name="body">The raw payload string to deserialize.</param>
+    /// <param name="contentType">The media type of the payload (e.g. <c>application/toon</c>, <c>application/json</c>).</param>
+    /// <param name="options">The decode options to apply when decoding the TOON representation.</param>
+    /// <returns>The deserialized value, or <see langword="default"/> when the payload represents a null value.</returns>
+    /// <exception cref="System.NotSupportedException">
+    /// Thrown when <paramref name="contentType"/> is not a recognized TOON or JSON media type,
+    /// or when the underlying decoder does not support materializing <typeparamref name="T"/> natively.
+    /// </exception>
+    T? Deserialize<T>(string body, string contentType, ToonDecodeOptions options);
 }

@@ -27,13 +27,11 @@
 		<Title>DevOp Toon</Title>
 		<Copyright>Þorvaldur Hafdal(DevOp)</Copyright>
 		<PackageIcon>Assets\DevOp.Toon-128.png</PackageIcon>
-		<PackageReleaseNotes>Improves encoder and decoder performance by removing LINQ allocations from hot paths and making the plan cache lock-free. Fixes typed round-tripping for nullable enums and broader BCL scalar types, and improves XML documentation across public and internal APIs.
-- Improves throughput by replacing LINQ .All() with foreach loops in NativeNormalize, NativeEncoders, and NativePathExpansion
-- Improves concurrency safety of ClrEncodePlanCache by switching from lock+Dictionary to ConcurrentDictionary.GetOrAdd
-- Improves encoder efficiency by lazy-allocating the siblings array only when KeyFolding is Safe
-- Removes unused System.Linq imports from NativeNormalize and NativePathExpansion
-- Fixes typed round-tripping for nullable enums and broader BCL scalar types
-- Improves XML documentation across public and internal APIs</PackageReleaseNotes>
+		<PackageReleaseNotes>Adds content-type-aware service deserialization for TOON and JSON payloads.
+- Adds IToonService.Deserialize&lt;T&gt; overloads that select TOON or JSON decoding from the content type
+- Adds support for application/toon, text/toon, +toon, application/json, text/json, and +json payloads
+- Improves service ergonomics by converting JSON payloads through TOON before typed decoding
+- Fixes unsupported media handling by throwing NotSupportedException for unknown content types</PackageReleaseNotes>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
 
