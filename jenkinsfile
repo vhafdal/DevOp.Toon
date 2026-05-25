@@ -24,6 +24,8 @@ pipeline {
                 container('dotnet') {
                     sh """
                         dotnet --info
+                        rm -rf ${NUGET_OUTPUT}
+                        mkdir -p ${NUGET_OUTPUT}
                         dotnet restore ${PROJECT}
                         dotnet build ${PROJECT} -c ${CONFIG} --no-restore
                         dotnet test ${PROJECT} -c ${CONFIG} --no-build --logger "trx;LogFileName=test-results.trx"
@@ -41,6 +43,7 @@ pipeline {
                 container('dotnet') {
                     withCredentials([string(credentialsId: 'nuget-org-api-key', variable: 'NUGET_API_KEY')]) {
                         sh '''
+                            test -n "$(find ./nupkg -maxdepth 1 -name '*.nupkg' -print -quit)"
                             for pkg in ./nupkg/*.nupkg; do
                                 echo "Pushing $pkg to NuGet.org"
                                 dotnet nuget push "$pkg" \
