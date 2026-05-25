@@ -101,6 +101,11 @@ namespace DevOp.Toon.Internal.Decode
                     return TypePlan.Primitive(type);
                 }
 
+                if (TryBuildDictionaryPlan(type, building, out var dictionaryPlan))
+                {
+                    return dictionaryPlan;
+                }
+
                 if (TryBuildCollectionPlan(type, building, out var collectionPlan))
                 {
                     return collectionPlan;
@@ -111,16 +116,25 @@ namespace DevOp.Toon.Internal.Decode
                     return TypePlan.Unsupported(type);
                 }
 
-                var ctor = type.GetConstructor(Type.EmptyTypes);
-                if (ctor == null)
-                {
-                    return TypePlan.Unsupported(type);
-                }
+                return BuildObjectPlan(type, building);
+            }
+            finally
+            {
+                building.Remove(type);
+            }
+        }
 
-                var properties = new Dictionary<string, PropertyPlan>(StringComparer.Ordinal);
+        private static TypePlan BuildObjectPlan(Type type, HashSet<Type> building)
+        {
+            var properties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
+            var ctor = type.GetConstructor(Type.EmptyTypes);
+            if (ctor != null)
+            {
+                var writableProperties = new Dictionary<string, PropertyPlan>(StringComparer.Ordinal);
                 var aliases = new List<PropertyAlias>(16);
-                foreach (var property in type.GetProperties(BindingFlags.Instance | BindingFlags.Public))
+                for (int i = 0; i < properties.Length; i++)
                 {
+                    var property = properties[i];
                     if (!property.CanWrite || property.GetIndexParameters().Length != 0)
                     {
                         continue;
@@ -137,22 +151,215 @@ namespace DevOp.Toon.Internal.Decode
                         CreateSetter(property),
                         CreatePrimitiveSetter(property, propertyPlan));
                     var toonName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
-                    properties[property.Name] = propertyEntry;
+                    writableProperties[property.Name] = propertyEntry;
                     aliases.Add(new PropertyAlias(property.Name, propertyEntry));
                     if (toonName is { Length: > 0 })
                     {
-                        properties[toonName] = propertyEntry;
+                        writableProperties[toonName] = propertyEntry;
                         aliases.Add(new PropertyAlias(toonName, propertyEntry));
                     }
                 }
 
                 var propertyAliases = aliases.ToArray();
-                return TypePlan.Object(type, CreateFactory(ctor), properties, propertyAliases, BuildAliasBuckets(propertyAliases));
+                return TypePlan.Object(type, CreateFactory(ctor), writableProperties, propertyAliases, BuildAliasBuckets(propertyAliases));
             }
-            finally
+
+            if (IsFrameworkObjectType(type))
             {
-                building.Remove(type);
+                return TypePlan.Unsupported(type);
             }
+
+            return TryBuildConstructorObjectPlan(type, properties, building, out var constructorPlan)
+                ? constructorPlan
+                : TypePlan.Unsupported(type);
+        }
+
+        private static bool IsFrameworkObjectType(Type type)
+        {
+            return type.Namespace != null &&
+                   (type.Namespace == "System" || type.Namespace.StartsWith("System.", StringComparison.Ordinal));
+        }
+
+        private static bool TryBuildConstructorObjectPlan(
+            Type type,
+            PropertyInfo[] properties,
+            HashSet<Type> building,
+            out TypePlan plan)
+        {
+            plan = TypePlan.Unsupported(type);
+            var constructors = type.GetConstructors(BindingFlags.Instance | BindingFlags.Public);
+            ConstructorParameterPlan[]? bestParameters = null;
+            Dictionary<string, ConstructorParameterPlan>? bestLookup = null;
+            ConstructorInfo? bestConstructor = null;
+            bool ambiguous = false;
+
+            for (int i = 0; i < constructors.Length; i++)
+            {
+                var constructor = constructors[i];
+                var parameters = constructor.GetParameters();
+                if (parameters.Length == 0)
+                {
+                    continue;
+                }
+
+                if (!TryBuildConstructorParameters(constructor, properties, building, out var parameterPlans, out var lookup))
+                {
+                    continue;
+                }
+
+                if (bestParameters == null || parameterPlans.Length > bestParameters.Length)
+                {
+                    bestConstructor = constructor;
+                    bestParameters = parameterPlans;
+                    bestLookup = lookup;
+                    ambiguous = false;
+                }
+                else if (parameterPlans.Length == bestParameters.Length)
+                {
+                    ambiguous = true;
+                }
+            }
+
+            if (bestConstructor == null || bestParameters == null || bestLookup == null || ambiguous)
+            {
+                return false;
+            }
+
+            plan = TypePlan.Object(
+                type,
+                CreateConstructorFactory(bestConstructor),
+                bestParameters,
+                bestLookup);
+            return true;
+        }
+
+        private static bool TryBuildConstructorParameters(
+            ConstructorInfo constructor,
+            PropertyInfo[] properties,
+            HashSet<Type> building,
+            out ConstructorParameterPlan[] parameterPlans,
+            out Dictionary<string, ConstructorParameterPlan> lookup)
+        {
+            var parameters = constructor.GetParameters();
+            parameterPlans = new ConstructorParameterPlan[parameters.Length];
+            lookup = new Dictionary<string, ConstructorParameterPlan>(StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var parameter = parameters[i];
+                if (string.IsNullOrEmpty(parameter.Name))
+                {
+                    return false;
+                }
+
+                var parameterPlan = BuildPlan(parameter.ParameterType, building);
+                if (!parameterPlan.IsSupported)
+                {
+                    return false;
+                }
+
+                var parameterEntry = new ConstructorParameterPlan(
+                    i,
+                    parameter.Name!,
+                    parameterPlan,
+                    GetParameterDefaultValue(parameter));
+                parameterPlans[i] = parameterEntry;
+                AddConstructorAlias(lookup, parameter.Name!, parameterEntry);
+
+                var property = FindPropertyForParameter(properties, parameter.Name!);
+                if (property == null)
+                {
+                    continue;
+                }
+
+                AddConstructorAlias(lookup, property.Name, parameterEntry);
+                var toonName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
+                if (toonName is { Length: > 0 })
+                {
+                    AddConstructorAlias(lookup, toonName, parameterEntry);
+                }
+            }
+
+            return true;
+        }
+
+        private static void AddConstructorAlias(
+            Dictionary<string, ConstructorParameterPlan> lookup,
+            string alias,
+            ConstructorParameterPlan parameter)
+        {
+            if (alias.Length == 0)
+            {
+                return;
+            }
+
+            lookup[alias] = parameter;
+        }
+
+        private static PropertyInfo? FindPropertyForParameter(PropertyInfo[] properties, string parameterName)
+        {
+            for (int i = 0; i < properties.Length; i++)
+            {
+                var property = properties[i];
+                if (property.GetIndexParameters().Length == 0 &&
+                    string.Equals(property.Name, parameterName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return property;
+                }
+            }
+
+            return null;
+        }
+
+        private static object? GetParameterDefaultValue(ParameterInfo parameter)
+        {
+            if (parameter.HasDefaultValue &&
+                parameter.DefaultValue != DBNull.Value &&
+                parameter.DefaultValue != Type.Missing)
+            {
+                return parameter.DefaultValue;
+            }
+
+            return GetDefaultValue(parameter.ParameterType);
+        }
+
+        private static object? GetDefaultValue(Type type)
+        {
+            return type.IsValueType ? Activator.CreateInstance(type) : null;
+        }
+
+        private static bool TryBuildDictionaryPlan(Type type, HashSet<Type> building, out TypePlan plan)
+        {
+            plan = TypePlan.Unsupported(type);
+            if (!type.IsGenericType)
+            {
+                return false;
+            }
+
+            var genericDefinition = type.GetGenericTypeDefinition();
+            if ((genericDefinition != typeof(Dictionary<,>) &&
+                 genericDefinition != typeof(IDictionary<,>) &&
+                 genericDefinition != typeof(IReadOnlyDictionary<,>)) ||
+                type.GetGenericArguments()[0] != typeof(string))
+            {
+                return false;
+            }
+
+            var valueType = type.GetGenericArguments()[1];
+            var valuePlan = BuildPlan(valueType, building);
+            if (!valuePlan.IsSupported)
+            {
+                return false;
+            }
+
+            var concreteDictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(string), valueType);
+            if (!type.IsAssignableFrom(concreteDictionaryType) && type != concreteDictionaryType)
+            {
+                return false;
+            }
+
+            plan = TypePlan.Dictionary(type, valuePlan, CreateDictionaryFactory(concreteDictionaryType));
+            return true;
         }
 
         private static bool TryBuildCollectionPlan(Type type, HashSet<Type> building, out TypePlan plan)
@@ -232,6 +439,11 @@ namespace DevOp.Toon.Internal.Decode
                 if (headerInfo != null)
                 {
                     cursor.Advance();
+                    if (plan.Kind == PlanKind.Dictionary)
+                    {
+                        return TryReadDictionaryFromHeader(cursor, plan, headerInfo.Header, headerInfo.InlineValues, 0, options, out value);
+                    }
+
                     return TryReadArrayFromHeader(cursor, plan, headerInfo.Header, headerInfo.InlineValues, 0, options, out value);
                 }
             }
@@ -244,6 +456,11 @@ namespace DevOp.Toon.Internal.Decode
             if (plan.Kind == PlanKind.Object)
             {
                 return TryReadObject(cursor, plan, 0, options, out value);
+            }
+
+            if (plan.Kind == PlanKind.Dictionary)
+            {
+                return TryReadDictionary(cursor, plan, 0, options, out value);
             }
 
             if (plan.Kind == PlanKind.Any)
@@ -275,6 +492,11 @@ namespace DevOp.Toon.Internal.Decode
         {
             if (plan.Factory == null || plan.Properties == null)
             {
+                if (plan.ConstructorFactory != null && plan.ConstructorParameters != null && plan.ConstructorParameterLookup != null)
+                {
+                    return TryReadConstructorObject(cursor, plan, baseDepth, options, out value);
+                }
+
                 value = null;
                 return false;
             }
@@ -305,6 +527,399 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             value = instance;
+            return true;
+        }
+
+        private static bool TryReadConstructorObject(LineCursor cursor, TypePlan plan, int baseDepth, ResolvedDecodeOptions options, out object? value)
+        {
+            if (!TryCreateConstructorBuffer(plan, out var arguments, out var assigned))
+            {
+                value = null;
+                return false;
+            }
+
+            int? computedDepth = null;
+
+            while (!cursor.AtEnd())
+            {
+                var line = cursor.Peek();
+                if (line.IsNone || line.Depth < baseDepth)
+                {
+                    break;
+                }
+
+                if (computedDepth == null && line.Depth >= baseDepth)
+                {
+                    computedDepth = line.Depth;
+                }
+
+                if (line.Depth != computedDepth)
+                {
+                    break;
+                }
+
+                cursor.Advance();
+                if (!ReadConstructorObjectField(arguments, assigned, cursor, line.Content, computedDepth.Value, plan, options))
+                {
+                    value = null;
+                    return false;
+                }
+            }
+
+            value = CreateConstructorInstance(plan, arguments, assigned);
+            return true;
+        }
+
+        private static bool ReadConstructorObjectField(
+            object?[] arguments,
+            bool[] assigned,
+            LineCursor cursor,
+            string content,
+            int baseDepth,
+            TypePlan plan,
+            ResolvedDecodeOptions options,
+            ParsedFieldInfo? parsedField = null,
+            int contentStart = 0)
+        {
+            var field = parsedField ?? ParseFieldContent(content, contentStart);
+            if (field.ArrayHeader != null)
+            {
+                var key = GetArrayHeaderKey(content, field.ArrayHeader);
+                if (!TryGetConstructorParameter(plan, key, out var parameter))
+                {
+                    SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                    return true;
+                }
+
+                object? arrayValue;
+                var valueRead = parameter.Plan.Kind == PlanKind.Dictionary
+                    ? TryReadDictionaryFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out arrayValue)
+                    : TryReadArrayFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out arrayValue);
+                if (!valueRead)
+                {
+                    SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                    return false;
+                }
+
+                SetConstructorArgument(arguments, assigned, parameter, arrayValue);
+                return true;
+            }
+
+            var fieldKey = GetFieldKey(content, field);
+            if (!TryGetConstructorParameter(plan, fieldKey, out var parameterPlan))
+            {
+                if (field.ValueStart >= content.Length)
+                {
+                    SkipValue(cursor, field.ValueStart, baseDepth, options);
+                }
+
+                return true;
+            }
+
+            if (field.ValueStart >= content.Length)
+            {
+                var nextLine = cursor.Peek();
+                if (!nextLine.IsNone && nextLine.Depth > baseDepth)
+                {
+                    if (!TryReadNestedValue(cursor, parameterPlan.Plan, baseDepth + 1, options, out var nestedValue))
+                    {
+                        SkipObject(cursor, baseDepth + 1, options);
+                        return false;
+                    }
+
+                    SetConstructorArgument(arguments, assigned, parameterPlan, nestedValue);
+                    return true;
+                }
+
+                if (TryCreateEmptyValue(parameterPlan.Plan, out var emptyValue))
+                {
+                    SetConstructorArgument(arguments, assigned, parameterPlan, emptyValue);
+                }
+
+                return true;
+            }
+
+            if (!TryReadPrimitiveLikeValue(parameterPlan.Plan, content, field.ValueStart, content.Length, out var primitiveValue))
+            {
+                return false;
+            }
+
+            SetConstructorArgument(arguments, assigned, parameterPlan, primitiveValue);
+            return true;
+        }
+
+        private static bool TryReadDictionary(LineCursor cursor, TypePlan plan, int baseDepth, ResolvedDecodeOptions options, out object? value)
+        {
+            if (plan.CreateDictionary == null || plan.ElementPlan == null)
+            {
+                value = null;
+                return false;
+            }
+
+            var dictionary = plan.CreateDictionary();
+            int? computedDepth = null;
+
+            while (!cursor.AtEnd())
+            {
+                var line = cursor.Peek();
+                if (line.IsNone || line.Depth < baseDepth)
+                {
+                    break;
+                }
+
+                if (computedDepth == null && line.Depth >= baseDepth)
+                {
+                    computedDepth = line.Depth;
+                }
+
+                if (line.Depth != computedDepth)
+                {
+                    break;
+                }
+
+                cursor.Advance();
+                if (!ReadDictionaryField(dictionary, cursor, line.Content, computedDepth.Value, plan, options))
+                {
+                    value = null;
+                    return false;
+                }
+            }
+
+            value = dictionary;
+            return true;
+        }
+
+        private static bool TryReadDictionaryFromHeader(
+            LineCursor cursor,
+            TypePlan plan,
+            ArrayHeaderInfo header,
+            string? inlineValues,
+            int baseDepth,
+            ResolvedDecodeOptions options,
+            out object? value)
+        {
+            if (plan.Kind != PlanKind.Dictionary ||
+                plan.CreateDictionary == null ||
+                plan.ElementPlan == null ||
+                inlineValues != null ||
+                header.Fields == null)
+            {
+                value = null;
+                return false;
+            }
+
+            var keyIndex = FindFieldIndex(header.Fields, "Key");
+            var valueIndex = FindFieldIndex(header.Fields, "Value");
+            if (keyIndex < 0)
+            {
+                value = null;
+                return false;
+            }
+
+            var dictionary = plan.CreateDictionary();
+            var tokenRanges = new Parser.TokenRange[header.Fields.Count];
+            var rowDepth = baseDepth + 1;
+            int rowCount = 0;
+            while (!cursor.AtEnd() && rowCount < header.Length)
+            {
+                var line = cursor.Peek();
+                if (line.IsNone || line.Depth != rowDepth)
+                {
+                    break;
+                }
+
+                cursor.Advance();
+                var contentSpan = line.ContentSpan;
+                var contentOffset = line.ContentStart;
+                if (!Parser.TryParseDelimitedValueRanges(contentSpan, header.Delimiter, tokenRanges, out var valueCount) ||
+                    valueCount != header.Fields.Count)
+                {
+                    value = null;
+                    return false;
+                }
+
+                var keyRange = tokenRanges[keyIndex];
+                var key = ReadStringValue(line.SourceString, contentOffset + keyRange.Start, contentOffset + keyRange.EndExclusive);
+                var followDepth = rowDepth + 1;
+                object? itemValue;
+                if (valueIndex >= 0)
+                {
+                    var valueRange = tokenRanges[valueIndex];
+                    if (!TryReadPrimitiveLikeValue(plan.ElementPlan, line.SourceString, contentOffset + valueRange.Start, contentOffset + valueRange.EndExclusive, out itemValue, alreadyTrimmed: true))
+                    {
+                        value = null;
+                        return false;
+                    }
+                }
+                else if (!TryReadDictionaryHeaderContinuationValue(cursor, plan.ElementPlan, followDepth, options, out itemValue))
+                {
+                    value = null;
+                    return false;
+                }
+
+                dictionary[key] = itemValue;
+
+                while (!cursor.AtEnd())
+                {
+                    var continuation = cursor.Peek();
+                    if (continuation.IsNone || continuation.Depth < followDepth)
+                    {
+                        break;
+                    }
+
+                    if (continuation.Depth == followDepth && !IsListItemLine(continuation.Content))
+                    {
+                        cursor.Advance();
+                        SkipObjectField(cursor, continuation.Content, followDepth, options);
+                        continue;
+                    }
+
+                    break;
+                }
+
+                rowCount++;
+            }
+
+            if (rowCount != header.Length)
+            {
+                value = null;
+                return false;
+            }
+
+            value = dictionary;
+            return true;
+        }
+
+        private static bool TryReadDictionaryHeaderContinuationValue(
+            LineCursor cursor,
+            TypePlan valuePlan,
+            int followDepth,
+            ResolvedDecodeOptions options,
+            out object? value)
+        {
+            while (!cursor.AtEnd())
+            {
+                var line = cursor.Peek();
+                if (line.IsNone || line.Depth < followDepth)
+                {
+                    break;
+                }
+
+                if (line.Depth != followDepth || IsListItemLine(line.Content))
+                {
+                    break;
+                }
+
+                cursor.Advance();
+                var field = ParseFieldContent(line.Content, 0);
+                var fieldKey = field.ArrayHeader != null
+                    ? GetArrayHeaderKey(line.Content, field.ArrayHeader)
+                    : GetFieldKey(line.Content, field);
+                if (!string.Equals(fieldKey, "Value", StringComparison.OrdinalIgnoreCase))
+                {
+                    SkipObjectField(cursor, line.Content, followDepth, options, field);
+                    continue;
+                }
+
+                return TryReadFieldValue(cursor, line.Content, followDepth, valuePlan, options, field, out value);
+            }
+
+            return TryCreateEmptyValue(valuePlan, out value);
+        }
+
+        private static bool TryReadFieldValue(
+            LineCursor cursor,
+            string content,
+            int baseDepth,
+            TypePlan plan,
+            ResolvedDecodeOptions options,
+            ParsedFieldInfo field,
+            out object? value)
+        {
+            if (field.ArrayHeader != null)
+            {
+                if (plan.Kind == PlanKind.Dictionary)
+                {
+                    return TryReadDictionaryFromHeader(cursor, plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out value);
+                }
+
+                return TryReadArrayFromHeader(cursor, plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out value);
+            }
+
+            if (field.ValueStart >= content.Length)
+            {
+                var nextLine = cursor.Peek();
+                if (!nextLine.IsNone && nextLine.Depth > baseDepth)
+                {
+                    return TryReadNestedValue(cursor, plan, baseDepth + 1, options, out value);
+                }
+
+                return TryCreateEmptyValue(plan, out value);
+            }
+
+            return TryReadPrimitiveLikeValue(plan, content, field.ValueStart, content.Length, out value);
+        }
+
+        private static bool ReadDictionaryField(
+            IDictionary dictionary,
+            LineCursor cursor,
+            string content,
+            int baseDepth,
+            TypePlan plan,
+            ResolvedDecodeOptions options,
+            ParsedFieldInfo? parsedField = null,
+            int contentStart = 0)
+        {
+            var valuePlan = plan.ElementPlan!;
+            var field = parsedField ?? ParseFieldContent(content, contentStart);
+            if (field.ArrayHeader != null)
+            {
+                var key = GetArrayHeaderKey(content, field.ArrayHeader);
+                object? arrayValue;
+                var valueRead = valuePlan.Kind == PlanKind.Dictionary
+                    ? TryReadDictionaryFromHeader(cursor, valuePlan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out arrayValue)
+                    : TryReadArrayFromHeader(cursor, valuePlan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out arrayValue);
+                if (!valueRead)
+                {
+                    SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                    return false;
+                }
+
+                dictionary[key] = arrayValue;
+                return true;
+            }
+
+            var fieldKey = GetFieldKey(content, field);
+            if (field.ValueStart >= content.Length)
+            {
+                var nextLine = cursor.Peek();
+                if (!nextLine.IsNone && nextLine.Depth > baseDepth)
+                {
+                    if (!TryReadNestedValue(cursor, valuePlan, baseDepth + 1, options, out var nestedValue))
+                    {
+                        SkipObject(cursor, baseDepth + 1, options);
+                        return false;
+                    }
+
+                    dictionary[fieldKey] = nestedValue;
+                    return true;
+                }
+
+                if (TryCreateEmptyValue(valuePlan, out var emptyValue))
+                {
+                    dictionary[fieldKey] = emptyValue;
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (!TryReadPrimitiveLikeValue(valuePlan, content, field.ValueStart, content.Length, out var primitiveValue))
+            {
+                return false;
+            }
+
+            dictionary[fieldKey] = primitiveValue;
             return true;
         }
 
@@ -392,6 +1007,11 @@ namespace DevOp.Toon.Internal.Decode
             if (plan.Kind == PlanKind.Object)
             {
                 return TryReadObject(cursor, plan, baseDepth, options, out value);
+            }
+
+            if (plan.Kind == PlanKind.Dictionary)
+            {
+                return TryReadDictionary(cursor, plan, baseDepth, options, out value);
             }
 
             if (plan.Kind == PlanKind.Any)
@@ -502,9 +1122,14 @@ namespace DevOp.Toon.Internal.Decode
             int baseDepth,
             ResolvedDecodeOptions options)
         {
-            if (elementPlan.Kind != PlanKind.Object || elementPlan.Factory == null || header.Fields == null)
+            if (elementPlan.Kind != PlanKind.Object || header.Fields == null)
             {
                 return false;
+            }
+
+            if (elementPlan.Factory == null)
+            {
+                return TryReadConstructorTabularArray(cursor, items, elementPlan, header, baseDepth, options);
             }
 
             var columnPlans = GetOrCreateColumnPlans(elementPlan, header.Fields);
@@ -581,6 +1206,92 @@ namespace DevOp.Toon.Internal.Decode
             return rowCount == header.Length;
         }
 
+        private static bool TryReadConstructorTabularArray(
+            LineCursor cursor,
+            IList items,
+            TypePlan elementPlan,
+            ArrayHeaderInfo header,
+            int baseDepth,
+            ResolvedDecodeOptions options)
+        {
+            if (elementPlan.ConstructorFactory == null || elementPlan.ConstructorParameters == null || header.Fields == null)
+            {
+                return false;
+            }
+
+            var columnPlans = GetOrCreateConstructorColumnPlans(elementPlan, header.Fields);
+            var tokenRanges = new Parser.TokenRange[columnPlans.Length];
+            var rowDepth = baseDepth + 1;
+            int rowCount = 0;
+            while (!cursor.AtEnd() && rowCount < header.Length)
+            {
+                var line = cursor.Peek();
+                if (line.IsNone || line.Depth != rowDepth)
+                {
+                    break;
+                }
+
+                cursor.Advance();
+                var contentSpan = line.ContentSpan;
+                var contentOffset = line.ContentStart;
+                if (!Parser.TryParseDelimitedValueRanges(contentSpan, header.Delimiter, tokenRanges, out var valueCount) ||
+                    valueCount != columnPlans.Length)
+                {
+                    return false;
+                }
+
+                if (!TryCreateConstructorBuffer(elementPlan, out var arguments, out var assigned))
+                {
+                    return false;
+                }
+
+                for (int i = 0; i < columnPlans.Length; i++)
+                {
+                    var parameter = columnPlans[i];
+                    if (parameter == null)
+                    {
+                        continue;
+                    }
+
+                    var tokenRange = tokenRanges[i];
+                    if (!TryReadPrimitiveLikeValue(parameter.Plan, line.SourceString, contentOffset + tokenRange.Start, contentOffset + tokenRange.EndExclusive, out var fieldValue, alreadyTrimmed: true))
+                    {
+                        return false;
+                    }
+
+                    SetConstructorArgument(arguments, assigned, parameter, fieldValue);
+                }
+
+                var followDepth = rowDepth + 1;
+                while (!cursor.AtEnd())
+                {
+                    var continuation = cursor.Peek();
+                    if (continuation.IsNone || continuation.Depth < followDepth)
+                    {
+                        break;
+                    }
+
+                    if (continuation.Depth == followDepth && !IsListItemLine(continuation.Content))
+                    {
+                        cursor.Advance();
+                        if (!ReadConstructorObjectField(arguments, assigned, cursor, continuation.Content, followDepth, elementPlan, options))
+                        {
+                            return false;
+                        }
+
+                        continue;
+                    }
+
+                    break;
+                }
+
+                items.Add(CreateConstructorInstance(elementPlan, arguments, assigned));
+                rowCount++;
+            }
+
+            return rowCount == header.Length;
+        }
+
         private static PropertyPlan?[] GetOrCreateColumnPlans(TypePlan elementPlan, List<string> fields)
         {
             var cache = elementPlan.ColumnPlanCache;
@@ -595,6 +1306,27 @@ namespace DevOp.Toon.Internal.Decode
                 if (TryGetProperty(elementPlan, fields[i], out var property))
                 {
                     columnPlans[i] = property;
+                }
+            }
+
+            cache?.TryAdd(fields, columnPlans);
+            return columnPlans;
+        }
+
+        private static ConstructorParameterPlan?[] GetOrCreateConstructorColumnPlans(TypePlan elementPlan, List<string> fields)
+        {
+            var cache = elementPlan.ConstructorColumnPlanCache;
+            if (cache != null && cache.TryGetValue(fields, out var cached))
+            {
+                return cached;
+            }
+
+            var columnPlans = new ConstructorParameterPlan?[fields.Count];
+            for (int i = 0; i < fields.Count; i++)
+            {
+                if (TryGetConstructorParameter(elementPlan, fields[i], out var parameter))
+                {
+                    columnPlans[i] = parameter;
                 }
             }
 
@@ -664,6 +1396,11 @@ namespace DevOp.Toon.Internal.Decode
             var field = ParseListItemContent(line.Content, itemStart);
             if (field.ArrayHeader != null)
             {
+                if (plan.Kind == PlanKind.Dictionary)
+                {
+                    return TryReadDictionaryFromHeader(cursor, plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out value);
+                }
+
                 return TryReadArrayFromHeader(cursor, plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out value);
             }
 
@@ -672,6 +1409,11 @@ namespace DevOp.Toon.Internal.Decode
                 if (plan.Kind == PlanKind.Object)
                 {
                     return TryReadObjectFromListItem(cursor, plan, line, itemStart, field, baseDepth, options, out value);
+                }
+
+                if (plan.Kind == PlanKind.Dictionary)
+                {
+                    return TryReadDictionaryFromListItem(cursor, plan, line, itemStart, field, baseDepth, options, out value);
                 }
 
                 if (plan.Kind == PlanKind.Any)
@@ -695,6 +1437,11 @@ namespace DevOp.Toon.Internal.Decode
         {
             if (plan.Factory == null)
             {
+                if (plan.ConstructorFactory != null && plan.ConstructorParameters != null && plan.ConstructorParameterLookup != null)
+                {
+                    return TryReadConstructorObjectFromListItem(cursor, plan, firstLine, firstFieldStart, firstField, baseDepth, options, out value);
+                }
+
                 value = null;
                 return false;
             }
@@ -725,6 +1472,107 @@ namespace DevOp.Toon.Internal.Decode
             return true;
         }
 
+        private static bool TryReadConstructorObjectFromListItem(
+            LineCursor cursor,
+            TypePlan plan,
+            ParsedLine firstLine,
+            int firstFieldStart,
+            ParsedFieldInfo firstField,
+            int baseDepth,
+            ResolvedDecodeOptions options,
+            out object? value)
+        {
+            if (!TryCreateConstructorBuffer(plan, out var arguments, out var assigned))
+            {
+                value = null;
+                return false;
+            }
+
+            if (!ReadConstructorObjectField(arguments, assigned, cursor, firstLine.Content, baseDepth, plan, options, firstField, firstFieldStart))
+            {
+                value = null;
+                return false;
+            }
+
+            var followDepth = baseDepth + 1;
+            while (!cursor.AtEnd())
+            {
+                var line = cursor.Peek();
+                if (line.IsNone || line.Depth < followDepth)
+                {
+                    break;
+                }
+
+                if (line.Depth == followDepth && !IsListItemLine(line.Content))
+                {
+                    cursor.Advance();
+                    if (!ReadConstructorObjectField(arguments, assigned, cursor, line.Content, followDepth, plan, options))
+                    {
+                        value = null;
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                break;
+            }
+
+            value = CreateConstructorInstance(plan, arguments, assigned);
+            return true;
+        }
+
+        private static bool TryReadDictionaryFromListItem(
+            LineCursor cursor,
+            TypePlan plan,
+            ParsedLine firstLine,
+            int firstFieldStart,
+            ParsedFieldInfo firstField,
+            int baseDepth,
+            ResolvedDecodeOptions options,
+            out object? value)
+        {
+            if (plan.CreateDictionary == null)
+            {
+                value = null;
+                return false;
+            }
+
+            var dictionary = plan.CreateDictionary();
+            if (!ReadDictionaryField(dictionary, cursor, firstLine.Content, baseDepth, plan, options, firstField, firstFieldStart))
+            {
+                value = null;
+                return false;
+            }
+
+            var followDepth = baseDepth + 1;
+            while (!cursor.AtEnd())
+            {
+                var line = cursor.Peek();
+                if (line.IsNone || line.Depth < followDepth)
+                {
+                    break;
+                }
+
+                if (line.Depth == followDepth && !IsListItemLine(line.Content))
+                {
+                    cursor.Advance();
+                    if (!ReadDictionaryField(dictionary, cursor, line.Content, followDepth, plan, options))
+                    {
+                        value = null;
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                break;
+            }
+
+            value = dictionary;
+            return true;
+        }
+
         private static bool TryCreateEmptyValue(TypePlan plan, out object? value)
         {
             if (plan.Kind == PlanKind.Object && plan.Factory != null)
@@ -733,11 +1581,23 @@ namespace DevOp.Toon.Internal.Decode
                 return true;
             }
 
+            if (plan.Kind == PlanKind.Object && plan.ConstructorFactory != null)
+            {
+                value = CreateConstructorInstanceWithDefaults(plan);
+                return true;
+            }
+
             if ((plan.Kind == PlanKind.Collection || plan.Kind == PlanKind.Array) &&
                 plan.CreateList != null &&
                 plan.FinalizeCollection != null)
             {
                 value = plan.FinalizeCollection(plan.CreateList(0));
+                return true;
+            }
+
+            if (plan.Kind == PlanKind.Dictionary && plan.CreateDictionary != null)
+            {
+                value = plan.CreateDictionary();
                 return true;
             }
 
@@ -1775,6 +2635,100 @@ namespace DevOp.Toon.Internal.Decode
             return parsed;
         }
 
+        private static string GetFieldKey(string content, ParsedFieldInfo field)
+        {
+            if (field.HasKeyRange)
+            {
+                return content.Substring(field.KeyStart, field.KeyEndExclusive - field.KeyStart);
+            }
+
+            return field.Key!;
+        }
+
+        private static string GetArrayHeaderKey(string content, ArrayHeaderParseResult header)
+        {
+            if (header.HasKeyRange)
+            {
+                return content.Substring(header.KeyStart, header.KeyEndExclusive - header.KeyStart);
+            }
+
+            return header.Header.Key!;
+        }
+
+        private static int FindFieldIndex(IReadOnlyList<string> fields, string name)
+        {
+            for (int i = 0; i < fields.Count; i++)
+            {
+                if (string.Equals(fields[i], name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static bool TryGetConstructorParameter(TypePlan plan, string key, out ConstructorParameterPlan parameter)
+        {
+            if (plan.ConstructorParameterLookup != null &&
+                plan.ConstructorParameterLookup.TryGetValue(key, out var resolvedParameter))
+            {
+                parameter = resolvedParameter;
+                return true;
+            }
+
+            parameter = null!;
+            return false;
+        }
+
+        private static bool TryCreateConstructorBuffer(TypePlan plan, out object?[] arguments, out bool[] assigned)
+        {
+            if (plan.ConstructorParameters == null)
+            {
+                arguments = Array.Empty<object?>();
+                assigned = Array.Empty<bool>();
+                return false;
+            }
+
+            arguments = new object?[plan.ConstructorParameters.Length];
+            assigned = new bool[plan.ConstructorParameters.Length];
+            return true;
+        }
+
+        private static void SetConstructorArgument(
+            object?[] arguments,
+            bool[] assigned,
+            ConstructorParameterPlan parameter,
+            object? value)
+        {
+            arguments[parameter.Index] = value;
+            assigned[parameter.Index] = true;
+        }
+
+        private static object? CreateConstructorInstanceWithDefaults(TypePlan plan)
+        {
+            if (!TryCreateConstructorBuffer(plan, out var arguments, out var assigned))
+            {
+                return null;
+            }
+
+            return CreateConstructorInstance(plan, arguments, assigned);
+        }
+
+        private static object CreateConstructorInstance(TypePlan plan, object?[] arguments, bool[] assigned)
+        {
+            var parameters = plan.ConstructorParameters!;
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                if (!assigned[i])
+                {
+                    arguments[i] = parameters[i].DefaultValue;
+                }
+            }
+
+            return plan.ConstructorFactory!(arguments);
+        }
+
         private static bool TryGetProperty(TypePlan plan, string key, out PropertyPlan property)
         {
             if (plan.Properties is Dictionary<string, PropertyPlan> properties
@@ -2010,6 +2964,21 @@ namespace DevOp.Toon.Internal.Decode
             return Expression.Lambda<Func<object>>(Expression.Convert(body, typeof(object))).Compile();
         }
 
+        private static Func<object?[], object> CreateConstructorFactory(ConstructorInfo constructor)
+        {
+            var values = Expression.Parameter(typeof(object[]), "values");
+            var parameters = constructor.GetParameters();
+            var arguments = new Expression[parameters.Length];
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var index = Expression.ArrayIndex(values, Expression.Constant(i));
+                arguments[i] = Expression.Convert(index, parameters[i].ParameterType);
+            }
+
+            var body = Expression.New(constructor, arguments);
+            return Expression.Lambda<Func<object?[], object>>(Expression.Convert(body, typeof(object)), values).Compile();
+        }
+
         private static Func<int, IList> CreateListFactory(Type concreteListType)
         {
             var capacityCtor = concreteListType.GetConstructor(new[] { typeof(int) });
@@ -2029,6 +2998,18 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             return capacity => (IList)Activator.CreateInstance(concreteListType)!;
+        }
+
+        private static Func<IDictionary> CreateDictionaryFactory(Type concreteDictionaryType)
+        {
+            var defaultCtor = concreteDictionaryType.GetConstructor(Type.EmptyTypes);
+            if (defaultCtor != null)
+            {
+                var body = Expression.New(defaultCtor);
+                return Expression.Lambda<Func<IDictionary>>(Expression.Convert(body, typeof(IDictionary))).Compile();
+            }
+
+            return () => (IDictionary)Activator.CreateInstance(concreteDictionaryType)!;
         }
 
         private static object ToArray(Type elementType, IList list)
@@ -2828,6 +3809,25 @@ namespace DevOp.Toon.Internal.Decode
         }
 
         /// <summary>
+        /// Describes a constructor parameter that can be populated from a TOON field.
+        /// </summary>
+        private sealed class ConstructorParameterPlan
+        {
+            public ConstructorParameterPlan(int index, string name, TypePlan plan, object? defaultValue)
+            {
+                Index = index;
+                Name = name;
+                Plan = plan;
+                DefaultValue = defaultValue;
+            }
+
+            public int Index { get; }
+            public string Name { get; }
+            public TypePlan Plan { get; }
+            public object? DefaultValue { get; }
+        }
+
+        /// <summary>
         /// Classifies the materialization strategy for a target type.
         /// </summary>
         private enum PlanKind
@@ -2844,6 +3844,8 @@ namespace DevOp.Toon.Internal.Decode
             Collection,
             /// <summary>The type is an array.</summary>
             Array,
+            /// <summary>The type is a string-keyed dictionary.</summary>
+            Dictionary,
             /// <summary>The type is <see cref="object"/> and should materialize native values dynamically.</summary>
             Any
         }
@@ -2934,9 +3936,14 @@ namespace DevOp.Toon.Internal.Decode
             public Dictionary<string, PropertyPlan>? Properties { get; private set; }
             public PropertyAlias[]? PropertyAliases { get; private set; }
             public Dictionary<int, PropertyAlias[]>? PropertyAliasBuckets { get; private set; }
+            public Func<object?[], object>? ConstructorFactory { get; private set; }
+            public ConstructorParameterPlan[]? ConstructorParameters { get; private set; }
+            public Dictionary<string, ConstructorParameterPlan>? ConstructorParameterLookup { get; private set; }
             public Func<int, IList>? CreateList { get; private set; }
             public Func<IList, object>? FinalizeCollection { get; private set; }
+            public Func<IDictionary>? CreateDictionary { get; private set; }
             public ConcurrentDictionary<IReadOnlyList<string>, PropertyPlan?[]>? ColumnPlanCache { get; private set; }
+            public ConcurrentDictionary<IReadOnlyList<string>, ConstructorParameterPlan?[]>? ConstructorColumnPlanCache { get; private set; }
 
             public static TypePlan Unsupported(Type type) => new TypePlan(type, PlanKind.Unsupported);
             public static TypePlan Primitive(Type type) => new TypePlan(type, PlanKind.Primitive);
@@ -2967,6 +3974,21 @@ namespace DevOp.Toon.Internal.Decode
                 };
             }
 
+            public static TypePlan Object(
+                Type type,
+                Func<object?[], object> constructorFactory,
+                ConstructorParameterPlan[] constructorParameters,
+                Dictionary<string, ConstructorParameterPlan> constructorParameterLookup)
+            {
+                return new TypePlan(type, PlanKind.Object)
+                {
+                    ConstructorFactory = constructorFactory,
+                    ConstructorParameters = constructorParameters,
+                    ConstructorParameterLookup = constructorParameterLookup,
+                    ConstructorColumnPlanCache = new ConcurrentDictionary<IReadOnlyList<string>, ConstructorParameterPlan?[]>(FieldListComparer.Instance)
+                };
+            }
+
             public static TypePlan Collection(Type type, TypePlan elementPlan, Func<int, IList> createList, Func<IList, object> finalize)
             {
                 return new TypePlan(type, PlanKind.Collection)
@@ -2984,6 +4006,15 @@ namespace DevOp.Toon.Internal.Decode
                     ElementPlan = elementPlan,
                     CreateList = createList,
                     FinalizeCollection = finalize
+                };
+            }
+
+            public static TypePlan Dictionary(Type type, TypePlan valuePlan, Func<IDictionary> createDictionary)
+            {
+                return new TypePlan(type, PlanKind.Dictionary)
+                {
+                    ElementPlan = valuePlan,
+                    CreateDictionary = createDictionary
                 };
             }
         }

@@ -66,6 +66,11 @@ public static class Program
             return;
         }
 
+        if (KanShapeProfiler.TryRun(args))
+        {
+            return;
+        }
+
         if (BenchmarkReportExporter.TryRun(args))
         {
             return;

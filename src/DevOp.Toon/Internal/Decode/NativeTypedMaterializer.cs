@@ -118,6 +118,7 @@ internal static class NativeTypedMaterializer
                 return TypePlan.Unsupported(type);
             }
 
+            var publicProperties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
             Func<object> factory;
             if (type.IsValueType)
             {
@@ -128,14 +129,21 @@ internal static class NativeTypedMaterializer
                 var ctor = type.GetConstructor(Type.EmptyTypes);
                 if (ctor == null)
                 {
-                    return TypePlan.Unsupported(type);
+                    if (IsFrameworkObjectType(type))
+                    {
+                        return TypePlan.Unsupported(type);
+                    }
+
+                    return TryBuildConstructorObjectPlan(type, publicProperties, building, out var constructorPlan)
+                        ? constructorPlan
+                        : TypePlan.Unsupported(type);
                 }
 
                 factory = CreateFactory(ctor);
             }
 
-            var properties = new Dictionary<string, PropertyPlan>(StringComparer.Ordinal);
-            foreach (var property in type.GetProperties(BindingFlags.Instance | BindingFlags.Public))
+            var propertyPlans = new Dictionary<string, PropertyPlan>(StringComparer.Ordinal);
+            foreach (var property in publicProperties)
             {
                 if (!property.CanWrite || property.GetIndexParameters().Length != 0)
                 {
@@ -149,21 +157,173 @@ internal static class NativeTypedMaterializer
                 }
 
                 var propertyEntry = new PropertyPlan(propertyPlan, CreateSetter(property));
-                properties[property.Name] = propertyEntry;
+                propertyPlans[property.Name] = propertyEntry;
 
                 var toonName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
                 if (toonName is { Length: > 0 })
                 {
-                    properties[toonName] = propertyEntry;
+                    propertyPlans[toonName] = propertyEntry;
                 }
             }
 
-            return TypePlan.Object(type, factory, properties);
+            return TypePlan.Object(type, factory, propertyPlans);
         }
         finally
         {
             building.Remove(type);
         }
+    }
+
+    private static bool IsFrameworkObjectType(Type type)
+    {
+        return type.Namespace != null &&
+               (type.Namespace == "System" || type.Namespace.StartsWith("System.", StringComparison.Ordinal));
+    }
+
+    private static bool TryBuildConstructorObjectPlan(
+        Type type,
+        PropertyInfo[] properties,
+        HashSet<Type> building,
+        out TypePlan plan)
+    {
+        plan = TypePlan.Unsupported(type);
+        var constructors = type.GetConstructors(BindingFlags.Instance | BindingFlags.Public);
+        ConstructorParameterPlan[]? bestParameters = null;
+        Dictionary<string, ConstructorParameterPlan>? bestLookup = null;
+        ConstructorInfo? bestConstructor = null;
+        bool ambiguous = false;
+
+        for (int i = 0; i < constructors.Length; i++)
+        {
+            var constructor = constructors[i];
+            var parameters = constructor.GetParameters();
+            if (parameters.Length == 0)
+            {
+                continue;
+            }
+
+            if (!TryBuildConstructorParameters(constructor, properties, building, out var parameterPlans, out var lookup))
+            {
+                continue;
+            }
+
+            if (bestParameters == null || parameterPlans.Length > bestParameters.Length)
+            {
+                bestConstructor = constructor;
+                bestParameters = parameterPlans;
+                bestLookup = lookup;
+                ambiguous = false;
+            }
+            else if (parameterPlans.Length == bestParameters.Length)
+            {
+                ambiguous = true;
+            }
+        }
+
+        if (bestConstructor == null || bestParameters == null || bestLookup == null || ambiguous)
+        {
+            return false;
+        }
+
+        plan = TypePlan.Object(
+            type,
+            CreateConstructorFactory(bestConstructor),
+            bestParameters,
+            bestLookup);
+        return true;
+    }
+
+    private static bool TryBuildConstructorParameters(
+        ConstructorInfo constructor,
+        PropertyInfo[] properties,
+        HashSet<Type> building,
+        out ConstructorParameterPlan[] parameterPlans,
+        out Dictionary<string, ConstructorParameterPlan> lookup)
+    {
+        var parameters = constructor.GetParameters();
+        parameterPlans = new ConstructorParameterPlan[parameters.Length];
+        lookup = new Dictionary<string, ConstructorParameterPlan>(StringComparer.OrdinalIgnoreCase);
+
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            var parameter = parameters[i];
+            if (string.IsNullOrEmpty(parameter.Name))
+            {
+                return false;
+            }
+
+            var parameterPlan = BuildPlan(parameter.ParameterType, building);
+            if (!parameterPlan.IsSupported)
+            {
+                return false;
+            }
+
+            var parameterEntry = new ConstructorParameterPlan(
+                i,
+                parameter.Name!,
+                parameterPlan,
+                GetParameterDefaultValue(parameter));
+            parameterPlans[i] = parameterEntry;
+            AddConstructorAlias(lookup, parameter.Name!, parameterEntry);
+
+            var property = FindPropertyForParameter(properties, parameter.Name!);
+            if (property == null)
+            {
+                continue;
+            }
+
+            AddConstructorAlias(lookup, property.Name, parameterEntry);
+            var toonName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
+            if (toonName is { Length: > 0 })
+            {
+                AddConstructorAlias(lookup, toonName, parameterEntry);
+            }
+        }
+
+        return true;
+    }
+
+    private static void AddConstructorAlias(
+        Dictionary<string, ConstructorParameterPlan> lookup,
+        string alias,
+        ConstructorParameterPlan parameter)
+    {
+        if (alias.Length != 0)
+        {
+            lookup[alias] = parameter;
+        }
+    }
+
+    private static PropertyInfo? FindPropertyForParameter(PropertyInfo[] properties, string parameterName)
+    {
+        for (int i = 0; i < properties.Length; i++)
+        {
+            var property = properties[i];
+            if (property.GetIndexParameters().Length == 0 &&
+                string.Equals(property.Name, parameterName, StringComparison.OrdinalIgnoreCase))
+            {
+                return property;
+            }
+        }
+
+        return null;
+    }
+
+    private static object? GetParameterDefaultValue(ParameterInfo parameter)
+    {
+        if (parameter.HasDefaultValue &&
+            parameter.DefaultValue != DBNull.Value &&
+            parameter.DefaultValue != Type.Missing)
+        {
+            return parameter.DefaultValue;
+        }
+
+        return GetDefaultValue(parameter.ParameterType);
+    }
+
+    private static object? GetDefaultValue(Type type)
+    {
+        return type.IsValueType ? Activator.CreateInstance(type) : null;
     }
 
     private static bool TryBuildDictionaryPlan(Type type, HashSet<Type> building, out TypePlan plan)
@@ -303,10 +463,15 @@ internal static class NativeTypedMaterializer
 
     private static bool TryConvertObject(NativeNode? node, TypePlan plan, out object? value)
     {
-        if (node is not NativeObjectNode objectNode || plan.Factory == null || plan.Properties == null)
+        if (node is not NativeObjectNode objectNode)
         {
             value = null;
             return false;
+        }
+
+        if (plan.Factory == null || plan.Properties == null)
+        {
+            return TryConvertConstructorObject(objectNode, plan, out value);
         }
 
         var instance = plan.Factory();
@@ -327,6 +492,45 @@ internal static class NativeTypedMaterializer
         }
 
         value = instance;
+        return true;
+    }
+
+    private static bool TryConvertConstructorObject(NativeObjectNode objectNode, TypePlan plan, out object? value)
+    {
+        if (plan.ConstructorFactory == null || plan.ConstructorParameters == null || plan.ConstructorParameterLookup == null)
+        {
+            value = null;
+            return false;
+        }
+
+        var arguments = new object?[plan.ConstructorParameters.Length];
+        var assigned = new bool[plan.ConstructorParameters.Length];
+        foreach (var kvp in objectNode)
+        {
+            if (!plan.ConstructorParameterLookup.TryGetValue(kvp.Key, out var parameter))
+            {
+                continue;
+            }
+
+            if (!TryConvert(kvp.Value, parameter.Plan, out var parameterValue))
+            {
+                value = null;
+                return false;
+            }
+
+            arguments[parameter.Index] = parameterValue;
+            assigned[parameter.Index] = true;
+        }
+
+        for (int i = 0; i < plan.ConstructorParameters.Length; i++)
+        {
+            if (!assigned[i])
+            {
+                arguments[i] = plan.ConstructorParameters[i].DefaultValue;
+            }
+        }
+
+        value = plan.ConstructorFactory(arguments);
         return true;
     }
 
@@ -384,7 +588,18 @@ internal static class NativeTypedMaterializer
 
     private static bool TryConvertDictionary(NativeNode? node, TypePlan plan, out object? value)
     {
-        if (node is not NativeObjectNode objectNode || plan.ElementPlan == null || plan.CreateDictionary == null)
+        if (plan.ElementPlan == null || plan.CreateDictionary == null)
+        {
+            value = null;
+            return false;
+        }
+
+        if (node is NativeArrayNode pairArray)
+        {
+            return TryConvertDictionaryPairs(pairArray, plan, out value);
+        }
+
+        if (node is not NativeObjectNode objectNode)
         {
             value = null;
             return false;
@@ -404,6 +619,44 @@ internal static class NativeTypedMaterializer
 
         value = dictionary;
         return true;
+    }
+
+    private static bool TryConvertDictionaryPairs(NativeArrayNode arrayNode, TypePlan plan, out object? value)
+    {
+        var dictionary = plan.CreateDictionary!();
+        foreach (var item in arrayNode)
+        {
+            if (item is not NativeObjectNode pair ||
+                !TryGetObjectValue(pair, "Key", out var keyNode) ||
+                !TryGetObjectValue(pair, "Value", out var valueNode) ||
+                !TryConvert(keyNode, TypePlan.Primitive(typeof(string)), out var keyValue) ||
+                keyValue is not string key ||
+                !TryConvert(valueNode, plan.ElementPlan!, out var elementValue))
+            {
+                value = null;
+                return false;
+            }
+
+            dictionary[key] = elementValue;
+        }
+
+        value = dictionary;
+        return true;
+    }
+
+    private static bool TryGetObjectValue(NativeObjectNode objectNode, string key, out NativeNode? value)
+    {
+        foreach (var kvp in objectNode)
+        {
+            if (string.Equals(kvp.Key, key, StringComparison.OrdinalIgnoreCase))
+            {
+                value = kvp.Value;
+                return true;
+            }
+        }
+
+        value = null;
+        return false;
     }
 
     private static bool TryConvertPrimitive(NativeNode? node, Type targetType, out object? value)
@@ -948,6 +1201,21 @@ internal static class NativeTypedMaterializer
         return Expression.Lambda<Func<object>>(Expression.Convert(body, typeof(object))).Compile();
     }
 
+    private static Func<object?[], object> CreateConstructorFactory(ConstructorInfo constructor)
+    {
+        var values = Expression.Parameter(typeof(object[]), "values");
+        var parameters = constructor.GetParameters();
+        var arguments = new Expression[parameters.Length];
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            var index = Expression.ArrayIndex(values, Expression.Constant(i));
+            arguments[i] = Expression.Convert(index, parameters[i].ParameterType);
+        }
+
+        var body = Expression.New(constructor, arguments);
+        return Expression.Lambda<Func<object?[], object>>(Expression.Convert(body, typeof(object)), values).Compile();
+    }
+
     private static Func<object> CreateValueTypeFactory(Type type)
     {
         var body = Expression.Default(type);
@@ -1029,6 +1297,25 @@ internal static class NativeTypedMaterializer
     }
 
     /// <summary>
+    /// Describes a constructor parameter that can be populated from a native object field.
+    /// </summary>
+    private sealed class ConstructorParameterPlan
+    {
+        public ConstructorParameterPlan(int index, string name, TypePlan plan, object? defaultValue)
+        {
+            Index = index;
+            Name = name;
+            Plan = plan;
+            DefaultValue = defaultValue;
+        }
+
+        public int Index { get; }
+        public string Name { get; }
+        public TypePlan Plan { get; }
+        public object? DefaultValue { get; }
+    }
+
+    /// <summary>
     /// Describes how a target CLR type is materialized from native nodes.
     /// </summary>
     private sealed class TypePlan
@@ -1060,6 +1347,15 @@ internal static class NativeTypedMaterializer
         /// <summary>Gets writable property plans keyed by encoded TOON field name.</summary>
         public Dictionary<string, PropertyPlan>? Properties { get; private set; }
 
+        /// <summary>Gets the compiled constructor factory for constructor-bound object targets.</summary>
+        public Func<object?[], object>? ConstructorFactory { get; private set; }
+
+        /// <summary>Gets constructor parameter conversion plans in constructor argument order.</summary>
+        public ConstructorParameterPlan[]? ConstructorParameters { get; private set; }
+
+        /// <summary>Gets constructor parameters keyed by TOON field alias.</summary>
+        public Dictionary<string, ConstructorParameterPlan>? ConstructorParameterLookup { get; private set; }
+
         /// <summary>Gets the factory used to create mutable collection instances.</summary>
         public Func<int, IList>? CreateList { get; private set; }
 
@@ -1089,6 +1385,20 @@ internal static class NativeTypedMaterializer
             {
                 Factory = factory,
                 Properties = properties
+            };
+        }
+
+        public static TypePlan Object(
+            Type type,
+            Func<object?[], object> constructorFactory,
+            ConstructorParameterPlan[] constructorParameters,
+            Dictionary<string, ConstructorParameterPlan> constructorParameterLookup)
+        {
+            return new TypePlan(type, PlanKind.Object)
+            {
+                ConstructorFactory = constructorFactory,
+                ConstructorParameters = constructorParameters,
+                ConstructorParameterLookup = constructorParameterLookup
             };
         }
 

@@ -28,6 +28,7 @@ For the benchmark source material, see:
 
 - Encode CLR objects and collections to TOON
 - Decode TOON payloads back into `ToonNode` or strongly typed .NET models
+- Round-trip typed DTOs that use positional records, array targets, collection interfaces, and string-keyed dictionaries
 - Convert JSON to TOON and TOON back to JSON
 - Register a reusable `IToonService` through Microsoft dependency injection
 - Configure encoding and decoding behavior with `ToonEncodeOptions`, `ToonDecodeOptions`, and `ToonServiceOptions`
@@ -53,6 +54,26 @@ var payload = new
 
 var toon = ToonEncoder.Encode(payload);
 var decoded = ToonDecoder.Decode<dynamic>(toon);
+```
+
+Strongly typed decode supports common DTO shapes, including positional records and read-only collection interfaces:
+
+```csharp
+public sealed record CustomerDto(
+    string Id,
+    IReadOnlyList<string> Aliases,
+    Dictionary<string, string> DefaultDimensions);
+
+var source = new[]
+{
+    new CustomerDto(
+        "C-001",
+        new List<string> { "Primary", "VIP" },
+        new Dictionary<string, string> { ["currency"] = "ISK" })
+};
+
+string toon = ToonEncoder.Encode(source);
+CustomerDto[] decoded = ToonDecoder.Decode<CustomerDto[]>(toon)!;
 ```
 
 ## Dependency Injection
