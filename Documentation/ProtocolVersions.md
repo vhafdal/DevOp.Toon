@@ -83,6 +83,10 @@ remain a separate concern.
 
 ## Custom grouped rows
 
+See the dedicated [official vs custom 4.4 guide](CustomV44.md) for a side-by-side wire example,
+measured benefits, complete C# configuration and HTTP usage, plus a
+[runnable published-package sample](../samples/CustomV44/README.md).
+
 The new custom mode retains a table even when some fields cannot be columns. Shared scalar fields and fully uniform nested objects become header entries. Arrays, uneven objects, and fields absent from a row remain beneath that row:
 
 ```toon
