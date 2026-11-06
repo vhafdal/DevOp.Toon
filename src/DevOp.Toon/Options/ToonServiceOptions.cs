@@ -19,6 +19,15 @@ public sealed class ToonServiceOptions
     public ToonDecodeOptions Decode { get; } = new();
 
     /// <summary>
+    /// Gets or sets the protocol version used by the service's default encoder options.
+    /// </summary>
+    public ToonProtocolVersion ProtocolVersion
+    {
+        get => Encode.ProtocolVersion;
+        set => Encode.ProtocolVersion = value;
+    }
+
+    /// <summary>
     /// Gets or sets the indentation width applied to both <see cref="Encode"/> and <see cref="Decode"/> defaults.
     /// </summary>
     /// <remarks>Use this convenience property when the service should read and write the same indentation width.</remarks>
@@ -97,27 +106,11 @@ public sealed class ToonServiceOptions
 
     internal ToonEncodeOptions CreateEncodeOptions()
     {
-        return new ToonEncodeOptions
-        {
-            Indent = Encode.Indent,
-            Delimiter = Encode.Delimiter,
-            KeyFolding = Encode.KeyFolding,
-            FlattenDepth = Encode.FlattenDepth,
-            ObjectArrayLayout = Encode.ObjectArrayLayout,
-            ByteArrayFormat = Encode.ByteArrayFormat,
-            IgnoreNullOrEmpty = Encode.IgnoreNullOrEmpty,
-            ExcludeEmptyArrays = Encode.ExcludeEmptyArrays
-        };
+        return Encode.Clone();
     }
 
     internal ToonDecodeOptions CreateDecodeOptions()
     {
-        return new ToonDecodeOptions
-        {
-            Indent = Decode.Indent,
-            Strict = Decode.Strict,
-            ExpandPaths = Decode.ExpandPaths,
-            ObjectArrayLayout = Decode.ObjectArrayLayout
-        };
+        return Decode.Clone();
     }
 }

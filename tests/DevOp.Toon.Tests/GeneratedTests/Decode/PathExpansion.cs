@@ -30,7 +30,7 @@ a.b.c: 1
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -57,7 +57,7 @@ data.meta.items[2]: a,b
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -86,7 +86,7 @@ a.b.items[2]{id,name}:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -113,7 +113,7 @@ user.name: Ada
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -142,7 +142,7 @@ a.e: 3
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -170,7 +170,7 @@ a: 2
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -192,7 +192,7 @@ a[2]: 2,3
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -214,7 +214,7 @@ a: 2
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = false,
@@ -242,7 +242,7 @@ a.b: 2
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = false,
@@ -270,7 +270,7 @@ a.b: 1
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -297,7 +297,7 @@ full-name.x: 1
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -324,7 +324,7 @@ a.b.c:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,

@@ -30,7 +30,7 @@ public class RootForm
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,

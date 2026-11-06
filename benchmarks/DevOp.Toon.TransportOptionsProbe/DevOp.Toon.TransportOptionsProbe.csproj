@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Optimize>true</Optimize>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="$(ApiProject)" Condition="'$(ApiProject)' != ''" />
+    <ProjectReference Include="$(ClientProject)" Condition="'$(ClientProject)' != ''" />
+  </ItemGroup>
+  <Target Name="RequireTransportProjects" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(ApiProject)' == '' or '$(ClientProject)' == ''" Text="Set ApiProject and ClientProject to the local package project files." />
+  </Target>
+</Project>

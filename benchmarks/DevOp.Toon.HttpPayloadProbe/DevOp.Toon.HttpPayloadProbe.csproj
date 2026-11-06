@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(ClientProject)" Condition="'$(ClientProject)' != ''" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Compile Include="../DevOp.Toon.Benchmarks/Models/Product.cs" Link="Product.cs" />
+  </ItemGroup>
+  <Target Name="RequireClientProject" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(ClientProject)' == ''" Text="Set ClientProject to the local DevOp.Toon.Client.csproj." />
+  </Target>
+</Project>

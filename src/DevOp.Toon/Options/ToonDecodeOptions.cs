@@ -1,5 +1,6 @@
 ﻿#nullable enable
 using DevOp.Toon.Core;
+using DevOp.Toon.Internal.Decode;
 
 namespace DevOp.Toon;
 
@@ -8,6 +9,28 @@ namespace DevOp.Toon;
 /// </summary>
 public class ToonDecodeOptions
 {
+    private ResolvedDecodeOptions? cachedResolvedOptions;
+
+    internal ResolvedDecodeOptions GetResolvedOptions()
+    {
+        var cached = cachedResolvedOptions;
+        if (cached != null && cached.ProtocolVersion == ProtocolVersion && cached.Indent == Indent && cached.Strict == Strict && cached.ExpandPaths == ExpandPaths && cached.ObjectArrayLayout == ObjectArrayLayout) return cached;
+        return cachedResolvedOptions = new ResolvedDecodeOptions
+        {
+            ProtocolVersion = ProtocolVersion,
+            Indent = Indent,
+            Strict = Strict,
+            ExpandPaths = ExpandPaths,
+            ObjectArrayLayout = ObjectArrayLayout
+        };
+    }
+
+    /// <summary>
+    /// Gets or sets the TOON protocol version to expect during decoding.
+    /// </summary>
+    /// <remarks>The default value is <see cref="ToonProtocolVersion.Auto"/>.</remarks>
+    public ToonProtocolVersion ProtocolVersion { get; set; } = ToonProtocolVersion.Auto;
+
     /// <summary>
     /// Gets or sets the number of spaces that represent one indentation level.
     /// </summary>
@@ -40,4 +63,20 @@ public class ToonDecodeOptions
     /// columnar object arrays; this property is also populated by option detection to describe the detected layout.
     /// </remarks>
     public ToonObjectArrayLayout ObjectArrayLayout { get; set; } = ToonObjectArrayLayout.Auto;
+
+    /// <summary>
+    /// Creates a shallow clone of the current options instance.
+    /// </summary>
+    /// <returns>A new <see cref="ToonDecodeOptions"/> instance with identical settings.</returns>
+    public ToonDecodeOptions Clone()
+    {
+        return new ToonDecodeOptions
+        {
+            ProtocolVersion = ProtocolVersion,
+            Indent = Indent,
+            Strict = Strict,
+            ExpandPaths = ExpandPaths,
+            ObjectArrayLayout = ObjectArrayLayout
+        };
+    }
 }

@@ -361,15 +361,9 @@ public abstract class ToonNode
                 throw new FormatException($"Invalid JSON token at position {start}.");
             }
 
-            var parsedNumber = double.Parse(token, CultureInfo.InvariantCulture);
-            parsedNumber = FloatUtils.NormalizeSignedZero(parsedNumber);
-            if (parsedNumber < 1e-6 || parsedNumber > 1e6)
-            {
-                if (NumericUtils.TryEmitCanonicalDecimalForm(parsedNumber, out var decimalValue))
-                {
-                    return new ToonValue(decimalValue);
-                }
-            }
+            if (long.TryParse(token, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var integer))
+                return new ToonValue(integer);
+            var parsedNumber = FloatUtils.NormalizeSignedZero(double.Parse(token, CultureInfo.InvariantCulture));
 
             return new ToonValue(parsedNumber);
         }

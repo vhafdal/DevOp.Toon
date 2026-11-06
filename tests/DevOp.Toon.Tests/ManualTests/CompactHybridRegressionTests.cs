@@ -18,6 +18,7 @@ public class CompactHybridRegressionTests
         var fallbackToon = ToonEncoder.Encode(fallbackRows, options);
         var decodeOptions = new ToonDecodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Indent = 1,
             ObjectArrayLayout = ToonObjectArrayLayout.Columnar
         };
@@ -73,6 +74,7 @@ public class CompactHybridRegressionTests
     {
         return new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Indent = 1,
             Delimiter = ToonDelimiter.COMMA,
             KeyFolding = ToonKeyFolding.Safe,

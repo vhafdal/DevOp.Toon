@@ -1,0 +1,104 @@
+{
+  "version": "4.0",
+  "category": "decode",
+  "description": "Root form detection – empty document, single primitive, literal empty array",
+  "tests": [
+    {
+      "name": "parses empty document as empty object",
+      "input": "",
+      "expected": {},
+      "options": {
+        "strict": true
+      },
+      "specSection": "5"
+    },
+    {
+      "name": "parses single primitive string at root as primitive",
+      "input": "hello",
+      "expected": "hello",
+      "options": {
+        "strict": true
+      },
+      "specSection": "5"
+    },
+    {
+      "name": "parses single primitive number at root as primitive",
+      "input": "42",
+      "expected": 42,
+      "options": {
+        "strict": true
+      },
+      "specSection": "5"
+    },
+    {
+      "name": "parses single primitive boolean at root as primitive",
+      "input": "true",
+      "expected": true,
+      "options": {
+        "strict": true
+      },
+      "specSection": "5"
+    },
+    {
+      "name": "parses literal [] at root as empty array",
+      "input": "[]",
+      "expected": [],
+      "options": {
+        "strict": true
+      },
+      "specSection": "5"
+    },
+    {
+      "name": "throws on trailing content after a root array",
+      "input": "[2]: 1,2\njunk: 3",
+      "expected": null,
+      "shouldError": true,
+      "options": {
+        "strict": true
+      },
+      "specSection": "5",
+      "note": "The root form spans the whole document; trailing lines must not be silently discarded"
+    },
+    {
+      "name": "throws on trailing content after a keyed tabular root",
+      "input": "[2:]{v}:\n  a: 1\n  b: 2\njunk: 3",
+      "expected": null,
+      "shouldError": true,
+      "options": {
+        "strict": true
+      },
+      "specSection": "5"
+    },
+    {
+      "name": "throws on trailing content after a root empty array",
+      "input": "[]\njunk: 3",
+      "expected": null,
+      "shouldError": true,
+      "options": {
+        "strict": true
+      },
+      "specSection": "5"
+    },
+    {
+      "name": "parses a root primitive after a leading blank line",
+      "input": "\nhello",
+      "expected": "hello",
+      "options": {
+        "strict": true
+      },
+      "specSection": "5"
+    },
+    {
+      "name": "throws on a trailing bare token after a root array in non-strict mode",
+      "input": "[2]: 1,2\njunk",
+      "expected": null,
+      "shouldError": true,
+      "options": {
+        "strict": false
+      },
+      "specSection": "5",
+      "note": "The non-strict leniency for trailing content excludes scalar lines (§5.2)",
+      "minSpecVersion": "4.1"
+    }
+  ]
+}

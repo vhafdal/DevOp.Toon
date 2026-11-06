@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using DevOp.Toon.Core;
 using DevOp.Toon;
 using DevOp.Toon.Internal.Encode;
@@ -10,15 +11,33 @@ namespace DevOp.Toon;
 /// </summary>
 public class ToonEncodeOptions
 {
+    private ToonProtocolVersion protocolVersion = ToonProtocolVersion.V4_4;
     private int indent = 1;
     private ToonDelimiter delimiter = Constants.DEFAULT_DELIMITER_ENUM;
     private ToonKeyFolding keyFolding = ToonKeyFolding.Off;
     private int? flattenDepth = int.MaxValue;
-    private ToonObjectArrayLayout objectArrayLayout = ToonObjectArrayLayout.Columnar;
     private ToonByteArrayFormat byteArrayFormat = ToonByteArrayFormat.Base64String;
-    private bool ignoreNullOrEmpty = true;
-    private bool excludeEmptyArrays = true;
+    private ToonObjectArrayLayout? explicitObjectArrayLayout;
+    private bool? explicitIgnoreNullOrEmpty;
+    private bool? explicitExcludeEmptyArrays;
     private ResolvedEncodeOptions? cachedResolvedOptions;
+
+    /// <summary>
+    /// Gets or sets the TOON protocol version to use for encoding.
+    /// </summary>
+    /// <remarks>The default value is <see cref="ToonProtocolVersion.V4_4"/>.</remarks>
+    public ToonProtocolVersion ProtocolVersion
+    {
+        get => protocolVersion;
+        set
+        {
+            if (protocolVersion == value)
+                return;
+
+            protocolVersion = value;
+            cachedResolvedOptions = null;
+        }
+    }
 
     /// <summary>
     /// Gets or sets the number of spaces to write for each indentation level.
@@ -98,18 +117,18 @@ public class ToonEncodeOptions
     /// Gets or sets how arrays of objects are encoded.
     /// </summary>
     /// <remarks>
-    /// The default value is <see cref="ToonObjectArrayLayout.Columnar"/>, which writes shared scalar properties
-    /// as columns and emits complex per-row fields below the row where needed.
+    /// For official protocol versions, the default is <see cref="ToonObjectArrayLayout.Auto"/>.
+    /// For custom protocol versions, the default is <see cref="ToonObjectArrayLayout.Columnar"/>.
     /// </remarks>
     public ToonObjectArrayLayout ObjectArrayLayout
     {
-        get => objectArrayLayout;
+        get => explicitObjectArrayLayout ?? (IsCustom(protocolVersion) ? ToonObjectArrayLayout.Columnar : ToonObjectArrayLayout.Auto);
         set
         {
-            if (objectArrayLayout == value)
+            if (explicitObjectArrayLayout == value)
                 return;
 
-            objectArrayLayout = value;
+            explicitObjectArrayLayout = value;
             cachedResolvedOptions = null;
         }
     }
@@ -138,18 +157,18 @@ public class ToonEncodeOptions
     /// Gets or sets whether all-null and all-empty-string columns are omitted from columnar object arrays.
     /// </summary>
     /// <remarks>
-    /// The default value is <see langword="true"/>. Mixed columns are preserved when at least one row contains
-    /// a non-null, non-empty value.
+    /// For custom protocol versions, the default is <see langword="true"/>. For official protocol versions,
+    /// the default is <see langword="false"/>.
     /// </remarks>
     public bool IgnoreNullOrEmpty
     {
-        get => ignoreNullOrEmpty;
+        get => explicitIgnoreNullOrEmpty ?? IsCustom(protocolVersion);
         set
         {
-            if (ignoreNullOrEmpty == value)
+            if (explicitIgnoreNullOrEmpty == value)
                 return;
 
-            ignoreNullOrEmpty = value;
+            explicitIgnoreNullOrEmpty = value;
             cachedResolvedOptions = null;
         }
     }
@@ -158,34 +177,94 @@ public class ToonEncodeOptions
     /// Gets or sets whether empty array properties are omitted from the encoded output.
     /// </summary>
     /// <remarks>
-    /// The default value is <see langword="true"/>. This applies to regular object properties and columnar
-    /// spill rows, reducing payload size when empty collections do not need to be preserved.
+    /// For custom protocol versions, the default is <see langword="true"/>. For official protocol versions,
+    /// the default is <see langword="false"/>.
     /// </remarks>
     public bool ExcludeEmptyArrays
     {
-        get => excludeEmptyArrays;
+        get => explicitExcludeEmptyArrays ?? IsCustom(protocolVersion);
         set
         {
-            if (excludeEmptyArrays == value)
+            if (explicitExcludeEmptyArrays == value)
                 return;
 
-            excludeEmptyArrays = value;
+            explicitExcludeEmptyArrays = value;
             cachedResolvedOptions = null;
         }
     }
 
+    /// <summary>
+    /// Creates a shallow clone of the current options instance, preserving explicit override state.
+    /// </summary>
+    /// <returns>A new <see cref="ToonEncodeOptions"/> instance with identical settings and explicit overrides.</returns>
+    public ToonEncodeOptions Clone()
+    {
+        return new ToonEncodeOptions
+        {
+            protocolVersion = protocolVersion,
+            indent = indent,
+            delimiter = delimiter,
+            keyFolding = keyFolding,
+            flattenDepth = flattenDepth,
+            byteArrayFormat = byteArrayFormat,
+            explicitObjectArrayLayout = explicitObjectArrayLayout,
+            explicitIgnoreNullOrEmpty = explicitIgnoreNullOrEmpty,
+            explicitExcludeEmptyArrays = explicitExcludeEmptyArrays
+        };
+    }
+
+    /// <summary>Validates the selected version and option combination.</summary>
+    public void Validate()
+    {
+        if (!Enum.IsDefined(typeof(ToonProtocolVersion), protocolVersion))
+            throw new ArgumentOutOfRangeException(nameof(ProtocolVersion), protocolVersion, "Unknown or undefined protocol version.");
+
+        if (protocolVersion == ToonProtocolVersion.Auto)
+            throw new ArgumentOutOfRangeException(nameof(ProtocolVersion), protocolVersion, "ProtocolVersion.Auto is not valid for encoding.");
+
+        if (indent <= 0)
+            throw new ArgumentOutOfRangeException(nameof(Indent), indent, "Indent must be greater than 0.");
+
+        if (!Enum.IsDefined(typeof(ToonDelimiter), delimiter))
+            throw new ArgumentOutOfRangeException(nameof(Delimiter), delimiter, "Unknown or undefined delimiter.");
+
+        if (!Enum.IsDefined(typeof(ToonKeyFolding), keyFolding))
+            throw new ArgumentOutOfRangeException(nameof(KeyFolding), keyFolding, "Unknown or undefined key folding mode.");
+
+        if (explicitObjectArrayLayout.HasValue && !Enum.IsDefined(typeof(ToonObjectArrayLayout), explicitObjectArrayLayout.Value))
+            throw new ArgumentOutOfRangeException(nameof(ObjectArrayLayout), explicitObjectArrayLayout.Value, "Unknown or undefined object array layout.");
+
+        if (!Enum.IsDefined(typeof(ToonByteArrayFormat), byteArrayFormat))
+            throw new ArgumentOutOfRangeException(nameof(ByteArrayFormat), byteArrayFormat, "Unknown or undefined byte array format.");
+
+        if (keyFolding == ToonKeyFolding.Safe && protocolVersion != ToonProtocolVersion.CustomLegacy && protocolVersion != ToonProtocolVersion.V3_0)
+            throw new ArgumentException($"Key folding is not supported for protocol version {protocolVersion}.", nameof(KeyFolding));
+
+        if (ObjectArrayLayout == ToonObjectArrayLayout.Columnar && !IsCustom(protocolVersion))
+            throw new ArgumentException($"Columnar layout is only supported for custom protocol versions, not {protocolVersion}.", nameof(ObjectArrayLayout));
+    }
+
     internal ResolvedEncodeOptions GetResolvedOptions()
     {
-        return cachedResolvedOptions ??= new ResolvedEncodeOptions
+        if (cachedResolvedOptions != null)
+            return cachedResolvedOptions;
+
+        Validate();
+
+        return cachedResolvedOptions = new ResolvedEncodeOptions
         {
+            ProtocolVersion = protocolVersion,
             Indent = indent,
             Delimiter = Constants.ToDelimiterChar(delimiter),
             KeyFolding = keyFolding,
             FlattenDepth = flattenDepth ?? int.MaxValue,
-            ObjectArrayLayout = objectArrayLayout,
+            ObjectArrayLayout = ObjectArrayLayout,
             ByteArrayFormat = byteArrayFormat,
-            IgnoreNullOrEmpty = ignoreNullOrEmpty,
-            ExcludeEmptyArrays = excludeEmptyArrays
+            IgnoreNullOrEmpty = IgnoreNullOrEmpty,
+            ExcludeEmptyArrays = ExcludeEmptyArrays
         };
     }
+
+    private static bool IsCustom(ToonProtocolVersion version) =>
+        version is ToonProtocolVersion.CustomLegacy or ToonProtocolVersion.CustomV4_4;
 }

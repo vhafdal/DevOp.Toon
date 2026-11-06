@@ -1,55 +1,110 @@
 pipeline {
     agent { label 'dotnet' }
 
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+    }
+
     parameters {
-        booleanParam(
-            name: 'PUSH_NUGET',
-            defaultValue: false,
-            description: 'Push generated NuGet packages to NuGet.org after pack'
-        )
+        string(name: 'GIT_REF', defaultValue: 'main', description: 'main for validation, or immutable annotated vMAJOR.MINOR.PATCH tag for publishing')
+        booleanParam(name: 'PUSH_NUGET', defaultValue: false, description: 'Publish the validated tagged package to NuGet.org; an existing version fails')
     }
 
     environment {
-        PROJECT = './src/DevOp.Toon/DevOp.Toon.csproj'
+        PROJECT = 'src/DevOp.Toon/DevOp.Toon.csproj'
         CONFIG = 'Release'
         NUGET_OUTPUT = './nupkg'
         NUGET_SOURCE = 'https://api.nuget.org/v3/index.json'
         DOTNET_CLI_TELEMETRY_OPTOUT = '1'
         DOTNET_NOLOGO = 'true'
+        TEST_PROJECT = 'tests/DevOp.Toon.Tests/DevOp.Toon.Tests.csproj'
+        TEST_FRAMEWORK = 'net10.0'
     }
 
     stages {
-        stage('Build & Pack') {
+        stage('Checkout requested ref') {
             steps {
-                container('dotnet') {
-                    sh """
-                        dotnet --info
-                        rm -rf ${NUGET_OUTPUT}
-                        mkdir -p ${NUGET_OUTPUT}
-                        dotnet restore ${PROJECT}
-                        dotnet build ${PROJECT} -c ${CONFIG} --no-restore
-                        dotnet test ${PROJECT} -c ${CONFIG} --no-build --logger "trx;LogFileName=test-results.trx"
-                        dotnet pack ${PROJECT} -c ${CONFIG} --no-build -o ${NUGET_OUTPUT}
-                    """
+                deleteDir()
+                script {
+                    def requested = (params.GIT_REF ?: 'main').trim()
+                    if (!(requested == 'main' || requested ==~ /v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)/)) {
+                        error('GIT_REF must be main or a stable vMAJOR.MINOR.PATCH tag')
+                    }
+                    if (scm.userRemoteConfigs.size() != 1) {
+                        error('Expected one configured Git remote')
+                    }
+                    def remotes = scm.userRemoteConfigs.collect { remote ->
+                        [url: remote.url, credentialsId: remote.credentialsId, name: 'origin',
+                         refspec: '+refs/heads/main:refs/remotes/origin/main +refs/tags/*:refs/tags/*']
+                    }
+                    checkout scmGit(
+                        branches: [[name: requested == 'main' ? '*/main' : 'refs/tags/' + requested]],
+                        extensions: [cloneOption(noTags: false, shallow: false, honorRefspec: true)],
+                        userRemoteConfigs: remotes)
+                    env.REQUESTED_REF = requested
+                    env.PUBLISH_REQUESTED = params.PUSH_NUGET.toString()
                 }
             }
         }
 
-        stage('Push NuGet Package') {
-            when {
-                expression { params.PUSH_NUGET }
-            }
+        stage('Verify release source') {
             steps {
                 container('dotnet') {
+                    sh '''
+                        set -eu
+                        dotnet --info
+                        sh tools/validate-release.sh source "$PROJECT" "$REQUESTED_REF" "$PUBLISH_REQUESTED" > release-proof.txt
+                        cat release-proof.txt
+                    '''
+                }
+            }
+        }
+
+        stage('Build and test') {
+            steps {
+                container('dotnet') {
+                    sh '''
+                        set -eu
+                        dotnet restore "$PROJECT"
+                        dotnet build "$PROJECT" -c "$CONFIG" --no-restore -p:ContinuousIntegrationBuild=true
+                        dotnet test "$TEST_PROJECT" -c "$CONFIG" -f "$TEST_FRAMEWORK" -p:ContinuousIntegrationBuild=true --results-directory "$WORKSPACE/test-results" --logger "trx;LogFileName=release-tests.trx"
+                        sh tools/validate-release.sh tests "$WORKSPACE/test-results" 1 >> release-proof.txt
+                        cat release-proof.txt
+                    '''
+                }
+            }
+        }
+
+        stage('Pack and inspect') {
+            steps {
+                dir('nupkg') { deleteDir() }
+                container('dotnet') {
+                    sh '''
+                        set -eu
+                        commit=$(git -c safe.directory="$WORKSPACE" rev-parse HEAD)
+                        dotnet pack "$PROJECT" -c "$CONFIG" --no-build --no-restore -o "$NUGET_OUTPUT" -p:ContinuousIntegrationBuild=true -p:RepositoryCommit="$commit"
+                        sh tools/validate-release.sh package "$PROJECT" "$NUGET_OUTPUT" "$REQUESTED_REF" "$PUBLISH_REQUESTED" >> release-proof.txt
+                        cat release-proof.txt
+                    '''
+                }
+            }
+        }
+
+        stage('Push NuGet package') {
+            when { expression { params.PUSH_NUGET } }
+            steps {
+                container('dotnet') {
+                    sh '''
+                        set -eu
+                        sh tools/validate-release.sh package "$PROJECT" "$NUGET_OUTPUT" "$REQUESTED_REF" true >> release-proof.txt
+                    '''
                     withCredentials([string(credentialsId: 'nuget-org-api-key', variable: 'NUGET_API_KEY')]) {
                         sh '''
-                            test -n "$(find ./nupkg -maxdepth 1 -name '*.nupkg' -print -quit)"
-                            for pkg in ./nupkg/*.nupkg; do
-                                echo "Pushing $pkg to NuGet.org"
-                                dotnet nuget push "$pkg" \
-                                  --source "$NUGET_SOURCE" \
-                                  --api-key "$NUGET_API_KEY" \
-                                  --skip-duplicate
+                            set -eu
+                            set +x
+                            for pkg in "$NUGET_OUTPUT"/*.nupkg; do
+                                dotnet nuget push "$pkg" --source "$NUGET_SOURCE" --api-key "$NUGET_API_KEY"
                             done
                         '''
                     }
@@ -60,7 +115,7 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: 'nupkg/**', fingerprint: true, allowEmptyArchive: true
+            archiveArtifacts artifacts: 'nupkg/**,test-results/**/*.trx,release-proof.txt', fingerprint: true, allowEmptyArchive: true
         }
     }
 }

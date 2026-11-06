@@ -3,6 +3,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using DevOp.Toon.Internal.Encode;
+using DevOp.Toon.Internal.Decode;
+using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon;
 
@@ -113,7 +115,7 @@ public sealed class ToonService : IToonService
     /// <returns>The decoded node graph.</returns>
     public ToonNode? Decode(string toonString)
     {
-        return ToonDecoder.Decode(toonString, DetectDecodeOptions(toonString));
+        return ToonDecoder.Decode(toonString, decodeOptions);
     }
 
     /// <summary>
@@ -135,7 +137,7 @@ public sealed class ToonService : IToonService
     /// <returns>The decoded value.</returns>
     public T? Decode<T>(string toonString)
     {
-        return ToonDecoder.Decode<T>(toonString, DetectDecodeOptions(toonString));
+        return ToonDecoder.Decode<T>(toonString, decodeOptions);
     }
 
     /// <summary>
@@ -158,7 +160,7 @@ public sealed class ToonService : IToonService
     /// <returns>A task containing the decoded node graph.</returns>
     public Task<ToonNode?> DecodeAsync(string toonString, CancellationToken cancellationToken = default)
     {
-        return ToonDecoder.DecodeAsync(toonString, DetectDecodeOptions(toonString), cancellationToken);
+        return ToonDecoder.DecodeAsync(toonString, decodeOptions, cancellationToken);
     }
 
     /// <summary>
@@ -182,7 +184,7 @@ public sealed class ToonService : IToonService
     /// <returns>A task containing the decoded value.</returns>
     public Task<T?> DecodeAsync<T>(string toonString, CancellationToken cancellationToken = default)
     {
-        return ToonDecoder.DecodeAsync<T>(toonString, DetectDecodeOptions(toonString), cancellationToken);
+        return ToonDecoder.DecodeAsync<T>(toonString, decodeOptions, cancellationToken);
     }
 
     /// <summary>
@@ -215,7 +217,7 @@ public sealed class ToonService : IToonService
     /// <returns>The converted JSON payload.</returns>
     public string Toon2Json(string toonString)
     {
-        return ToonDecoder.Toon2Json(toonString, DetectDecodeOptions(toonString));
+        return ToonDecoder.Toon2Json(toonString, decodeOptions);
     }
 
     /// <summary>
@@ -242,7 +244,11 @@ public sealed class ToonService : IToonService
             return Decode<T>(body);
 
         if (IsJsonContentType(contentType))
-            return Decode<T>(Json2Toon(body));
+        {
+            var native = ToonNodeConverter.ToNativeNode(ToonNode.Parse(body));
+            if (NativeTypedMaterializer.TryConvert<T>(native, out var value)) return value;
+            throw new NotSupportedException($"JSON deserialization does not support target type '{typeof(T).FullName}'.");
+        }
 
         throw new NotSupportedException(
             $"Content type '{contentType}' is not supported by Deserialize<T>. " +
@@ -283,12 +289,6 @@ public sealed class ToonService : IToonService
 
     private static ToonDecodeOptions CloneDecodeOptions(ToonDecodeOptions options)
     {
-        return new ToonDecodeOptions
-        {
-            Indent = options.Indent,
-            Strict = options.Strict,
-            ExpandPaths = options.ExpandPaths,
-            ObjectArrayLayout = options.ObjectArrayLayout
-        };
+        return options.Clone();
     }
 }

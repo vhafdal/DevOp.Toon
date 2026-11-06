@@ -30,7 +30,7 @@ tags[2]: a,b,c
 """;
 
         // Act & Assert
-        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input));
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input, new LegacyToonDecodeOptions()));
     }
 
     [Fact]
@@ -46,7 +46,7 @@ items[1]:
 """;
 
         // Act & Assert
-        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input));
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input, new LegacyToonDecodeOptions()));
     }
 
     [Fact]
@@ -62,7 +62,7 @@ items[2]{id,name}:
 """;
 
         // Act & Assert
-        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input));
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input, new LegacyToonDecodeOptions()));
     }
 
     [Fact]
@@ -78,7 +78,7 @@ items[2]{id,name}:
 """;
 
         // Act & Assert
-        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input));
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input, new LegacyToonDecodeOptions()));
     }
 
     [Fact]
@@ -92,7 +92,7 @@ items[2]{id,name}:
 """;
 
         // Act & Assert
-        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input));
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input, new LegacyToonDecodeOptions()));
     }
 
     [Fact]
@@ -106,7 +106,7 @@ items[2]{id,name}:
 """;
 
         // Act & Assert
-        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input));
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input, new LegacyToonDecodeOptions()));
     }
 
     [Fact]
@@ -121,7 +121,7 @@ a:
 """;
 
         // Act & Assert
-        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input));
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input, new LegacyToonDecodeOptions()));
     }
 
     [Fact]
@@ -136,7 +136,7 @@ world
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -158,7 +158,7 @@ items[2	]{a	b}:
 """;
 
         // Act & Assert
-        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input));
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode(input, new LegacyToonDecodeOptions()));
     }
 
     [Fact]
@@ -174,7 +174,7 @@ items[2	]{a,b}:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,

@@ -15,6 +15,8 @@ namespace DevOp.Toon.Internal.Encode;
 internal static class NativeNormalize
 {
     private static readonly ConcurrentDictionary<Type, PropertyMetadata[]> PropertyCache = new();
+    [ThreadStatic]
+    private static HashSet<Type>? propertyBuildTypes;
 
     /// <summary>
     /// Normalizes a boxed CLR value, dictionary, enumerable, <see cref="ToonNode"/>, JSON DOM value, or plain object into native nodes.
@@ -357,6 +359,8 @@ internal static class NativeNormalize
 
     internal static bool IsPlainObjectType(Type type)
     {
+        if (typeof(ToonNode).IsAssignableFrom(type) || typeof(NativeNode).IsAssignableFrom(type)
+            || type.FullName is "System.Text.Json.JsonElement" or "System.Text.Json.JsonDocument") return false;
         if (type.IsPrimitive || type == typeof(string) || type == typeof(DateTime) || type == typeof(DateTimeOffset))
             return false;
 
@@ -388,12 +392,20 @@ internal static class NativeNormalize
 
     private static PropertyMetadata[] BuildProperties(Type type)
     {
+        var activeTypes = propertyBuildTypes ??= new HashSet<Type>();
+        activeTypes.Add(type);
+        try { return BuildPropertiesCore(type); }
+        finally { activeTypes.Remove(type); }
+    }
+
+    private static PropertyMetadata[] BuildPropertiesCore(Type type)
+    {
         var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
         var metadata = new List<PropertyMetadata>(properties.Length);
         for (int i = 0; i < properties.Length; i++)
         {
             var property = properties[i];
-            if (!property.CanRead)
+            if (property.GetMethod?.IsPublic != true || property.GetIndexParameters().Length != 0)
             {
                 continue;
             }
@@ -474,6 +486,8 @@ internal static class NativeNormalize
 
     private static PropertyMetadata[]? CreateNestedPropertyCache(Type type)
     {
+        // Metadata must remain acyclic; finite recursive values are normalized separately.
+        if (propertyBuildTypes is { } activeTypes && (activeTypes.Contains(type) || activeTypes.Count >= 256)) return null;
         var properties = GetProperties(type);
         return properties.Length == 0 ? null : properties;
     }

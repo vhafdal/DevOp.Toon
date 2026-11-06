@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <BuildFlavor Condition="'$(BuildFlavor)' == ''">candidate</BuildFlavor>
+    <BaseIntermediateOutputPath>obj/$(BuildFlavor)/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/$(BuildFlavor)/</BaseOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

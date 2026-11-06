@@ -31,7 +31,7 @@ a:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -53,7 +53,7 @@ items[2]:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -74,7 +74,7 @@ a:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 4,
             Strict = true,
@@ -95,7 +95,7 @@ a:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 4,
             Strict = true,
@@ -122,7 +122,7 @@ a:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -143,7 +143,7 @@ a:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -163,7 +163,7 @@ a:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -183,7 +183,7 @@ text: "hello	world"
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -209,7 +209,7 @@ text: "hello	world"
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -235,7 +235,7 @@ items[2]: "a	b","c	d"
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -262,7 +262,7 @@ a:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = false,
@@ -290,7 +290,7 @@ a:
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = false,
@@ -318,7 +318,7 @@ b: 2
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -346,7 +346,7 @@ c: 3
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,
@@ -374,7 +374,7 @@ b: 2
 """;
 
         // Act & Assert
-        var options = new ToonDecodeOptions
+        var options = new LegacyToonDecodeOptions
         {
             Indent = 2,
             Strict = true,

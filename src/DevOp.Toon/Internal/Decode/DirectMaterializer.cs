@@ -1050,7 +1050,7 @@ namespace DevOp.Toon.Internal.Decode
                 return false;
             }
 
-            var items = plan.CreateList(header.Length);
+            var items = plan.CreateList(Math.Min(header.Length, 4096));
 
             if (inlineValues != null)
             {
@@ -1093,7 +1093,7 @@ namespace DevOp.Toon.Internal.Decode
                 return header.Length == 0;
             }
 
-            var tokenRanges = new Parser.TokenRange[header.Length];
+            var tokenRanges = new Parser.TokenRange[Math.Min(header.Length, inlineValues.Length + 1)];
             if (!Parser.TryParseDelimitedValueRanges(inlineValues, header.Delimiter, tokenRanges, out var valueCount) ||
                 valueCount != header.Length)
             {
@@ -2153,13 +2153,13 @@ namespace DevOp.Toon.Internal.Decode
 
         private static object? ReadUntypedArray(LineCursor cursor, ArrayHeaderInfo header, string? inlineValues, int baseDepth, ResolvedDecodeOptions options)
         {
-            var list = new List<object?>(header.Length);
+            var list = new List<object?>(Math.Min(header.Length, 4096));
 
             if (inlineValues != null)
             {
                 if (!string.IsNullOrWhiteSpace(inlineValues))
                 {
-                    var tokenRanges = new Parser.TokenRange[header.Length];
+                    var tokenRanges = new Parser.TokenRange[Math.Min(header.Length, inlineValues.Length + 1)];
                     if (Parser.TryParseDelimitedValueRanges(inlineValues, header.Delimiter, tokenRanges, out var valueCount))
                     {
                         for (int i = 0; i < valueCount; i++)

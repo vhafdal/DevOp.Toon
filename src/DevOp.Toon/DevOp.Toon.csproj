@@ -10,7 +10,7 @@
 
 		<!-- Package Information -->
 		<PackageId>DevOp.Toon</PackageId>
-		<Version>0.2.9</Version>
+		<Version>0.3.0</Version>
 		<Authors>Þorvaldur Hafdal</Authors>
 		<Company>DevOp</Company>
 		<Description>Token-Oriented Object Notation (TOON) - a token-efficient JSON alternative for LLM prompts</Description>
@@ -27,11 +27,12 @@
 		<Title>DevOp Toon</Title>
 		<Copyright>Þorvaldur Hafdal(DevOp)</Copyright>
 		<PackageIcon>Assets\DevOp.Toon-128.png</PackageIcon>
-		<PackageReleaseNotes>Improves typed decode coverage and fast-path performance for DTO-heavy payloads.
-- Adds typed decode support for positional records and constructor-bound classes without parameterless constructors
-- Fixes typed decode for array targets and collection interfaces such as IList&lt;T&gt;, IReadOnlyList&lt;T&gt;, and IEnumerable&lt;T&gt;
-- Fixes typed decode for string-keyed dictionary targets, dictionary properties, and object-valued dictionary rows
-- Improves decode performance by keeping supported record, collection, and dictionary shapes on the direct materializer path</PackageReleaseNotes>
+		<PackageReleaseNotes>Adds version-aware TOON serialization and modern custom layouts.
+- Adds official TOON 4.0 through 4.4 and grouped custom 4.4 encoding and decoding
+- Adds automatic version detection and explicit enum-based version selection
+- Breaking: defaults encoding to official 4.4 and decoding to Auto; select CustomLegacy for previous wire behavior
+- Improves typed decoding allocations, cached property-key emission, and v4 stream buffer sizing
+- Fixes nested table detection, recursive CLR metadata, and Unicode validation edge cases</PackageReleaseNotes>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
 
@@ -50,7 +51,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
-		<PackageReference Include="DevOp.Toon.Core" Version="0.1.3" Condition="'$(Configuration)' != 'Debug' or '$(ToonCoreProjectPath)' == ''" />
+		<PackageReference Include="DevOp.Toon.Core" Version="0.2.0" Condition="'$(Configuration)' != 'Debug' or '$(ToonCoreProjectPath)' == ''" />
 	</ItemGroup>
 
 	<ItemGroup Condition="'$(Configuration)' == 'Debug' and '$(ToonCoreProjectPath)' != ''">

@@ -20,10 +20,11 @@ internal sealed class CompactBufferWriter : IDisposable
     /// </summary>
     /// <param name="indentSize">The number of spaces written for each indentation depth.</param>
     /// <param name="initialCapacity">The initial rented character capacity.</param>
-    public CompactBufferWriter(int indentSize, int initialCapacity = 1024)
+    /// <param name="newLine">An optional protocol-specific line separator.</param>
+    public CompactBufferWriter(int indentSize, int initialCapacity = 1024, string? newLine = null)
     {
         _indentSize = indentSize;
-        _newLine = Environment.NewLine;
+        _newLine = newLine ?? Environment.NewLine;
         _buffer = ArrayPool<char>.Shared.Rent(Math.Max(initialCapacity, 256));
     }
 
@@ -183,7 +184,7 @@ internal sealed class CompactBufferWriter : IDisposable
             return;
         }
 
-        int count = depth * _indentSize;
+        int count = checked(depth * _indentSize);
         EnsureCapacity(count);
         _buffer.AsSpan(_position, count).Fill(Constants.SPACE);
         _position += count;
@@ -191,13 +192,13 @@ internal sealed class CompactBufferWriter : IDisposable
 
     private void EnsureCapacity(int additionalCapacity)
     {
-        int required = _position + additionalCapacity;
-        if (required <= _buffer.Length)
+        if ((uint)additionalCapacity <= (uint)(_buffer.Length - _position))
         {
             return;
         }
 
-        int newSize = Math.Max(required, _buffer.Length * 2);
+        int required = checked(_position + additionalCapacity);
+        int newSize = (int)Math.Min(int.MaxValue, Math.Max((long)required, (long)_buffer.Length * 2));
         var newBuffer = ArrayPool<char>.Shared.Rent(newSize);
         _buffer.AsSpan(0, _position).CopyTo(newBuffer);
         ArrayPool<char>.Shared.Return(_buffer);
