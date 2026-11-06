@@ -1,5 +1,9 @@
 # Full product benchmark evidence — 2026-11-06
 
+For the current results measured from the **published NuGet binaries**, see
+[PublishedPackageBenchmarks.md](PublishedPackageBenchmarks.md). The measurements below record
+the earlier source-build optimization and regression work.
+
 All three existing-path regression comparisons for the protocol upgrade pass with the isolated
 method below. These measurements do not authorize publication.
 
@@ -51,7 +55,7 @@ for each profile. This verdict applies to the isolated matched comparisons, not 
 multi-profile runs whose pool history produced inconsistent allocation deltas. Those unsuccessful
 exploratory reports remain available rather than being presented as passing evidence.
 
-The final optimized runtime (`3F6054F7BB5BF68801E9E11F5F2DDA2A886C7FCED33F021EDC70EC318C041776`)
+An earlier optimized source-build runtime (`3F6054F7BB5BF68801E9E11F5F2DDA2A886C7FCED33F021EDC70EC318C041776`)
 measured the new shapes as follows on all 2,051 normalized DTOs:
 
 | New profile | Encode ms | Explicit decode ms | Auto decode ms | Decode allocated bytes | UTF-8 bytes |
@@ -71,7 +75,7 @@ of 17.69 MB. Span-based fields and bounded exact-header reuse reduced it from th
 implementation's 15.04 MB to 10.24 MB. The grouped lossless payload remains about 3.9% smaller than
 legacy lossless (3,059,139 bytes). Reverted string-setter and surrogate-precheck experiments are
 recorded in [OptimizationReview.md](OptimizationReview.md), alongside measured client metadata
-improvements and rejected/deferred HTTP changes.
+improvements and rejected HTTP experiments.
 
 ## Fresh isolated legacy/new-custom comparison
 

@@ -1,7 +1,8 @@
 # Protocol versions and migration
 
-This change is unreleased. Protocol conformance, integration and existing-path regression checks
-have passed; publication remains a separate action. See [the measured performance tradeoffs](ProductBenchmarkResults.md).
+Released package scope: **DevOp.Toon 0.3.0**, **DevOp.Toon.Core 0.2.0**,
+**DevOp.Toon.API 0.2.0**, and **DevOp.Toon.Client 0.2.0**.
+See [the measured performance tradeoffs](ProductBenchmarkResults.md).
 
 `ToonProtocolVersion` lives in `DevOp.Toon.Core`. It selects a wire grammar rather than a NuGet package version. The encoder defaults to `V4_4`; the decoder defaults to `Auto`.
 
@@ -31,15 +32,43 @@ The table header is `[2]{Id,Customer{Name,Country}}:`. Nested fields occupy prim
 The [runnable protocol sample](../samples/ProtocolVersions/README.md) exercises typed nested DTOs,
 arrays, lossless custom options and explicit version hints for ambiguous input.
 
-## Modes
+## Supported TOON protocol versions
 
-| Enum | Intended use |
-| --- | --- |
-| `V3_0` | Original official 3.0 grammar and options |
-| `V4_0` through `V4_4` | Explicit official protocol rules, pinned to a documented fixture snapshot |
-| `CustomLegacy` | Existing columnar layout, including complex fields below rows |
-| `CustomV4_4` | Version 4.4 grammar extended with grouped columnar rows and keyed-table spills |
-| `Auto` | Decode-only syntax inspection; never an encoder target |
+Package versions and protocol versions are separate: **DevOp.Toon 0.3.0** supports the following
+wire formats through `ToonProtocolVersion` from **DevOp.Toon.Core 0.2.0**. API **0.2.0** and
+Client **0.2.0** expose the same runtime choices over HTTP.
+
+| TOON protocol/profile | Enum | Encode | Decode | HTTP version value |
+| --- | --- | --- | --- | --- |
+| Official 3.0 | `V3_0` | Yes | Yes | `3.0` |
+| Official 4.0 | `V4_0` | Yes | Yes | `4.0` |
+| Official 4.1 | `V4_1` | Yes | Yes | `4.1` |
+| Official 4.2 | `V4_2` | Yes | Yes | `4.2` |
+| Official 4.3 | `V4_3` | Yes | Yes | `4.3` |
+| Official 4.4 | `V4_4` | **Default** | Yes | `4.4` |
+| Legacy custom columnar | `CustomLegacy` | Yes | Yes | `custom-legacy` |
+| Custom 4.4 grouped rows and spills | `CustomV4_4` | Yes | Yes | `custom-4.4` |
+| Automatic syntax detection | `Auto` | No | **Default** | Decode option only |
+
+This specifies official **3.0**, not every 3.x revision. Custom profiles require compatible readers.
+For ambiguous input, supply a concrete decode version. When supplying decode options, match the
+producer's indentation or use `ToonDecoder.DetectOptions(text, versionHint)`.
+
+```csharp
+using DevOp.Toon;
+using DevOp.Toon.Core;
+
+var text = ToonEncoder.Encode(new { Id = 42 }, new ToonEncodeOptions
+{
+    ProtocolVersion = ToonProtocolVersion.V4_4,
+    Indent = 2
+});
+var value = ToonDecoder.Decode(text, new ToonDecodeOptions
+{
+    ProtocolVersion = ToonProtocolVersion.V4_4,
+    Indent = 2
+});
+```
 
 Official modes default to preserving empty collections and null/empty columns. Custom modes default to the previous compact omission policy. Use `IgnoreNullOrEmpty = false` and `ExcludeEmptyArrays = false` when preserving those values matters. These settings normalize input before layout selection; compact results must not be compared with full-fidelity results as though they contained identical data.
 
@@ -106,3 +135,20 @@ var clientOptions = new DevOp.Toon.Client.ToonClientOptions
 Official fixture snapshots, immutable commit references, and upstream fixture attribution are in `tests/DevOp.Toon.Tests/ProtocolFixtures`. The fixture license applies to copied fixture material; implementation authorship and licensing remain separate.
 
 Use `benchmarks/DevOp.Toon.ProtocolBenchmarks` for the full 2,051-product baseline/candidate comparison. Preserve the input fixture files. Run validation through `devop-build-slot` and publish observed results only after correctness and regression gates pass.
+
+## Conformance snapshots
+
+The protocol fixture suite pins the following specification snapshots. These are specification
+snapshot tags, not NuGet package versions:
+
+| Selected protocol | Pinned snapshot |
+| --- | --- |
+| 3.0 | `v3.0.0` |
+| 4.0 | `v4.0.0` |
+| 4.1 | `v4.1.3` |
+| 4.2 | `v4.2.1` |
+| 4.3 | `v4.3.0` |
+| 4.4 | `v4.4.0` |
+
+Commit references and fixture-only attribution are in
+[ProtocolFixtures](../tests/DevOp.Toon.Tests/ProtocolFixtures/).

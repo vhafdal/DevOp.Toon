@@ -32,7 +32,8 @@
 - Adds automatic version detection and explicit enum-based version selection
 - Breaking: defaults encoding to official 4.4 and decoding to Auto; select CustomLegacy for previous wire behavior
 - Improves typed decoding allocations, cached property-key emission, and v4 stream buffer sizing
-- Fixes nested table detection, recursive CLR metadata, and Unicode validation edge cases</PackageReleaseNotes>
+- Fixes nested table detection, recursive CLR metadata, and Unicode validation edge cases
+- Improves protocol support and published-package benchmark documentation</PackageReleaseNotes>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
 
