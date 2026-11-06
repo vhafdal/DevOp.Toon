@@ -1,0 +1,35 @@
+{
+  "repository": "https://github.com/toon-format/spec",
+  "snapshots": [
+    {
+      "tag": "v3.0.0",
+      "commit": "c09f73b267323190f61de5b91563fa579b3b7c5e",
+      "cases": 345
+    },
+    {
+      "tag": "v4.0.0",
+      "commit": "c31beab79abf62f2bac16449ff1ce901d0b42ccd",
+      "cases": 516
+    },
+    {
+      "tag": "v4.1.3",
+      "commit": "a6b801a3326980ab2cb615b0ffe44457e091f7b6",
+      "cases": 590
+    },
+    {
+      "tag": "v4.2.1",
+      "commit": "43d8c2933f64f07101d7e9369d3c9c332b944efe",
+      "cases": 533
+    },
+    {
+      "tag": "v4.3.0",
+      "commit": "6d5633b8d721bd2314eb937c22596632fa1c5952",
+      "cases": 545
+    },
+    {
+      "tag": "v4.4.0",
+      "commit": "d09c3d33e37389345a74bd96981eb96dd9be6c5e",
+      "cases": 564
+    }
+  ]
+}

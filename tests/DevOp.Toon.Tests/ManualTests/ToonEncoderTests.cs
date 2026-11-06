@@ -10,17 +10,17 @@ namespace DevOp.Toon.Tests;
 public class ToonEncoderTests
 {
     [Fact]
-    public void NewEncodeOptions_UseCompactColumnarDefaults()
+    public void NewEncodeOptions_UseOfficialV44PreservingDefaults()
     {
         var options = new ToonEncodeOptions();
 
         Assert.Equal(1, options.Indent);
         Assert.Equal(ToonDelimiter.COMMA, options.Delimiter);
         Assert.Equal(ToonKeyFolding.Off, options.KeyFolding);
-        Assert.Equal(ToonObjectArrayLayout.Columnar, options.ObjectArrayLayout);
+        Assert.Equal(ToonObjectArrayLayout.Auto, options.ObjectArrayLayout);
         Assert.Equal(ToonByteArrayFormat.Base64String, options.ByteArrayFormat);
-        Assert.True(options.IgnoreNullOrEmpty);
-        Assert.True(options.ExcludeEmptyArrays);
+        Assert.False(options.IgnoreNullOrEmpty);
+        Assert.False(options.ExcludeEmptyArrays);
     }
 
     [Fact]
@@ -156,6 +156,7 @@ public class ToonEncoderTests
         {
             ToonEncoder.DefaultOptions = new ToonEncodeOptions
             {
+                ProtocolVersion = ToonProtocolVersion.CustomLegacy,
                 KeyFolding = ToonKeyFolding.Safe
             };
 
@@ -238,6 +239,7 @@ public class ToonEncoderTests
         {
             Indent = 2,
             Delimiter = ToonDelimiter.COMMA,
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             KeyFolding = ToonKeyFolding.Safe,
             ObjectArrayLayout = ToonObjectArrayLayout.Columnar,
             IgnoreNullOrEmpty = true,
@@ -281,7 +283,7 @@ public class ToonEncoderTests
         var objects = JsonSerializer.Deserialize<List<object>>(json);
         Assert.NotNull(objects);
 
-        var result = ToonEncoder.Encode(objects);
+        var result = ToonEncoder.Encode(objects, new ToonEncodeOptions { ProtocolVersion = ToonProtocolVersion.CustomLegacy });
 
         Assert.Contains("[2]{id,name}:", result);
         Assert.Contains("abc,session", result);

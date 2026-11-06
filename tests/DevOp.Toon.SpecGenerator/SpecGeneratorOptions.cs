@@ -34,6 +34,10 @@ public class SpecGeneratorOptions
     [Option('l', "loglevel", Required = false, HelpText = "The log level")]
     public string? LogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Information.ToString();
 
+    /// <summary>Copies upstream JSON fixtures without generating C# or replacing legacy tests.</summary>
+    [Option("snapshot", Required = false, HelpText = "Copy pinned upstream JSON fixtures and provenance")]
+    public bool Snapshot { get; set; }
+
     internal string AbsoluteOutputPath => Path.GetFullPath(
                         Path.Combine(Environment.GetEnvironmentVariable("PWD") ?? Environment.CurrentDirectory, OutputPath));
 

@@ -4,6 +4,7 @@ public record TestCaseOptions
 {
     public string? Delimiter { get; init; }
     public int? Indent { get; init; }
+    public int? IndentSize { get; init; }
     public bool? Strict { get; init; }
     public string? KeyFolding { get; init; }
     public int? FlattenDepth { get; init; }

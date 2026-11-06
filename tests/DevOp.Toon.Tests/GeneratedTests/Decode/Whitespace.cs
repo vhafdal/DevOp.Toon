@@ -30,7 +30,7 @@ tags[3]: a , b , c
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"tags":["a","b","c"]}
@@ -50,7 +50,7 @@ tags[3|]: a | b | c
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"tags":["a","b","c"]}
@@ -70,7 +70,7 @@ tags[3	]: a 	 b 	 c
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"tags":["a","b","c"]}
@@ -92,7 +92,7 @@ items[2]{id,name}:
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"items":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]}
@@ -112,7 +112,7 @@ items[3]: "a" , "b" , "c"
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"items":["a","b","c"]}
@@ -132,7 +132,7 @@ items[3]: a,,c
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"items":["a","","c"]}

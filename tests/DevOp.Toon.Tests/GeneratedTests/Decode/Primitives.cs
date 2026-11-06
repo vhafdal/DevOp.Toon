@@ -30,7 +30,7 @@ hello
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "hello"
@@ -50,7 +50,7 @@ Ada_99
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "Ada_99"
@@ -70,7 +70,7 @@ Ada_99
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = new ToonValue(string.Empty);
 
@@ -88,7 +88,7 @@ Ada_99
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "line1\nline2"
@@ -108,7 +108,7 @@ Ada_99
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "tab\there"
@@ -128,7 +128,7 @@ Ada_99
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "return\rcarriage"
@@ -148,7 +148,7 @@ Ada_99
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "C:\\Users\\path"
@@ -168,7 +168,7 @@ Ada_99
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "say \u0022hello\u0022"
@@ -185,7 +185,7 @@ Ada_99
         var input = "caf\u00E9";
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "caf\u00E9"
@@ -202,7 +202,7 @@ Ada_99
         var input = "\u4F60\u597D";
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "\u4F60\u597D"
@@ -219,7 +219,7 @@ Ada_99
         var input = "\uD83D\uDE80";
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "\uD83D\uDE80"
@@ -236,7 +236,7 @@ Ada_99
         var input = "hello \uD83D\uDC4B world";
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "hello \uD83D\uDC4B world"
@@ -256,7 +256,7 @@ Ada_99
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode<double>(input);
+        var result = ToonDecoder.Decode<double>(input, new LegacyToonDecodeOptions());
 
         var expected = 42;
 
@@ -274,7 +274,7 @@ Ada_99
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode<double>(input);
+        var result = ToonDecoder.Decode<double>(input, new LegacyToonDecodeOptions());
 
         var expected = 3.14;
 
@@ -292,7 +292,7 @@ Ada_99
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode<double>(input);
+        var result = ToonDecoder.Decode<double>(input, new LegacyToonDecodeOptions());
 
         var expected = -7;
 
@@ -310,7 +310,7 @@ true
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 true
@@ -330,7 +330,7 @@ false
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 false
@@ -350,7 +350,7 @@ null
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 null
@@ -370,7 +370,7 @@ null
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "true"
@@ -390,7 +390,7 @@ null
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "false"
@@ -410,7 +410,7 @@ null
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "null"
@@ -430,7 +430,7 @@ null
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "42"
@@ -450,7 +450,7 @@ null
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "-3.14"
@@ -470,7 +470,7 @@ null
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "1e-6"
@@ -490,7 +490,7 @@ null
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 "05"

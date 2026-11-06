@@ -29,6 +29,10 @@
     <ProjectReference Include="..\..\src\DevOp.Toon\DevOp.Toon.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="ProtocolFixtures/**/*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <Target Name="BuildNetStandardCompatibilityTarget" BeforeTargets="Build">
     <!-- xUnit cannot execute on netstandard directly, so test runs explicitly build the compatibility target. -->
     <MSBuild

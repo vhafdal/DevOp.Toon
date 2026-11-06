@@ -26,6 +26,7 @@ public class DateOnlyTimeOnlyTests
 
         var result = ToonEncoder.Encode(forecasts, new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             ObjectArrayLayout = ToonObjectArrayLayout.Columnar
         });
 

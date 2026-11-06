@@ -6,7 +6,7 @@ namespace DevOp.Toon.Tests;
 public class ToonServiceTests
 {
     [Fact]
-    public void AddToon_UsesCompactColumnarEncodeDefaults()
+    public void AddToon_UsesOfficialPreservingEncodeDefaults()
     {
         var services = new ServiceCollection();
         services.AddToon();
@@ -20,8 +20,8 @@ public class ToonServiceTests
             new { id = 2, name = "Bob", note = "" }
         });
 
-        Assert.StartsWith("[2]{id,name}:", encoded);
-        Assert.DoesNotContain("note", encoded);
+        Assert.StartsWith("[2]{id,name,note}:", encoded);
+        Assert.Contains("note", encoded);
 
         var decoded = toon.Decode(encoded);
 
@@ -68,6 +68,7 @@ public class ToonServiceTests
         services.AddToon(options =>
         {
             options.Indent = 2;
+            options.Decode.ProtocolVersion = ToonProtocolVersion.CustomLegacy;
             options.ExpandPaths = ToonPathExpansion.Safe;
         });
 

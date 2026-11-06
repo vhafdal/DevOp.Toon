@@ -1,137 +1,92 @@
 # DevOp.Toon
 
-`DevOp.Toon` is the .NET runtime package for working with TOON, a token-efficient alternative to JSON designed for compact structured payloads.
+**Version scope:** this guide covers runtime 0.3.0. It includes a [runnable version-selection sample](https://github.com/vhafdal/DevOp.Toon/tree/main/samples/ProtocolVersions), covering official 4.4, custom hybrid rows, typed round trips, and explicit decode hints. Run it from the source tree.
 
-It provides encoding, decoding, JSON interop, and dependency injection support for applications that want a smaller wire format without giving up a familiar object model in .NET.
+**TOON serialization for .NET, with a columnar format for nested business data and companion packages for API servers and HTTP clients.**
 
-## Why TOON Instead of JSON
+Encode CLR objects, decode directly into supported DTO shapes, or work with a `ToonNode` graph. Use the runtime on its own or configure `IToonService` once through dependency injection.
 
-TOON is worth evaluating when JSON payload size matters: API transport, storage, synchronization, or LLM-oriented data exchange.
+## Why choose this package?
 
-Current benchmark highlights from this repository show:
+- **Keep repeated rows compact even when they contain collections.** The custom columnar layout shares scalar field names in a table header and writes complex fields beneath their row. Product catalogs, warehouse snapshots, and change histories can retain a compact scalar core without flattening away their nested data.
+- **Use your .NET models.** Supported typed paths materialize DTOs, positional records, arrays, collection interfaces, and string-keyed dictionaries without converting through a JSON string. Other supported shapes use the native-node materializer.
+- **Choose the integration layer you need.** Keep model projects lightweight with the contracts package, add serialization to services, register MVC formatters at the API boundary, and use the typed HTTP client in callers.
+- **Evaluate CPU, memory, and payload size together.** The implementation uses pooled output buffers, cached CLR metadata, and source-backed line ranges. These techniques reduce avoidable work; they are not a claim that every payload is faster or allocates less than another serializer.
 
-- `Products` payloads about `47.98%` smaller than JSON
-- `Warehouses` payloads about `68.11%` smaller than JSON
-- `Flat orders` payloads about `63.50%` smaller than JSON
-- Still smaller after compression, including `Flat orders` about `15.74%` smaller with gzip
-- Best current end-to-end runtime story on `net10.0`, including warmed API runs saving about `6.175-8.922 ms/request`
+TOON benefits depend on data shape. This package is worth evaluating when repeated keys, nested collections, or large response bodies matter to your application.
 
-The practical value is straightforward: less payload to send, less payload to store, and a format that keeps delivering size wins even when HTTP compression is already enabled.
-
-For the benchmark source material, see:
-
-- `Documentation/BenchmarkCustomerOverview.md`
-- `Documentation/BenchmarkHighlights.md`
-- `Documentation/BenchmarkReport.md`
-
-## Features
-
-- Encode CLR objects and collections to TOON
-- Decode TOON payloads back into `ToonNode` or strongly typed .NET models
-- Round-trip typed DTOs that use positional records, array targets, collection interfaces, and string-keyed dictionaries
-- Convert JSON to TOON and TOON back to JSON
-- Register a reusable `IToonService` through Microsoft dependency injection
-- Configure encoding and decoding behavior with `ToonEncodeOptions`, `ToonDecodeOptions`, and `ToonServiceOptions`
-- Reuse shared TOON contracts from `DevOp.Toon.Core`
-
-## Installation
+## Install
 
 ```bash
 dotnet add package DevOp.Toon
 ```
 
-## Basic Usage
+Runtime targets: `netstandard2.0`, `net8.0`, `net9.0`, and `net10.0`.
+
+## Encode and decode typed data
 
 ```csharp
 using DevOp.Toon;
-
-var payload = new
-{
-    Id = 42,
-    Name = "Widget",
-    Tags = new[] { "sale", "featured" }
-};
-
-var toon = ToonEncoder.Encode(payload);
-var decoded = ToonDecoder.Decode<dynamic>(toon);
-```
-
-Strongly typed decode supports common DTO shapes, including positional records and read-only collection interfaces:
-
-```csharp
-public sealed record CustomerDto(
-    string Id,
-    IReadOnlyList<string> Aliases,
-    Dictionary<string, string> DefaultDimensions);
 
 var source = new[]
 {
-    new CustomerDto(
-        "C-001",
-        new List<string> { "Primary", "VIP" },
-        new Dictionary<string, string> { ["currency"] = "ISK" })
+    new Product(42, "Widget", new[] { "sale", "featured" }),
+    new Product(43, "Gadget", new[] { "new" })
 };
 
-string toon = ToonEncoder.Encode(source);
-CustomerDto[] decoded = ToonDecoder.Decode<CustomerDto[]>(toon)!;
+string text = ToonEncoder.Encode(source);
+Product[] products = ToonDecoder.Decode<Product[]>(text)!;
+
+public sealed record Product(int Id, string Name, string[] Tags);
 ```
 
-## Dependency Injection
+The same runtime also reads and writes `ToonNode` graphs, converts JSON using `Json2Toon` / `Toon2Json`, and exposes byte, stream, and async operations. Async methods are convenience APIs; they do not imply incremental, bounded-memory parsing.
 
-`DevOp.Toon` includes `AddToon(...)` for registering `IToonService` as a singleton with shared encode/decode defaults.
+## Configure once with dependency injection
 
 ```csharp
-using Microsoft.Extensions.DependencyInjection;
-using DevOp.Toon.Core;
 using DevOp.Toon;
+using Microsoft.Extensions.DependencyInjection;
 
 var services = new ServiceCollection();
-
 services.AddToon(options =>
 {
     options.Indent = 1;
-    options.Delimiter = ToonDelimiter.COMMA;
-    options.KeyFolding = ToonKeyFolding.Off;
     options.Strict = true;
-    options.ExpandPaths = ToonPathExpansion.Safe;
+    options.Encode.IgnoreNullOrEmpty = false;
+    options.Encode.ExcludeEmptyArrays = false;
 });
 
-var provider = services.BuildServiceProvider();
-var toon = provider.GetRequiredService<IToonService>();
-
-var payload = new
-{
-    Id = 42,
-    Name = "Widget"
-};
-
-string encoded = toon.Encode(payload);
-string json = toon.Toon2Json(encoded);
+using var provider = services.BuildServiceProvider();
+var serializer = provider.GetRequiredService<IToonService>();
+string text = serializer.Encode(new { Id = 42, Name = "Widget" });
+string json = serializer.Toon2Json(text);
 ```
 
-This is the recommended integration point when TOON should be a reusable application service instead of a static helper call.
+## The package family
 
-## JSON Interop
+| Package | Add it to | Benefit |
+| --- | --- | --- |
+| [DevOp.Toon.Core](https://www.nuget.org/packages/DevOp.Toon.Core) | Shared models and contracts | Wire-name attributes and shared enums without the serialization runtime |
+| [DevOp.Toon](https://www.nuget.org/packages/DevOp.Toon) | Applications and services | Encoding, typed/DOM decoding, JSON interop, and DI |
+| [DevOp.Toon.API](https://www.nuget.org/packages/DevOp.Toon.API) | ASP.NET Core MVC servers | TOON input/output formatters, content negotiation, and per-request response options |
+| [DevOp.Toon.Client](https://www.nuget.org/packages/DevOp.Toon.Client) | .NET HTTP callers | TOON request encoding, TOON/JSON response handling, compression configuration, and structured errors |
 
-If you are incrementally adopting TOON, the package can bridge both formats directly:
+## Interoperability and data preservation
 
-```csharp
-using DevOp.Toon;
+The custom columnar layout is an extension: row spill fields are not official TOON syntax. Use an official protocol mode when exchanging documents with other TOON implementations. Both ends must agree when using a custom format.
 
-var service = new ToonService();
+Omission settings trade data preservation for compactness. `IgnoreNullOrEmpty` can remove all-null/all-empty-string columns; `ExcludeEmptyArrays` can remove empty array properties. Set both to `false` when those distinctions must be retained. Binary-array formatting is another explicit policy choice; choose numeric-array output when a JSON-like array shape is required.
 
-string toon = service.Json2Toon("""{"id":42,"name":"Widget"}""");
-string json = service.Toon2Json(toon);
-```
+**Version selection in 0.3.0:** encoding defaults to official 4.4. Supply `ToonEncodeOptions.ProtocolVersion` with a concrete `ToonProtocolVersion`; decoding defaults to `Auto` and requires an explicit `ToonDecodeOptions.ProtocolVersion` for ambiguous version-dependent input. Select `CustomLegacy` for the earlier custom wire profile or `CustomV4_4` for nested header groups plus row/keyed spills. Official profiles default both omission settings to false; custom profiles default them to true. Constructor and runtime DI indentation default to one space; the API integration uses two. See the [protocol version guide](https://github.com/vhafdal/DevOp.Toon/blob/main/Documentation/ProtocolVersions.md) for migration examples.
 
-## Package Notes
+## Performance evidence
 
-`DevOp.Toon` depends on `DevOp.Toon.Core` and includes the runtime surface:
+Measure your own payloads with equivalent omission settings. The repository includes product and nested-shape benchmarks recording elapsed time, allocations, raw bytes, gzip, and Brotli. Historical results compare this implementation with `System.Text.Json` for the recorded profiles and datasets; they do not validate the protocol upgrade.
 
-- `ToonEncoder`
-- `ToonDecoder`
-- `IToonService`
-- DI registration with `AddToon(...)`
-- node graph types and runtime exceptions
+DevOp.Toon combines typed decoding, JSON interop, broad .NET compatibility, custom hybrid layouts, and integration packages spanning contracts, MVC formatters, and typed HTTP clients.
 
-If you only need shared TOON contracts in DTO or model libraries, use `DevOp.Toon.Core` directly.
+- [Documentation and package selection](https://wiki.devop.is/devop-toon/home)
+- [Protocol and custom layout](https://wiki.devop.is/devop-toon/features/toon-format-protocol)
+- [Benchmark methodology and results](https://wiki.devop.is/devop-toon/performance-benchmarks)
+- [Source and reproducible benchmark harness](https://github.com/vhafdal/DevOp.Toon)

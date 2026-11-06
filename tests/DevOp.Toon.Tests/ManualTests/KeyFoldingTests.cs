@@ -36,6 +36,7 @@ a.b.c: 1
         // Act & Assert
         var options = new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Delimiter = ToonDelimiter.COMMA,
             Indent = 2,
             KeyFolding = ToonKeyFolding.Safe
@@ -80,6 +81,7 @@ data.meta.items[2]: x,y
         // Act & Assert
         var options = new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Delimiter = ToonDelimiter.COMMA,
             Indent = 2,
             KeyFolding = ToonKeyFolding.Safe
@@ -136,6 +138,7 @@ a.b.items[2]{id,name}:
         // Act & Assert
         var options = new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Delimiter = ToonDelimiter.COMMA,
             Indent = 2,
             KeyFolding = ToonKeyFolding.Safe
@@ -183,6 +186,7 @@ a.b:
         // Act & Assert
         var options = new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Delimiter = ToonDelimiter.COMMA,
             Indent = 2,
             KeyFolding = ToonKeyFolding.Safe,
@@ -229,6 +233,7 @@ a.b.c.d: 1
         // Act & Assert
         var options = new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Delimiter = ToonDelimiter.COMMA,
             Indent = 2,
             KeyFolding = ToonKeyFolding.Safe
@@ -271,6 +276,7 @@ a:
         // Act & Assert
         var options = new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Delimiter = ToonDelimiter.COMMA,
             Indent = 2,
             KeyFolding = ToonKeyFolding.Safe,
@@ -314,6 +320,7 @@ a:
         // Act & Assert
         var options = new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Delimiter = ToonDelimiter.COMMA,
             Indent = 2,
             KeyFolding = ToonKeyFolding.Safe,
@@ -357,6 +364,7 @@ a:
         // Act & Assert
         var options = new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Delimiter = ToonDelimiter.COMMA,
             Indent = 2,
             KeyFolding = ToonKeyFolding.Off
@@ -401,6 +409,7 @@ a.b.c:
         // Act & Assert
         var options = new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Delimiter = ToonDelimiter.COMMA,
             Indent = 2,
             KeyFolding = ToonKeyFolding.Safe
@@ -440,6 +449,7 @@ a.b[2]: 1,2
         // Act & Assert
         var options = new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Delimiter = ToonDelimiter.COMMA,
             Indent = 2,
             KeyFolding = ToonKeyFolding.Safe
@@ -489,6 +499,7 @@ short.path: 3
         // Act & Assert
         var options = new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             Delimiter = ToonDelimiter.COMMA,
             Indent = 2,
             KeyFolding = ToonKeyFolding.Safe

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFrameworks></TargetFrameworks><TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><Optimize>true</Optimize>
+    <RuntimeProject Condition="'$(RuntimeProject)' == ''">../../src/DevOp.Toon/DevOp.Toon.csproj</RuntimeProject>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="$(RuntimeProject)" /></ItemGroup>
+</Project>

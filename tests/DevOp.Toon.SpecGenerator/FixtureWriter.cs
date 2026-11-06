@@ -131,8 +131,8 @@ internal class FixtureWriter<TTestCase, TIn, TOut>(Fixtures<TTestCase, TIn, TOut
                     if (encodeTestCase.Options?.Delimiter != null)
                         WriteLineIndented(writer, $"Delimiter = {GetToonDelimiterEnumFromChar(encodeTestCase.Options.Delimiter)},");
 
-                    if (encodeTestCase.Options?.Indent != null)
-                        WriteLineIndented(writer, $"Indent = {encodeTestCase.Options.Indent},");
+                    if ((encodeTestCase.Options?.IndentSize ?? encodeTestCase.Options?.Indent) != null)
+                        WriteLineIndented(writer, $"Indent = {encodeTestCase.Options.IndentSize ?? encodeTestCase.Options.Indent},");
 
                     if (encodeTestCase.Options?.KeyFolding != null)
                         WriteLineIndented(writer, $"KeyFolding = {GetToonKeyFoldingEnumFromString(encodeTestCase.Options.KeyFolding)},");
@@ -159,11 +159,11 @@ internal class FixtureWriter<TTestCase, TIn, TOut>(Fixtures<TTestCase, TIn, TOut
                 var hasDecodeOptions = decodeTestCase.Options != null;
                 if (hasDecodeOptions)
                 {
-                    WriteLineIndented(writer, "var options = new ToonDecodeOptions");
+                    WriteLineIndented(writer, "var options = new LegacyToonDecodeOptions");
                     WriteLineIndented(writer, "{");
                     Indent();
 
-                    WriteLineIndented(writer, $"Indent = {decodeTestCase.Options?.Indent ?? 2},");
+                    WriteLineIndented(writer, $"Indent = {decodeTestCase.Options?.IndentSize ?? decodeTestCase.Options?.Indent ?? 2},");
                     WriteLineIndented(writer, $"Strict = {(decodeTestCase.Options?.Strict ?? true).ToString().ToLower()},");
 
                     if (decodeTestCase.Options?.ExpandPaths != null)
@@ -188,7 +188,7 @@ internal class FixtureWriter<TTestCase, TIn, TOut>(Fixtures<TTestCase, TIn, TOut
                     }
                     else
                     {
-                        WriteLineIndented(writer, $"Assert.Throws<{exceptionType}>(() => ToonDecoder.Decode(input));");
+                        WriteLineIndented(writer, $"Assert.Throws<{exceptionType}>(() => ToonDecoder.Decode(input, new LegacyToonDecodeOptions()));");
                     }
                 }
                 else
@@ -222,6 +222,7 @@ internal class FixtureWriter<TTestCase, TIn, TOut>(Fixtures<TTestCase, TIn, TOut
                     {
                         Write(writer, ", options");
                     }
+                    else Write(writer, ", new LegacyToonDecodeOptions()");
                     WriteLine(writer, ");");
 
                     WriteLine(writer);

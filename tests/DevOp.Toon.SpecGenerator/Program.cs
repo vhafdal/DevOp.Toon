@@ -6,9 +6,9 @@ namespace DevOp.Toon.SpecGenerator;
 
 public static class Program
 {
-    public static void Main(string[] args)
+    public static int Main(string[] args)
     {
-        Parser.Default.ParseArguments<SpecGeneratorOptions>(args)
+        return Parser.Default.ParseArguments<SpecGeneratorOptions>(args)
             .MapResult((opts) =>
             {
                 var loggerFactory = LoggerFactory.Create(builder =>

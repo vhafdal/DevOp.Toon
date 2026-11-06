@@ -57,3 +57,7 @@ nunit-*.xml
 *.user
 
 BenchmarkDotNet.Artifacts/
+
+# Local validation logs, raw samples, and machine-specific benchmark artifacts
+/Documentation/ValidationEvidence/
+/Documentation/BenchmarkEvidence/

@@ -187,7 +187,7 @@ internal static class NativeDecoders
 
     private static List<NativeNode?> DecodeListArray(ArrayHeaderInfo header, LineCursor cursor, int baseDepth, ResolvedDecodeOptions options)
     {
-        var items = new List<NativeNode?>(header.Length > 0 ? header.Length : 4);
+        var items = new List<NativeNode?>(header.Length > 0 ? Math.Min(header.Length, 4096) : 4);
         var itemDepth = baseDepth + 1;
         int? startLine = null;
         int? endLine = null;
@@ -231,7 +231,7 @@ internal static class NativeDecoders
 
     private static List<NativeObjectNode> DecodeTabularArray(ArrayHeaderInfo header, LineCursor cursor, int baseDepth, ResolvedDecodeOptions options)
     {
-        var objects = new List<NativeObjectNode>(header.Length > 0 ? header.Length : 4);
+        var objects = new List<NativeObjectNode>(header.Length > 0 ? Math.Min(header.Length, 4096) : 4);
         var rowDepth = baseDepth + 1;
         int? startLine = null;
         int? endLine = null;

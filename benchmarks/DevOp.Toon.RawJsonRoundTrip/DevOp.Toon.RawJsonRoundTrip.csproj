@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RuntimeDirectory Condition="'$(RuntimeDirectory)' == ''">../../src/DevOp.Toon/bin/Debug/net10.0</RuntimeDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="DevOp.Toon"><HintPath>$(RuntimeDirectory)/DevOp.Toon.dll</HintPath></Reference>
+    <Reference Include="DevOp.Toon.Core"><HintPath>$(RuntimeDirectory)/DevOp.Toon.Core.dll</HintPath></Reference>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

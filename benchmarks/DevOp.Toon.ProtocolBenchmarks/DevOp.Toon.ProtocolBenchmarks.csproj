@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Optimize>true</Optimize>
+    <RuntimeProject Condition="'$(RuntimeProject)' == ''">../../src/DevOp.Toon/DevOp.Toon.csproj</RuntimeProject>
+    <DefineConstants Condition="'$(BuildFlavor)' == 'baseline'">$(DefineConstants);BASELINE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(RuntimeProject)" />
+    <Compile Include="../DevOp.Toon.Benchmarks/Models/Product.cs" Link="Product.cs" />
+  </ItemGroup>
+</Project>

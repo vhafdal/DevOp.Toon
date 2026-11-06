@@ -1,6 +1,7 @@
-#nullable enable
+﻿#nullable enable
 using System;
 using System.Buffers;
+using System.Collections;
 using System.ComponentModel;
 using System.IO;
 using System.Text;
@@ -20,15 +21,7 @@ public static class ToonEncoder
 {
     private static readonly UTF8Encoding Utf8WithoutBom = new UTF8Encoding(false);
 
-    private static ToonEncodeOptions defaultOptions = new ToonEncodeOptions()
-    {
-        Indent = 1,
-        Delimiter = ToonDelimiter.COMMA,
-        KeyFolding = ToonKeyFolding.Off,
-        ObjectArrayLayout = ToonObjectArrayLayout.Columnar,
-        IgnoreNullOrEmpty = true,
-        ExcludeEmptyArrays = true
-    };
+    private static ToonEncodeOptions defaultOptions = new();
 
     /// <summary>
     /// Gets or sets the default encode options used by overloads that do not accept an explicit options argument.
@@ -132,12 +125,18 @@ public static class ToonEncoder
         var resolvedOptions = ResolveOptions(options);
         var node = ToonNode.Parse(json);
         var nativeNode = ToonNodeConverter.ToNativeNode(node);
-        return NativeEncoders.EncodeValue(nativeNode, resolvedOptions);
+        return IsV4(resolvedOptions.ProtocolVersion) ? V4Encoder.Encode(nativeNode, resolvedOptions) : NativeEncoders.EncodeValue(nativeNode, resolvedOptions);
     }
 
     internal static string EncodeResolved(object? data, ResolvedEncodeOptions resolvedOptions)
     {
-        if (ClrObjectArrayFastEncoder.TryEncode(data, resolvedOptions, out var fastEncoded))
+        if (IsV4(resolvedOptions.ProtocolVersion))
+        {
+            return V4ClrEncoder.TryEncode(data, resolvedOptions, out var modern)
+                ? modern : V4Encoder.Encode(NativeNormalize.Normalize(data, resolvedOptions), resolvedOptions);
+        }
+
+        if (CanProbeLegacyFastPath(data) && ClrObjectArrayFastEncoder.TryEncode(data, resolvedOptions, out var fastEncoded))
         {
             return fastEncoded;
         }
@@ -148,7 +147,13 @@ public static class ToonEncoder
 
     internal static string EncodeResolved<T>(T data, ResolvedEncodeOptions resolvedOptions)
     {
-        if (ClrObjectArrayFastEncoder.TryEncode(data, resolvedOptions, out var fastEncoded))
+        if (IsV4(resolvedOptions.ProtocolVersion))
+        {
+            return V4ClrEncoder.TryEncode(data, resolvedOptions, out var modern)
+                ? modern : V4Encoder.Encode(NativeNormalize.Normalize(data, resolvedOptions), resolvedOptions);
+        }
+
+        if (CanProbeLegacyFastPath(data) && ClrObjectArrayFastEncoder.TryEncode(data, resolvedOptions, out var fastEncoded))
         {
             return fastEncoded;
         }
@@ -377,9 +382,21 @@ public static class ToonEncoder
         return options.GetResolvedOptions();
     }
 
+    private static bool IsV4(ToonProtocolVersion version) => version >= ToonProtocolVersion.V4_0 && version <= ToonProtocolVersion.V4_4 || version == ToonProtocolVersion.CustomV4_4;
+
+    private static bool CanProbeLegacyFastPath(object? data) => data is not IEnumerable || data is ICollection;
+
+    private static bool TryEncodeBuffer(object? data, ResolvedEncodeOptions options, out CompactBufferWriter writer)
+    {
+        if (IsV4(options.ProtocolVersion)) return V4ClrEncoder.TryEncodeToBuffer(data, options, out writer);
+        if (CanProbeLegacyFastPath(data)) return ClrObjectArrayFastEncoder.TryEncodeToCompactBuffer(data, options, out writer);
+        writer = null!;
+        return false;
+    }
+
     private static bool TryEncodeToBytesFast(object? data, ResolvedEncodeOptions options, out byte[] bytes)
     {
-        if (!ClrObjectArrayFastEncoder.TryEncodeToCompactBuffer(data, options, out var compactWriter))
+        if (!TryEncodeBuffer(data, options, out var compactWriter))
         {
             bytes = Array.Empty<byte>();
             return false;
@@ -393,7 +410,7 @@ public static class ToonEncoder
 
     private static bool TryWriteFastToStream(object? data, ResolvedEncodeOptions options, Stream destination)
     {
-        if (!ClrObjectArrayFastEncoder.TryEncodeToCompactBuffer(data, options, out var compactWriter))
+        if (!TryEncodeBuffer(data, options, out var compactWriter))
         {
             return false;
         }
@@ -401,8 +418,10 @@ public static class ToonEncoder
         using (compactWriter)
         {
             var (charBuffer, charCount) = compactWriter.GetCharBuffer();
-            var maxByteCount = Utf8WithoutBom.GetMaxByteCount(charCount);
-            var byteBuffer = ArrayPool<byte>.Shared.Rent(maxByteCount);
+            var capacity = IsV4(options.ProtocolVersion)
+                ? Utf8WithoutBom.GetByteCount(charBuffer, 0, charCount)
+                : Utf8WithoutBom.GetMaxByteCount(charCount);
+            var byteBuffer = ArrayPool<byte>.Shared.Rent(capacity);
             try
             {
                 var byteCount = Utf8WithoutBom.GetBytes(charBuffer, 0, charCount, byteBuffer, 0);
@@ -423,7 +442,7 @@ public static class ToonEncoder
         Stream destination,
         CancellationToken cancellationToken)
     {
-        if (!ClrObjectArrayFastEncoder.TryEncodeToCompactBuffer(data, options, out var compactWriter))
+        if (!TryEncodeBuffer(data, options, out var compactWriter))
         {
             return false;
         }
@@ -431,8 +450,10 @@ public static class ToonEncoder
         using (compactWriter)
         {
             var (charBuffer, charCount) = compactWriter.GetCharBuffer();
-            var maxByteCount = Utf8WithoutBom.GetMaxByteCount(charCount);
-            var byteBuffer = ArrayPool<byte>.Shared.Rent(maxByteCount);
+            var capacity = IsV4(options.ProtocolVersion)
+                ? Utf8WithoutBom.GetByteCount(charBuffer, 0, charCount)
+                : Utf8WithoutBom.GetMaxByteCount(charCount);
+            var byteBuffer = ArrayPool<byte>.Shared.Rent(capacity);
             try
             {
                 var byteCount = Utf8WithoutBom.GetBytes(charBuffer, 0, charCount, byteBuffer, 0);
@@ -472,7 +493,7 @@ public static class ToonEncoder
         // Fallback: exotic types that the fast path doesn't handle.
         // Large buffer avoids frequent StreamWriter flushes for a ~1.5 MB output.
         using var writer = new StreamWriter(destination, Utf8WithoutBom, 4096, leaveOpen: true);
-        var text = NativeEncoders.EncodeValue(NativeNormalize.Normalize(data, resolvedOptions), resolvedOptions);
+        var text = EncodeResolved(data, resolvedOptions);
         writer.Write(text);
         writer.Flush();
     }
@@ -487,7 +508,7 @@ public static class ToonEncoder
 
         // Fallback: exotic types that the fast path doesn't handle.
         using var writer = new StreamWriter(destination, Utf8WithoutBom, 4096, leaveOpen: true);
-        var text = NativeEncoders.EncodeValue(NativeNormalize.Normalize(data, resolvedOptions), resolvedOptions);
+        var text = EncodeResolved(data, resolvedOptions);
         await writer.WriteAsync(text).ConfigureAwait(false);
         await writer.FlushAsync().ConfigureAwait(false);
     }

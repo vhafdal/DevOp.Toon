@@ -1,6 +1,6 @@
-# TOON Format Protocol And This Library's Columnar Customization
+# TOON Format Protocol And The Legacy Columnar Mode
 
-This document summarizes the TOON format as used by this repository and explains the object-array `Columnar` behavior implemented by this .NET library.
+This document describes the existing `CustomLegacy` columnar behavior. The unreleased version-aware implementation defaults to official TOON 4.4; see [Protocol versions and migration](ProtocolVersions.md) for current options, custom grouped tables, and transport metadata. The legacy examples below remain compatibility reference material.
 
 Primary references:
 - https://toonformat.dev/guide/format-overview
@@ -167,9 +167,9 @@ This is not plain tabular output and not plain list output. It is a mixed layout
 - shared primitive columns are emitted once in the header
 - complex values spill below the corresponding row
 
-## Default Behavior In This Repository
+## Default Behavior In CustomLegacy
 
-The encoder defaults in this repository are:
+The `CustomLegacy` profile defaults are:
 - `Indent = 1`
 - `KeyFolding = Off`
 - `ObjectArrayLayout = Columnar`
@@ -180,7 +180,7 @@ The encoder defaults in this repository are:
 Implementation reference:
 - [ToonEncoder.cs](/home/valdi/Projects/toon-dotnet/src/DevOp.Toon/ToonEncoder.cs)
 
-That means `ToonEncoder.Encode(...)` without explicit options already prefers columnar object-array encoding.
+Select `ToonProtocolVersion.CustomLegacy` explicitly to retain these defaults. The new default profile uses official TOON 4.4 and preserves null/empty values.
 
 ## Why Columnar Exists Here
 

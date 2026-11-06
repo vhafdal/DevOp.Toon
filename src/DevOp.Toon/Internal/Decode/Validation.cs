@@ -11,6 +11,8 @@ namespace DevOp.Toon.Internal.Decode
     /// </summary>
     internal class ResolvedDecodeOptions
     {
+        /// <summary>Gets or sets the expected protocol version.</summary>
+        public ToonProtocolVersion ProtocolVersion { get; set; } = ToonProtocolVersion.Auto;
         /// <summary>Gets or sets the number of spaces per indentation level.</summary>
         public int Indent { get; set; } = 2;
         /// <summary>Gets or sets whether strict structural validation is enabled.</summary>

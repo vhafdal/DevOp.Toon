@@ -163,6 +163,7 @@ public class ToonDecoderTests
         {
             ToonDecoder.DefaultOptions = new ToonDecodeOptions
             {
+                ProtocolVersion = ToonProtocolVersion.CustomLegacy,
                 ExpandPaths = ToonPathExpansion.Safe
             };
 
@@ -199,6 +200,7 @@ public class ToonDecoderTests
             toon,
             new ToonDecodeOptions
             {
+                ProtocolVersion = ToonProtocolVersion.CustomLegacy,
                 ExpandPaths = ToonPathExpansion.Safe
             });
 
@@ -235,6 +237,7 @@ public class ToonDecoderTests
             toon,
             new ToonDecodeOptions
             {
+                ProtocolVersion = ToonProtocolVersion.CustomLegacy,
                 Strict = false,
                 ExpandPaths = ToonPathExpansion.Safe
             });
@@ -390,6 +393,7 @@ public class ToonDecoderTests
         var toon = "warehouse.code: MAIN";
         var options = new ToonDecodeOptions
         {
+                ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             ExpandPaths = ToonPathExpansion.Safe
         };
 
@@ -430,6 +434,7 @@ public class ToonDecoderTests
         var toon = ToonEncoder.Encode(products);
         var decodeOptions = ToonDecoder.DetectOptions(toon, new ToonDecodeOptions
         {
+                ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             ExpandPaths = ToonPathExpansion.Safe
         });
         var decoded = ToonDecoder.Decode<List<ProductRecord>>(toon, decodeOptions);
@@ -457,6 +462,7 @@ public class ToonDecoderTests
 
         var result = ToonDecoder.Decode(toon, new ToonDecodeOptions
         {
+                ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             ExpandPaths = ToonPathExpansion.Safe
         });
 
@@ -487,7 +493,7 @@ UnsignedValue: 99";
     [Fact]
     public void Decode_TypedUnsupportedTarget_ThrowsNotSupportedException()
     {
-        var ex = Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<Tuple<int, int>>("Item1: 1\nItem2: 2"));
+        var ex = Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<Tuple<int, int>>("Item1: 1\nItem2: 2", new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.CustomLegacy }));
 
         Assert.Contains("System.Tuple", ex.Message);
     }

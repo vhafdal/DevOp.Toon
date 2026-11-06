@@ -19,6 +19,8 @@ namespace DevOp.Toon;
 /// </summary>
 public static class ToonDecoder
 {
+    private static readonly Encoding StrictUtf8 = new UTF8Encoding(false, true);
+    private static readonly Encoding ReplacingUtf8 = new UTF8Encoding(false, false);
     private static ToonDecodeOptions defaultOptions = new ToonDecodeOptions();
 
     /// <summary>
@@ -40,7 +42,7 @@ public static class ToonDecoder
     /// <exception cref="ToonFormatException">Thrown when the TOON format is invalid.</exception>
     public static ToonNode? Decode(string toonString)
     {
-        return Decode(toonString, DetectOptions(toonString));
+        return Decode(toonString, DefaultOptions);
     }
 
     /// <summary>
@@ -51,7 +53,7 @@ public static class ToonDecoder
     /// <returns>The deserialized value of type T.</returns>
     public static T? Decode<T>(string toonString)
     {
-        return Decode<T>(toonString, DetectOptions(toonString));
+        return Decode<T>(toonString, DefaultOptions);
     }
 
     /// <summary>
@@ -63,7 +65,7 @@ public static class ToonDecoder
     /// <exception cref="ToonFormatException">Thrown when the TOON format is invalid.</exception>
     public static string Toon2Json(string toonString)
     {
-        return Toon2Json(toonString, DetectOptions(toonString));
+        return Toon2Json(toonString, DefaultOptions);
     }
 
     /// <summary>
@@ -85,6 +87,7 @@ public static class ToonDecoder
     /// <param name="toonString">The TOON-formatted string to inspect.</param>
     /// <returns>A new options instance seeded from <see cref="DefaultOptions"/> and adjusted from the input text.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="toonString"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The default indentation width is not positive.</exception>
     public static ToonDecodeOptions DetectOptions(string toonString)
     {
         return DetectOptions(toonString, DefaultOptions);
@@ -97,6 +100,7 @@ public static class ToonDecoder
     /// <param name="fallbackOptions">Fallback options used for settings that cannot be inferred from source text.</param>
     /// <returns>A new options instance based on the fallback options and adjusted from the input text.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="toonString"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The fallback indentation width is not positive.</exception>
     public static ToonDecodeOptions DetectOptions(string toonString, ToonDecodeOptions? fallbackOptions)
     {
         return ToonDecoderOptionsDetector.Detect(toonString, fallbackOptions);
@@ -123,15 +127,12 @@ public static class ToonDecoder
             throw new ArgumentNullException(nameof(options));
 
         ValidateIndent(options.Indent);
+        options = ResolveProtocol(toonString, options, out var scannedLines);
+        if (IsV4(options.ProtocolVersion)) return V4Decoder.Decode(toonString, options, scannedLines);
+
 
         // Resolve options
-        var resolvedOptions = new ResolvedDecodeOptions
-        {
-            Indent = options.Indent,
-            Strict = options.Strict,
-            ExpandPaths = options.ExpandPaths,
-            ObjectArrayLayout = options.ObjectArrayLayout
-        };
+        var resolvedOptions = options.GetResolvedOptions();
 
         // Scan the source text into structured lines
         var scanResult = Scanner.ToParsedLines(toonString, resolvedOptions.Indent, resolvedOptions.Strict);
@@ -181,6 +182,12 @@ public static class ToonDecoder
         var resolvedOptions = options ?? new ToonDecodeOptions();
 
         ValidateIndent(resolvedOptions.Indent);
+        resolvedOptions = ResolveProtocol(toonString, resolvedOptions, out var scannedLines);
+        if (IsV4(resolvedOptions.ProtocolVersion))
+        {
+            if (typeof(ToonNode).IsAssignableFrom(typeof(T))) return (T?)(object?)ToonNodeConverter.ToToonNode(V4Decoder.Decode(toonString, resolvedOptions, scannedLines));
+            return V4Decoder.Decode<T>(toonString, resolvedOptions, scannedLines);
+        }
 
         if (typeof(ToonNode).IsAssignableFrom(typeof(T)))
         {
@@ -188,13 +195,7 @@ public static class ToonDecoder
             return (T?)(object?)node;
         }
 
-        var decodeOptions = new ResolvedDecodeOptions
-        {
-            Indent = resolvedOptions.Indent,
-            Strict = resolvedOptions.Strict,
-            ExpandPaths = resolvedOptions.ExpandPaths,
-            ObjectArrayLayout = resolvedOptions.ObjectArrayLayout
-        };
+        var decodeOptions = resolvedOptions.GetResolvedOptions();
 
         var scanResult = Scanner.ToParsedLines(toonString, decodeOptions.Indent, decodeOptions.Strict);
         var shouldExpandPaths = ShouldApplyRootPathExpansion(scanResult, decodeOptions.ExpandPaths);
@@ -229,6 +230,40 @@ public static class ToonDecoder
         }
 
         throw CreateUnsupportedTargetTypeException(typeof(T));
+    }
+
+    /// <summary>Inspects syntax and reports whether an explicit version is needed.</summary>
+    public static ToonVersionDetectionResult DetectVersion(string toonString)
+    {
+        var result = V4ProtocolDetector.Detect(toonString, fallbackIndent: DefaultOptions.Indent);
+        return new ToonVersionDetectionResult(result.Version, result.IsUnique, result.RequiresHint);
+    }
+
+    private static Encoding DecodeEncoding(ToonDecodeOptions? options)
+    {
+        var replaceInvalid = options?.ProtocolVersion is ToonProtocolVersion.CustomLegacy or ToonProtocolVersion.V3_0
+            || options?.Strict == false && options.ProtocolVersion is ToonProtocolVersion.V4_2 or ToonProtocolVersion.V4_3;
+        return replaceInvalid ? ReplacingUtf8 : StrictUtf8;
+    }
+
+    private static bool IsV4(ToonProtocolVersion version) => version >= ToonProtocolVersion.V4_0 && version <= ToonProtocolVersion.V4_4 || version == ToonProtocolVersion.CustomV4_4;
+
+    private static ToonDecodeOptions ResolveProtocol(string source, ToonDecodeOptions options, out List<V4SourceLine>? scannedLines)
+    {
+        scannedLines = null;
+        if (options.ProtocolVersion is not (ToonProtocolVersion.Auto or ToonProtocolVersion.V3_0 or ToonProtocolVersion.V4_0 or ToonProtocolVersion.V4_1 or ToonProtocolVersion.V4_2 or ToonProtocolVersion.V4_3 or ToonProtocolVersion.V4_4 or ToonProtocolVersion.CustomLegacy or ToonProtocolVersion.CustomV4_4)) throw new ArgumentOutOfRangeException(nameof(options.ProtocolVersion));
+        if (options.ProtocolVersion == ToonProtocolVersion.Auto)
+        {
+            var detected = V4ProtocolDetector.Detect(source, collectLines: true, fallbackIndent: options.Indent);
+            scannedLines = detected.Lines;
+            if (detected.RequiresHint) throw ToonFormatException.Syntax("The payload has version-dependent meanings. Supply ProtocolVersion explicitly.");
+            options = options.Clone();
+            options.ProtocolVersion = detected.Version;
+            if (detected.Indent.HasValue) options.Indent = detected.Indent.Value;
+        }
+        if (options.ProtocolVersion is >= ToonProtocolVersion.V4_0 and <= ToonProtocolVersion.V4_4 && options.ObjectArrayLayout == ToonObjectArrayLayout.Columnar) throw new ArgumentException("Columnar spill layout is not supported by an official protocol version.", nameof(options));
+        if (IsV4(options.ProtocolVersion) && options.ExpandPaths != ToonPathExpansion.Off) throw new ArgumentException("Path expansion is not supported by this protocol version.", nameof(options));
+        return options;
     }
 
     private static NotSupportedException CreateUnsupportedTargetTypeException(Type targetType)
@@ -411,7 +446,7 @@ public static class ToonDecoder
     {
         if (utf8Bytes == null)
             throw new ArgumentNullException(nameof(utf8Bytes));
-        return Decode(Encoding.UTF8.GetString(utf8Bytes));
+        return Decode(DecodeEncoding(DefaultOptions).GetString(utf8Bytes));
     }
 
     /// <summary>
@@ -424,7 +459,7 @@ public static class ToonDecoder
     {
         if (utf8Bytes == null)
             throw new ArgumentNullException(nameof(utf8Bytes));
-        var text = Encoding.UTF8.GetString(utf8Bytes);
+        var text = DecodeEncoding(options ?? DefaultOptions).GetString(utf8Bytes);
         return Decode(text, options ?? new ToonDecodeOptions());
     }
 
@@ -439,7 +474,7 @@ public static class ToonDecoder
     {
         if (utf8Bytes == null)
             throw new ArgumentNullException(nameof(utf8Bytes));
-        return Decode<T>(Encoding.UTF8.GetString(utf8Bytes));
+        return Decode<T>(DecodeEncoding(DefaultOptions).GetString(utf8Bytes));
     }
 
     /// <summary>
@@ -454,7 +489,7 @@ public static class ToonDecoder
     {
         if (utf8Bytes == null)
             throw new ArgumentNullException(nameof(utf8Bytes));
-        var text = Encoding.UTF8.GetString(utf8Bytes);
+        var text = DecodeEncoding(options ?? DefaultOptions).GetString(utf8Bytes);
         return Decode<T>(text, options ?? new ToonDecodeOptions());
     }
 
@@ -468,7 +503,7 @@ public static class ToonDecoder
         if (stream == null)
             throw new ArgumentNullException(nameof(stream));
 
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+        using var reader = new StreamReader(stream, DecodeEncoding(DefaultOptions), detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
         return Decode(reader.ReadToEnd());
     }
 
@@ -483,7 +518,7 @@ public static class ToonDecoder
         if (stream == null)
             throw new ArgumentNullException(nameof(stream));
 
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+        using var reader = new StreamReader(stream, DecodeEncoding(options ?? DefaultOptions), detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
         var text = reader.ReadToEnd();
 
         return Decode(text, options ?? new ToonDecodeOptions());
@@ -501,7 +536,7 @@ public static class ToonDecoder
         if (stream == null)
             throw new ArgumentNullException(nameof(stream));
 
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+        using var reader = new StreamReader(stream, DecodeEncoding(DefaultOptions), detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
         return Decode<T>(reader.ReadToEnd());
     }
 
@@ -518,7 +553,7 @@ public static class ToonDecoder
         if (stream == null)
             throw new ArgumentNullException(nameof(stream));
 
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+        using var reader = new StreamReader(stream, DecodeEncoding(options ?? DefaultOptions), detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
         var text = reader.ReadToEnd();
 
         return Decode<T>(text, options ?? new ToonDecodeOptions());
@@ -536,7 +571,7 @@ public static class ToonDecoder
     /// <exception cref="ToonFormatException">Thrown when the TOON format is invalid.</exception>
     public static Task<ToonNode?> DecodeAsync(string toonString, CancellationToken cancellationToken = default)
     {
-        return DecodeAsync(toonString, DetectOptions(toonString), cancellationToken);
+        return DecodeAsync(toonString, DefaultOptions, cancellationToken);
     }
 
     /// <summary>
@@ -564,7 +599,7 @@ public static class ToonDecoder
     /// <returns>A task that represents the asynchronous operation. The task result contains the deserialized value.</returns>
     public static Task<T?> DecodeAsync<T>(string toonString, CancellationToken cancellationToken = default)
     {
-        return DecodeAsync<T>(toonString, DetectOptions(toonString), cancellationToken);
+        return DecodeAsync<T>(toonString, DefaultOptions, cancellationToken);
     }
 
     /// <summary>
@@ -606,7 +641,7 @@ public static class ToonDecoder
         if (stream == null)
             throw new ArgumentNullException(nameof(stream));
 
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+        using var reader = new StreamReader(stream, DecodeEncoding(options ?? DefaultOptions), detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
         var text = await reader.ReadToEndAsync().ConfigureAwait(false);
         return options is null
             ? await DecodeAsync(text, cancellationToken).ConfigureAwait(false)
@@ -639,7 +674,7 @@ public static class ToonDecoder
         if (stream == null)
             throw new ArgumentNullException(nameof(stream));
 
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+        using var reader = new StreamReader(stream, DecodeEncoding(options ?? DefaultOptions), detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
         var text = await reader.ReadToEndAsync().ConfigureAwait(false);
         return options is null
             ? await DecodeAsync<T>(text, cancellationToken).ConfigureAwait(false)

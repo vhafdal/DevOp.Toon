@@ -89,7 +89,9 @@ public class ExcludeEmptyArraysTests
         };
 
         var withOption    = ToonEncoder.Encode(rows, Opts());
-        var withoutOption = ToonEncoder.Encode(rows, new ToonEncodeOptions { ExcludeEmptyArrays = false });
+        var withoutOption = ToonEncoder.Encode(rows, new ToonEncodeOptions
+        {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy, ExcludeEmptyArrays = false });
 
         Assert.DoesNotContain("Tags", withOption);
         Assert.Contains("Tags", withoutOption);

@@ -153,6 +153,7 @@ public class Kan1TypedDecodeTests
             "user.name: Alice",
             new ToonDecodeOptions
             {
+                ProtocolVersion = ToonProtocolVersion.CustomLegacy,
                 ExpandPaths = ToonPathExpansion.Safe
             });
 

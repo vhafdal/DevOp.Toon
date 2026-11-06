@@ -17,73 +17,43 @@ public static class ToonDecoderOptionsDetector
         if (toonString == null)
             throw new ArgumentNullException(nameof(toonString));
 
-        var options = Clone(fallbackOptions ?? new ToonDecodeOptions());
-        var detectedIndent = DetectIndent(toonString);
-        if (detectedIndent.HasValue)
+        var options = (fallbackOptions ?? new ToonDecodeOptions()).Clone();
+        if (options.Indent <= 0) throw new ArgumentOutOfRangeException(nameof(fallbackOptions), options.Indent, "Indent must be greater than 0.");
+        if (options.ProtocolVersion == DevOp.Toon.Core.ToonProtocolVersion.Auto)
         {
-            options.Indent = detectedIndent.Value;
+            var detection = V4ProtocolDetector.Detect(toonString, fallbackIndent: options.Indent);
+            if (detection.Indent.HasValue) options.Indent = detection.Indent.Value;
+            if (detection.RequiresHint) throw ToonFormatException.Syntax("The payload has version-dependent meanings. Supply ProtocolVersion explicitly.");
+            options.ProtocolVersion = detection.Version;
+        }
+        else
+        {
+            var comments = options.ProtocolVersion is >= DevOp.Toon.Core.ToonProtocolVersion.V4_0 and <= DevOp.Toon.Core.ToonProtocolVersion.V4_4 or DevOp.Toon.Core.ToonProtocolVersion.CustomV4_4;
+            var indent = DetectIndent(toonString, comments);
+            if (indent.HasValue) options.Indent = indent.Value;
         }
 
-        if (DetectColumnarObjectArrays(toonString, options.Indent))
-        {
-            options.ObjectArrayLayout = ToonObjectArrayLayout.Columnar;
-        }
-
+        if (options.ProtocolVersion is DevOp.Toon.Core.ToonProtocolVersion.CustomLegacy or DevOp.Toon.Core.ToonProtocolVersion.CustomV4_4)
+            options.ObjectArrayLayout = DevOp.Toon.Core.ToonObjectArrayLayout.Columnar;
         return options;
     }
 
-    private static int? DetectIndent(string toonString)
+    internal static int? DetectIndent(string toonString, bool ignoreComments)
     {
-        ReadOnlySpan<char> span = toonString.AsSpan();
-        int currentIndent = 0;
-        int? gcd = null;
-        var inLeadingWhitespace = true;
-
-        for (var i = 0; i < span.Length; i++)
+        var gcd = 0;
+        for (var start = 0; start < toonString.Length;)
         {
-            var ch = span[i];
-
-            if (inLeadingWhitespace)
-            {
-                if (ch == ' ')
-                {
-                    currentIndent++;
-                    continue;
-                }
-
-                if (ch == '\t')
-                {
-                    currentIndent = 0;
-                    inLeadingWhitespace = false;
-                    continue;
-                }
-
-                if (ch == '\r')
-                {
-                    continue;
-                }
-
-                if (ch == '\n')
-                {
-                    currentIndent = 0;
-                    inLeadingWhitespace = true;
-                    continue;
-                }
-
-                if (currentIndent > 0)
-                {
-                    gcd = gcd.HasValue ? GreatestCommonDivisor(gcd.Value, currentIndent) : currentIndent;
-                }
-
-                inLeadingWhitespace = false;
-                continue;
-            }
-
-            if (ch == '\n')
-            {
-                currentIndent = 0;
-                inLeadingWhitespace = true;
-            }
+            var newline = toonString.IndexOf('\n', start);
+            if (newline < 0) newline = toonString.Length;
+            var end = newline > start && toonString[newline - 1] == '\r' ? newline - 1 : newline;
+            var position = start;
+            while (position < end && toonString[position] == ' ') position++;
+            var indent = position - start;
+            var content = position;
+            while (content < end && (toonString[content] == ' ' || toonString[content] == '\t')) content++;
+            if (content < end && toonString[position] != '\t' && (!ignoreComments || toonString[position] != '#') && indent > 0)
+                gcd = GreatestCommonDivisor(gcd, indent);
+            start = newline + 1;
         }
 
         return gcd > 0 ? gcd : null;
@@ -125,13 +95,7 @@ public static class ToonDecoderOptionsDetector
 
     private static ToonDecodeOptions Clone(ToonDecodeOptions options)
     {
-        return new ToonDecodeOptions
-        {
-            Indent = options.Indent,
-            Strict = options.Strict,
-            ExpandPaths = options.ExpandPaths,
-            ObjectArrayLayout = options.ObjectArrayLayout
-        };
+        return options.Clone();
     }
 
     private static int GreatestCommonDivisor(int left, int right)

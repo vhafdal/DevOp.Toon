@@ -32,7 +32,7 @@ items[2]{sku,qty,price}:
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"items":[{"sku":"A1","qty":2,"price":9.99},{"sku":"B2","qty":1,"price":14.5}]}
@@ -54,7 +54,7 @@ items[2]{id,value}:
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"items":[{"id":1,"value":null},{"id":2,"value":"test"}]}
@@ -76,7 +76,7 @@ items[2]{id,note}:
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"items":[{"id":1,"note":"a:b"},{"id":2,"note":"c:d"}]}
@@ -98,7 +98,7 @@ items[2]{"order:id","full name"}:
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"items":[{"order:id":1,"full name":"Ada"},{"order:id":2,"full name":"Bob"}]}
@@ -120,7 +120,7 @@ items[2]{"order:id","full name"}:
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"x-items":[{"id":1,"name":"Ada"},{"id":2,"name":"Bob"}]}
@@ -143,7 +143,7 @@ count: 2
 """;
 
         // Act & Assert
-        var result = ToonDecoder.Decode(input);
+        var result = ToonDecoder.Decode(input, new LegacyToonDecodeOptions());
 
         var expected = ToonNode.Parse("""
 {"items":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}],"count":2}

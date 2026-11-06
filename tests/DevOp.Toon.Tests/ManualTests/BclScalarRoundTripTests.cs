@@ -40,6 +40,7 @@ public class BclScalarRoundTripTests
 
         var encoded = ToonEncoder.Encode(rows, new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             ObjectArrayLayout = ToonObjectArrayLayout.Columnar,
             IgnoreNullOrEmpty = false
         });

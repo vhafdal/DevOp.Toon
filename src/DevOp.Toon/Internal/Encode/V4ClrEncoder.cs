@@ -1,0 +1,474 @@
+#nullable enable
+using System;
+using System.Collections;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq.Expressions;
+using System.Reflection;
+
+namespace DevOp.Toon.Internal.Encode;
+
+/// <summary>Emits indexable CLR tables using cached accessors without a native value graph.</summary>
+internal static class V4ClrEncoder
+{
+    private static readonly ConcurrentDictionary<Type, Plan> Plans = new();
+
+    internal static bool TryEncode(object? value, ResolvedEncodeOptions options, out string text)
+    {
+        text = string.Empty;
+        if (!TryEncodeToBuffer(value, options, out var writer)) return false;
+        using (writer) text = writer.ToString();
+        return true;
+    }
+
+    internal static bool TryEncodeToBuffer(object? value, ResolvedEncodeOptions options, out CompactBufferWriter writer)
+    {
+        writer = null!;
+        if (value == null || NativeNormalize.IsPrimitiveOrNull(value) || value is not IList && !NativeNormalize.IsPlainObjectType(value.GetType()) || value is IList { Count: 0 } || options.ByteArrayFormat == ToonByteArrayFormat.Base64String && value is IEnumerable<byte>) return false;
+        writer = new CompactBufferWriter(options.Indent, newLine: "\n");
+        try
+        {
+            if (TryWrite(writer, value, null, 0, options)) return true;
+            writer.Dispose();
+            writer = null!;
+            return false;
+        }
+        catch { writer.Dispose(); throw; }
+    }
+
+    private static bool TryWrite(CompactBufferWriter writer, object? value, PropertyKey? key, int depth, ResolvedEncodeOptions options, bool firstListField = false)
+    {
+        if (NativeNormalize.IsPrimitiveOrNull(value)) return false;
+        if (options.ByteArrayFormat == ToonByteArrayFormat.Base64String && value is IEnumerable<byte>) return false;
+        if (value != null && value is not IList && NativeNormalize.IsPlainObjectType(value.GetType()))
+        {
+            var objectPlan = Plans.GetOrAdd(value.GetType(), static t => new Plan(t));
+            if (!objectPlan.Eligible) return false;
+            var potentialKeyed = objectPlan.Properties.Count >= 2;
+            foreach (var property in objectPlan.Properties)
+                potentialKeyed &= !Plan.Scalar(Nullable.GetUnderlyingType(property.Info.PropertyType) ?? property.Info.PropertyType) && NativeNormalize.IsPlainObjectType(property.Info.PropertyType);
+            if (potentialKeyed) return false;
+            if (key != null)
+            {
+                V4Encoder.Start(writer, firstListField ? depth - 1 : depth, firstListField, options);
+                key.Write(writer); writer.Append(':');
+                depth++;
+            }
+            for (var propertyIndex = 0; propertyIndex < objectPlan.Properties.Count; propertyIndex++)
+            {
+                var property = objectPlan.Properties[propertyIndex];
+                var column = objectPlan.PropertyColumns[propertyIndex];
+                if (column != null && column.Nested == null)
+                {
+                    V4Encoder.Start(writer, depth, false, options);
+                    objectPlan.PropertyKeys[propertyIndex].Write(writer); writer.Append(": ");
+                    column.Emit(writer, value, options.Delimiter);
+                }
+                else
+                {
+                    var raw = property.Getter(value);
+                    if (options.ExcludeEmptyArrays && raw is ICollection { Count: 0 }) continue;
+                    WriteNamedValue(writer, raw, objectPlan.PropertyKeys[propertyIndex], depth, options);
+                }
+            }
+            return true;
+        }
+        if (value is not IList rows) return false;
+        if (rows.Count == 0 || PrimitiveRows(rows, options))
+        {
+            WritePrimitiveArray(writer, rows, key, depth, firstListField, false, options);
+            return true;
+        }
+        for (var i = 0; i < rows.Count; i++)
+            if (NativeNormalize.IsPrimitiveOrNull(rows[i]) || rows[i] is IList)
+            {
+                WriteListArray(writer, rows, key, depth, firstListField, options);
+                return true;
+            }
+        var type = rows[0]?.GetType();
+        if (type == null || !NativeNormalize.IsPlainObjectType(type)) return false;
+        var plan = Plans.GetOrAdd(type, static t => new Plan(t));
+        if (!plan.Eligible) return false;
+        for (var i = 0; i < rows.Count; i++) if (rows[i]!.GetType() != type) return false;
+        var custom = options.ProtocolVersion == ToonProtocolVersion.CustomV4_4;
+        var tabular = plan.Columns.Length > 0 && (custom || plan.Spills.Length == 0);
+        if (tabular)
+            for (var i = 0; i < rows.Count; i++)
+                if (!plan.Validate(rows[i]!)) { tabular = false; break; }
+        if (!tabular)
+        {
+            // A declared complex property can hold only nulls and still qualify as a primitive column.
+            // Only observed array values prove that official tabular detection must fail.
+            if (custom || !HasArrayColumn(rows, plan, options)) return false;
+            WriteListArray(writer, rows, key, depth, firstListField, options);
+            return true;
+        }
+        var tablePlan = plan!;
+        bool[]? suppressed = null;
+        if (options.IgnoreNullOrEmpty)
+        {
+            suppressed = new bool[tablePlan.Columns.Length];
+            for (var c = 0; c < tablePlan.Columns.Length; c++)
+            {
+                if (tablePlan.Columns[c].Nested != null) continue;
+                var empty = true;
+                for (var r = 0; r < rows.Count; r++)
+                {
+                    var item = tablePlan.Columns[c].Property.Getter(rows[r]!);
+                    if (item != null && item is not "") { empty = false; break; }
+                }
+                suppressed[c] = empty;
+            }
+            var all = true;
+            foreach (var flag in suppressed) all &= flag;
+            if (all) return false;
+        }
+        V4Encoder.Start(writer, firstListField ? depth - 1 : depth, firstListField, options);
+        if (key != null) key.Write(writer);
+        writer.Append('['); writer.Append(rows.Count);
+        if (options.Delimiter != ',') writer.Append(options.Delimiter);
+        writer.Append(']');
+        Fields(writer, tablePlan, options.Delimiter, suppressed);
+        writer.Append(':');
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i]!;
+            V4Encoder.Start(writer, depth + 1, false, options);
+            var first = true;
+            Cells(writer, row, tablePlan, options.Delimiter, ref first, suppressed);
+            if (custom)
+            {
+                for (var spillIndex = 0; spillIndex < tablePlan.Spills.Length; spillIndex++)
+                {
+                    var spill = tablePlan.Spills[spillIndex];
+                    var raw = spill.Getter(row);
+                    if (options.ExcludeEmptyArrays && raw is ICollection { Count: 0 }) continue;
+                    WriteNamedValue(writer, raw, tablePlan.SpillKeys[spillIndex], depth + 2, options);
+                }
+            }
+        }
+        return true;
+    }
+
+    private static void WriteNamedValue(CompactBufferWriter writer, object? value, PropertyKey key, int depth, ResolvedEncodeOptions options, bool firstListField = false)
+    {
+        if (IsNormalizedPrimitive(value, options))
+        {
+            V4Encoder.Start(writer, firstListField ? depth - 1 : depth, firstListField, options);
+            key.Write(writer); writer.Append(": ");
+            WritePrimitive(writer, value, options);
+            return;
+        }
+        if (TryWrite(writer, value, key, depth, options, firstListField)) return;
+        var node = NativeNormalize.Normalize(value, options);
+        if (firstListField)
+        {
+            var wrapper = new NativeObjectNode();
+            wrapper[key.Name] = node;
+            V4Encoder.WriteValue(writer, wrapper, null, depth - 1, true, options);
+        }
+        else V4Encoder.WriteValue(writer, node, key.Name, depth, false, options);
+    }
+
+    private static bool HasArrayColumn(IList rows, Plan plan, ResolvedEncodeOptions options)
+    {
+        for (var row = 0; row < rows.Count; row++)
+            foreach (var property in plan.Properties)
+            {
+                if (property.EnumerableElementType == null) continue;
+                var value = property.Getter(rows[row]!);
+                if (value is IEnumerable && value is not string && value is not IDictionary &&
+                    !(options.ByteArrayFormat == ToonByteArrayFormat.Base64String && value is IEnumerable<byte>)) return true;
+            }
+        return false;
+    }
+
+    private static bool IsNormalizedPrimitive(object? value, ResolvedEncodeOptions options)
+        => NativeNormalize.IsPrimitiveOrNull(value) || options.ByteArrayFormat == ToonByteArrayFormat.Base64String && value is IEnumerable<byte>;
+
+    private static void WritePrimitive(CompactBufferWriter writer, object? value, ResolvedEncodeOptions options)
+    {
+        if (options.ByteArrayFormat == ToonByteArrayFormat.Base64String && value is IEnumerable<byte> && ByteSequenceText.TryToBase64String(value, out var base64))
+            V4Encoder.PrimitiveRaw(writer, base64, options.Delimiter, false);
+        else V4Encoder.PrimitiveRaw(writer, value, options.Delimiter, false);
+    }
+
+    private static bool PrimitiveRows(IList rows, ResolvedEncodeOptions options)
+    {
+        for (var i = 0; i < rows.Count; i++) if (!IsNormalizedPrimitive(rows[i], options)) return false;
+        return true;
+    }
+
+    private static void ArrayHeader(CompactBufferWriter writer, PropertyKey? key, int count, ResolvedEncodeOptions options)
+    {
+        if (key != null) key.Write(writer);
+        writer.Append('['); writer.Append(count);
+        if (options.Delimiter != ',') writer.Append(options.Delimiter);
+        writer.Append("]:");
+    }
+
+    private static void WritePrimitiveArray(CompactBufferWriter writer, IList rows, PropertyKey? key, int depth, bool firstListField, bool anonymousListItem, ResolvedEncodeOptions options)
+    {
+        V4Encoder.Start(writer, firstListField ? depth - 1 : depth, firstListField || anonymousListItem, options);
+        if (rows.Count == 0 && !anonymousListItem)
+        {
+            if (key != null) { key.Write(writer); writer.Append(": "); }
+            writer.Append("[]");
+            return;
+        }
+        ArrayHeader(writer, key, rows.Count, options);
+        if (rows.Count > 0) writer.Append(' ');
+        for (var i = 0; i < rows.Count; i++)
+        {
+            if (i != 0) writer.Append(options.Delimiter);
+            WritePrimitive(writer, rows[i], options);
+        }
+    }
+
+    private static void WriteListArray(CompactBufferWriter writer, IList rows, PropertyKey? key, int depth, bool firstListField, ResolvedEncodeOptions options)
+    {
+        V4Encoder.Start(writer, firstListField ? depth - 1 : depth, firstListField, options);
+        ArrayHeader(writer, key, rows.Count, options);
+        for (var i = 0; i < rows.Count; i++) WriteListItem(writer, rows[i], depth + 1, options);
+    }
+
+    private static void WriteListItem(CompactBufferWriter writer, object? value, int depth, ResolvedEncodeOptions options)
+    {
+        if (IsNormalizedPrimitive(value, options))
+        {
+            V4Encoder.Start(writer, depth, true, options);
+            WritePrimitive(writer, value, options);
+            return;
+        }
+        if (value is IList rows)
+        {
+            if (PrimitiveRows(rows, options)) WritePrimitiveArray(writer, rows, null, depth, false, true, options);
+            else
+            {
+                V4Encoder.Start(writer, depth, true, options);
+                ArrayHeader(writer, null, rows.Count, options);
+                for (var i = 0; i < rows.Count; i++) WriteListItem(writer, rows[i], depth + 1, options);
+            }
+            return;
+        }
+        if (value != null && NativeNormalize.IsPlainObjectType(value.GetType()))
+        {
+            var plan = Plans.GetOrAdd(value.GetType(), static t => new Plan(t));
+            if (plan.Eligible)
+            {
+                WriteObjectListItem(writer, value, plan, depth, options);
+                return;
+            }
+        }
+        V4Encoder.WriteValue(writer, NativeNormalize.Normalize(value, options), null, depth, true, options);
+    }
+
+    private static void WriteObjectListItem(CompactBufferWriter writer, object value, Plan plan, int depth, ResolvedEncodeOptions options)
+    {
+        var first = true;
+        for (var i = 0; i < plan.Properties.Count; i++)
+        {
+            var property = plan.Properties[i];
+            var column = plan.PropertyColumns[i];
+            if (column != null && column.Nested == null)
+            {
+                V4Encoder.Start(writer, first ? depth : depth + 1, first, options);
+                plan.PropertyKeys[i].Write(writer); writer.Append(": ");
+                column.Emit(writer, value, options.Delimiter);
+            }
+            else
+            {
+                var raw = property.Getter(value);
+                if (options.ExcludeEmptyArrays && raw is ICollection { Count: 0 }) continue;
+                WriteNamedValue(writer, raw, plan.PropertyKeys[i], depth + 1, options, first);
+            }
+            first = false;
+        }
+        if (first) { V4Encoder.Start(writer, depth, false, options); writer.Append('-'); }
+    }
+
+    private static void Fields(CompactBufferWriter writer, Plan plan, char delimiter, bool[]? suppressed)
+    {
+        writer.Append('{');
+        var first = true;
+        for (var i = 0; i < plan.Columns.Length; i++)
+        {
+            if (suppressed != null && suppressed[i]) continue;
+            if (!first) writer.Append(delimiter);
+            var column = plan.Columns[i];
+            column.Key.Write(writer);
+            if (column.Nested != null) Fields(writer, column.Nested, delimiter, null);
+            first = false;
+        }
+        writer.Append('}');
+    }
+
+    private static void Cells(CompactBufferWriter writer, object row, Plan plan, char delimiter, ref bool first, bool[]? suppressed)
+    {
+        for (var i = 0; i < plan.Columns.Length; i++)
+        {
+            if (suppressed != null && suppressed[i]) continue;
+            var column = plan.Columns[i];
+            if (column.Nested != null) Cells(writer, column.Property.Getter(row)!, column.Nested, delimiter, ref first, null);
+            else
+            {
+                if (!first) writer.Append(delimiter);
+                column.Emit(writer, row, delimiter);
+                first = false;
+            }
+        }
+    }
+
+    private sealed class PropertyKey
+    {
+        internal readonly string Name;
+        private readonly string? encoded;
+
+        internal PropertyKey(string name)
+        {
+            Name = name;
+            var plain = name.Length > 0 && (AsciiLetter(name[0]) || name[0] == '_');
+            foreach (var c in name) plain &= AsciiLetter(c) || c is >= '0' and <= '9' or '_' or '.';
+            if (plain) { encoded = name; return; }
+            try
+            {
+                using var writer = new CompactBufferWriter(2, newLine: "\n");
+                V4Encoder.Key(writer, name);
+                encoded = writer.ToString();
+            }
+            catch (ArgumentException)
+            {
+                // Invalid aliases must fail only when their property is emitted, after omissions.
+            }
+        }
+
+        internal void Write(CompactBufferWriter writer)
+        {
+            if (encoded != null) writer.Append(encoded);
+            else V4Encoder.Key(writer, Name);
+        }
+
+        private static bool AsciiLetter(char c) => c is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
+    }
+
+    private sealed class Column
+    {
+        internal NativeNormalize.PropertyMetadata Property;
+        internal PropertyKey Key = null!;
+        internal Plan? Nested;
+        internal Action<CompactBufferWriter, object, char> Emit = null!;
+    }
+
+    private static Action<CompactBufferWriter, object, char> CompileEmitter(NativeNormalize.PropertyMetadata property)
+    {
+        var writer = Expression.Parameter(typeof(CompactBufferWriter), "writer");
+        var row = Expression.Parameter(typeof(object), "row");
+        var delimiter = Expression.Parameter(typeof(char), "delimiter");
+        var propertyValue = Expression.Property(Expression.Convert(row, property.Info.DeclaringType!), property.Info);
+        var nullable = Nullable.GetUnderlyingType(propertyValue.Type);
+        var captured = nullable == null ? null : Expression.Variable(propertyValue.Type, "value");
+        Expression value = captured ?? (Expression)propertyValue;
+        var scalar = nullable == null ? (Expression)value : Expression.Property(value, "Value");
+        var type = nullable ?? value.Type;
+        Expression body;
+        if (type.IsEnum) { type = Enum.GetUnderlyingType(type); scalar = Expression.Convert(scalar, type); }
+        if (type == typeof(double) || type == typeof(float))
+            body = Expression.Call(typeof(V4Encoder).GetMethod(type == typeof(double) ? "Number" : "Float", BindingFlags.Static | BindingFlags.NonPublic)!, writer, scalar);
+        else if (type == typeof(DateTime) || type == typeof(DateTimeOffset))
+            body = Expression.Call(typeof(NativePrimitives).GetMethod("AppendDateTimeRaw", BindingFlags.Static | BindingFlags.NonPublic, null, new[] { typeof(CompactBufferWriter), type }, null)!, writer, scalar);
+        else if (type == typeof(bool))
+            body = Expression.Call(writer, typeof(CompactBufferWriter).GetMethod("Append", new[] { typeof(string) })!, Expression.Condition(scalar, Expression.Constant("true"), Expression.Constant("false")));
+        else if (type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort) || type == typeof(int) || type == typeof(uint) || type == typeof(long) || type == typeof(ulong) || type == typeof(decimal))
+            body = Expression.Call(typeof(V4ClrEncoder).GetMethod(nameof(Integral), BindingFlags.Static | BindingFlags.NonPublic)!.MakeGenericMethod(type), writer, scalar);
+        else
+            body = Expression.Call(typeof(V4Encoder).GetMethod("PrimitiveRaw", BindingFlags.Static | BindingFlags.NonPublic)!, writer, Expression.Convert(scalar, typeof(object)), delimiter, Expression.Constant(false));
+        if (nullable != null)
+        {
+            body = Expression.IfThenElse(Expression.Property(value, "HasValue"), body, Expression.Call(writer, typeof(CompactBufferWriter).GetMethod("Append", new[] { typeof(string) })!, Expression.Constant("null")));
+            body = Expression.Block(new[] { captured! }, Expression.Assign(captured!, propertyValue), body);
+        }
+        return Expression.Lambda<Action<CompactBufferWriter, object, char>>(body, writer, row, delimiter).Compile();
+    }
+
+#if NETSTANDARD2_0
+    private static void Integral<T>(CompactBufferWriter writer, T value) where T : IFormattable
+        => writer.Append(value.ToString(typeof(T) == typeof(decimal) ? "0.############################" : null, CultureInfo.InvariantCulture));
+#else
+    private static void Integral<T>(CompactBufferWriter writer, T value) where T : ISpanFormattable
+    {
+        Span<char> buffer = stackalloc char[64];
+        ReadOnlySpan<char> format = typeof(T) == typeof(decimal) ? "0.############################" : default;
+        if (value.TryFormat(buffer, out var count, format, CultureInfo.InvariantCulture)) writer.Append(buffer.Slice(0, count));
+        else writer.Append(value.ToString(null, CultureInfo.InvariantCulture));
+    }
+#endif
+
+    private sealed class Plan
+    {
+        internal readonly IReadOnlyList<NativeNormalize.PropertyMetadata> Properties;
+        internal readonly Column[] Columns;
+        private readonly Column[] nestedColumns;
+        internal readonly Column?[] PropertyColumns;
+        internal readonly PropertyKey[] PropertyKeys;
+        internal readonly PropertyKey[] SpillKeys;
+        internal readonly NativeNormalize.PropertyMetadata[] Spills;
+        internal readonly bool Eligible;
+        internal Plan(Type type) : this(type, new HashSet<Type>()) { }
+        private Plan(Type type, HashSet<Type> active)
+        {
+            Properties = NativeNormalize.GetCachedProperties(type);
+            var columns = new List<Column>();
+            var spills = new List<NativeNormalize.PropertyMetadata>();
+            var spillKeys = new List<PropertyKey>();
+            PropertyKeys = new PropertyKey[Properties.Count];
+            for (var i = 0; i < Properties.Count; i++) PropertyKeys[i] = new PropertyKey(Properties[i].Name);
+            Eligible = active.Add(type);
+            if (Eligible)
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                for (var propertyIndex = 0; propertyIndex < Properties.Count; propertyIndex++)
+                {
+                    var property = Properties[propertyIndex];
+                    var key = PropertyKeys[propertyIndex];
+                    if (!names.Add(property.Name)) { Eligible = false; break; }
+                    var target = Nullable.GetUnderlyingType(property.Info.PropertyType) ?? property.Info.PropertyType;
+                    if (Scalar(target)) columns.Add(new Column { Property = property, Key = key, Emit = CompileEmitter(property) });
+                    else if (NativeNormalize.IsPlainObjectType(target) && !active.Contains(target))
+                    {
+                        var child = new Plan(target, active);
+                        if (child.Eligible && child.Columns.Length > 0 && child.Spills.Length == 0)
+                            columns.Add(new Column { Property = property, Key = key, Nested = child });
+                        else { spills.Add(property); spillKeys.Add(key); }
+                    }
+                    else { spills.Add(property); spillKeys.Add(key); }
+                }
+                active.Remove(type);
+            }
+            Columns = columns.ToArray();
+            nestedColumns = Columns.Where(column => column.Nested != null).ToArray();
+            PropertyColumns = new Column?[Properties.Count];
+            for (var i = 0; i < Properties.Count; i++)
+                foreach (var column in Columns)
+                    if (column.Property.Name == Properties[i].Name) { PropertyColumns[i] = column; break; }
+            Spills = spills.ToArray();
+            SpillKeys = spillKeys.ToArray();
+        }
+        internal bool Validate(object row)
+        {
+            foreach (var column in nestedColumns)
+            {
+                var child = column.Property.Getter(row);
+                if (child == null || child.GetType() != column.Property.Info.PropertyType || !column.Nested!.Validate(child)) return false;
+            }
+            return true;
+        }
+        internal static bool Scalar(Type type) => type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)
+            || type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(Guid) || type == typeof(TimeSpan)
+            || type == typeof(Uri) || type == typeof(Version)
+#if NET6_0_OR_GREATER
+            || type == typeof(DateOnly) || type == typeof(TimeOnly)
+#endif
+            ;
+    }
+}

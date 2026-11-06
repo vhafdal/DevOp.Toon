@@ -9,8 +9,10 @@ namespace DevOp.Toon.Internal.Encode;
 /// </summary>
 internal sealed class ResolvedEncodeOptions
 {
+    /// <summary>Gets or sets the TOON protocol version.</summary>
+    public ToonProtocolVersion ProtocolVersion { get; set; } = ToonProtocolVersion.V4_4;
     /// <summary>Gets or sets the number of spaces per indentation level.</summary>
-    public int Indent { get; set; } = 2;
+    public int Indent { get; set; } = 1;
     /// <summary>Gets or sets the delimiter character used in inline and tabular rows.</summary>
     public char Delimiter { get; set; } = Constants.COMMA;
     /// <summary>Gets or sets the key folding mode.</summary>
@@ -20,7 +22,7 @@ internal sealed class ResolvedEncodeOptions
     /// <summary>Gets or sets the object-array layout strategy.</summary>
     public ToonObjectArrayLayout ObjectArrayLayout { get; set; } = ToonObjectArrayLayout.Auto;
     /// <summary>Gets or sets how CLR byte arrays are encoded.</summary>
-    public ToonByteArrayFormat ByteArrayFormat { get; set; } = ToonByteArrayFormat.NumericArray;
+    public ToonByteArrayFormat ByteArrayFormat { get; set; } = ToonByteArrayFormat.Base64String;
     /// <summary>Gets or sets whether all-null and all-empty-string columns are suppressed.</summary>
     public bool IgnoreNullOrEmpty { get; set; } = false;
     /// <summary>Gets or sets whether empty array properties are omitted.</summary>

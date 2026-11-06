@@ -41,6 +41,7 @@ public class HybridObjectArrayTests
 
         var encoded = ToonEncoder.Encode(items, new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             ObjectArrayLayout = ToonObjectArrayLayout.Columnar
         });
 
@@ -56,6 +57,7 @@ public class HybridObjectArrayTests
 
         var encoded = ToonEncoder.Encode(items, new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             ObjectArrayLayout = ToonObjectArrayLayout.Columnar
         });
 
@@ -111,6 +113,7 @@ public class HybridObjectArrayTests
 
         var encoded = ToonEncoder.Encode(rows, new ToonEncodeOptions
         {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy,
             ObjectArrayLayout = ToonObjectArrayLayout.Columnar
         });
 
