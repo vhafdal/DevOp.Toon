@@ -53,6 +53,11 @@ var value = ToonDecoder.Decode(text, new ToonDecodeOptions
 
 ## Why choose this package?
 
+See [official vs custom 4.4: benefits and usage](https://wiki.devop.is/devop-toon/features/custom-4-4)
+for the same nested data in both formats, measured payload/memory tradeoffs, and complete configuration
+examples. The [runnable sample](https://github.com/vhafdal/DevOp.Toon/tree/main/samples/CustomV44)
+uses the published runtime, API and Client packages.
+
 - **Keep repeated rows compact even when they contain collections.** The custom columnar layout shares scalar field names in a table header and writes complex fields beneath their row. Product catalogs, warehouse snapshots, and change histories can retain a compact scalar core without flattening away their nested data.
 - **Use your .NET models.** Supported typed paths materialize DTOs, positional records, arrays, collection interfaces, and string-keyed dictionaries without converting through a JSON string. Other supported shapes use the native-node materializer.
 - **Choose the integration layer you need.** Keep model projects lightweight with the contracts package, add serialization to services, register MVC formatters at the API boundary, and use the typed HTTP client in callers.
