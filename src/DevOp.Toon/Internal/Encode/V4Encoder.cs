@@ -315,18 +315,18 @@ internal static class V4Encoder
 
     /// <summary>
     /// Official keys match <c>[A-Za-z_][A-Za-z0-9_.]*</c>. Custom 4.4 also writes annotation keys
-    /// (<c>@id</c>, <c>@odata.context</c>, <c>Raven-Clr-Type</c>) unquoted: <c>@</c> anywhere and
-    /// <c>-</c> anywhere but first, because a leading <c>-</c> would read as a list item.
+    /// (<c>@id</c>, <c>$ref</c>, <c>@odata.context</c>, <c>Raven-Clr-Type</c>) unquoted: <c>@</c> and
+    /// <c>$</c> anywhere, <c>-</c> anywhere but first, because a leading <c>-</c> would read as a list item.
     /// </summary>
     internal static bool IsPlainKey(string key, bool annotationKeys)
     {
         if (key.Length == 0) return false;
         var start = key[0];
-        if (!(AsciiLetter(start) || start == '_' || annotationKeys && start == '@')) return false;
+        if (!(AsciiLetter(start) || start == '_' || annotationKeys && start is '@' or '$')) return false;
         foreach (var c in key)
         {
             if (AsciiLetter(c) || c is >= '0' and <= '9' or '_' or '.') continue;
-            if (annotationKeys && c is '@' or '-') continue;
+            if (annotationKeys && c is '@' or '$' or '-') continue;
             return false;
         }
         return true;

@@ -130,6 +130,11 @@ public sealed class AnnotationKeyTests
     [InlineData("", "\"\": 1")]
     [InlineData("@", "@: 1")]
     [InlineData("a-b", "a-b: 1")]
+    [InlineData("$id", "$id: 1")]
+    [InlineData("$ref", "$ref: 1")]
+    [InlineData("$schema", "$schema: 1")]
+    [InlineData("a$b", "a$b: 1")]
+    [InlineData("-$x", "\"-$x\": 1")]
     public void Encode_CustomV44_KeyQuoting(string key, string expected)
     {
         var options = Encode(ToonProtocolVersion.CustomV4_4);
@@ -139,6 +144,34 @@ public sealed class AnnotationKeyTests
         Assert.Equal(expected, text);
         var node = ToonDecoder.Decode(text, Decode(ToonProtocolVersion.CustomV4_4))!;
         Assert.Equal(1, node[key]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Encode_CustomV44_ReferencePreservationKeys_RoundTrip()
+    {
+        var source = new Dictionary<string, object?>
+        {
+            ["$id"] = "1",
+            ["$values"] = new[] { "a", "b" },
+            ["Owner"] = new Dictionary<string, object?> { ["$ref"] = "1" }
+        };
+        var text = ToonEncoder.Encode(source, Encode(ToonProtocolVersion.CustomV4_4));
+        Assert.Equal("$id: \"1\"\n$values[2]: a,b\nOwner:\n  $ref: \"1\"", text);
+
+        var node = ToonDecoder.Decode(text, Decode(ToonProtocolVersion.CustomV4_4))!;
+
+        Assert.Equal("1", node["Owner"]!["$ref"]!.GetValue<string>());
+        Assert.Equal("b", node["$values"]![1]!.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData(ToonProtocolVersion.V4_4)]
+    [InlineData(ToonProtocolVersion.V3_0)]
+    public void Encode_OfficialProfiles_DollarKeys_Quoted(ToonProtocolVersion version)
+    {
+        var text = ToonEncoder.Encode(new Dictionary<string, object?> { ["$id"] = 1 }, Encode(version));
+
+        Assert.Equal("\"$id\": 1", text);
     }
 
     private static Dictionary<string, object?> Account() => new()

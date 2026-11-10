@@ -25,7 +25,7 @@ These fields are called **row spills**.
 | Keyed entries with collections or irregular fields | Nested object form | Keyed table plus entry spills, when eligible |
 | No eligible shared columns | List/nested form | List/nested form |
 | Omit null/empty values by default | Both omission options `false` | Both omission options `true` |
-| Annotation keys (`@id`, `@odata.context`, `Raven-Clr-Type`) | Quoted | Unquoted |
+| Annotation keys (`@id`, `$ref`, `@odata.context`, `Raven-Clr-Type`) | Quoted | Unquoted |
 | Transport version value | `4.4` | `custom-4.4` |
 
 Official grammar and examples are documented in the
@@ -97,7 +97,8 @@ one eligible shared leaf. Otherwise the encoder uses the ordinary nested/list fo
 
 JSON gives `@` no special meaning, but several conventions build on it: JSON-LD keywords
 (`@context`, `@id`, `@type`), OData annotations (`@odata.context`, `Name@odata.type`) and
-RavenDB metadata (`@metadata`, `@collection`). Official 4.4 can carry them, but its key grammar
+RavenDB metadata (`@metadata`, `@collection`), as do `System.Text.Json` reference
+preservation (`$id`, `$ref`, `$values`) and JSON Schema (`$schema`). Official 4.4 can carry them, but its key grammar
 `[A-Za-z_][A-Za-z0-9_.]*` forces quotes. Custom 4.4 writes them unquoted:
 
 ```toon
@@ -109,7 +110,7 @@ Name: Other Expenses
   @flags: HasRevisions
 ```
 
-An unquoted custom 4.4 key may also contain `@` anywhere and `-` anywhere except the first
+An unquoted custom 4.4 key may also contain `@` and `$` anywhere, and `-` anywhere except the first
 character, so it cannot be read as a list item. Any other key keeps the official rule and is
 quoted when needed. The 4.x profiles support neither path expansion nor key folding, so a dotted
 annotation key such as `@odata.context` always stays one key.
