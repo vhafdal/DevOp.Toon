@@ -141,4 +141,4 @@ Warmup iterations: `5` &nbsp;|&nbsp; Measured iterations: `12`
 - TOON decode allocations are lower than `System.Text.Json` on real-world data because the columnar layout means fewer tokens to process per object. On synthetic datasets with no null/empty fields the allocations are closer.
 - Gzip and Brotli compression use `CompressionLevel.SmallestSize`. Under `Optimal` the gap is slightly smaller.
 - Benchmarks are run in-process using the same .NET runtime that serves production traffic. No out-of-process overhead.
-- Source: [DevOp.Toon](https://github.com/valdi-hafdal/DevOp.Toon)
+- Source: [DevOp.Toon](https://github.com/vhafdal/DevOp.Toon)
