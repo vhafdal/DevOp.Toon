@@ -51,8 +51,8 @@ dotnet pack src/DevOp.Toon/DevOp.Toon.csproj -c Release
 
 The library targets `netstandard2.0`, `net8.0`, `net9.0` and `net10.0`. Tests run on
 `net8.0;net9.0;net10.0` (plus `net481` on Windows outside CI), set in `Directory.Build.props`.
-`DevOp.Toon.slnx` also lists sibling checkouts of `DevOp.Toon.Core` and `DevOp.Toon.API`
-(`../DevOp.Toon.Core`, `../DevOp.Toon.API`); without them, build individual projects as above.
+`dotnet build DevOp.Toon.slnx` builds everything, including benchmarks and the test host.
+Packages restore from nuget.org only (`nuget.config`).
 Prefer building or testing the one project you changed, and keep large build/test output in an
 ignored directory such as `artifacts/` rather than pasting it.
 

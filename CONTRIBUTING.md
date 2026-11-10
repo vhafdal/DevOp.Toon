@@ -18,8 +18,7 @@ dotnet build tests/DevOp.Toon.Tests/DevOp.Toon.Tests.csproj
 dotnet test tests/DevOp.Toon.Tests/DevOp.Toon.Tests.csproj
 ```
 
-`DevOp.Toon.slnx` also lists sibling checkouts of the `DevOp.Toon.Core` and `DevOp.Toon.API`
-repositories; build individual projects as above unless you have those cloned next to this one.
+`dotnet build DevOp.Toon.slnx` builds every project in the repository.
 
 If you change encoding or decoding behaviour, refresh the pinned spec fixtures and commit the result:
 
