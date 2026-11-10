@@ -65,15 +65,7 @@ internal static class NativeNormalize
         }
 
         if (value is object plainObject && IsPlainObject(plainObject))
-        {
-            var objectNode = new NativeObjectNode();
-            foreach (var property in GetProperties(plainObject.GetType()))
-            {
-                objectNode[property.Name] = Normalize(property.Getter(plainObject), options);
-            }
-
-            return objectNode;
-        }
+            return NormalizePlainObject(plainObject, options);
 
         return new NativePrimitiveNode(null);
     }
@@ -126,17 +118,48 @@ internal static class NativeNormalize
         }
 
         if (value is object plainObject && IsPlainObject(plainObject))
-        {
-            var objectNode = new NativeObjectNode();
-            foreach (var property in GetProperties(plainObject.GetType()))
-            {
-                objectNode[property.Name] = Normalize(property.Getter(plainObject), options);
-            }
-
-            return objectNode;
-        }
+            return NormalizePlainObject(plainObject, options);
 
         return new NativePrimitiveNode(null);
+    }
+
+    private static NativeObjectNode NormalizePlainObject(object plainObject, ResolvedEncodeOptions? options)
+    {
+        var type = plainObject.GetType();
+        var properties = GetProperties(type);
+        var extension = options?.IsV4 == true ? ExtensionDataMetadata.Find(type) : null;
+        var objectNode = new NativeObjectNode();
+        IDictionary<string, object?>? entries = null;
+        foreach (var property in properties)
+        {
+            if (extension != null && ExtensionDataMetadata.IsExtension(property.Info, extension))
+            {
+                entries = (IDictionary<string, object?>?)property.Getter(plainObject);
+                continue;
+            }
+            objectNode[property.Name] = Normalize(property.Getter(plainObject), options);
+        }
+
+        if (entries != null)
+        {
+            foreach (var entry in entries)
+            {
+                if (IsMemberName(entry.Key, properties, extension!)) continue;
+                objectNode[entry.Key] = Normalize(entry.Value, options);
+            }
+        }
+
+        return objectNode;
+    }
+
+    private static bool IsMemberName(string key, PropertyMetadata[] properties, PropertyInfo extension)
+    {
+        foreach (var property in properties)
+        {
+            if (ExtensionDataMetadata.IsExtension(property.Info, extension)) continue;
+            if (property.Name == key || property.Info.Name == key) return true;
+        }
+        return false;
     }
 
     private static bool TryNormalizeByteSequence(object? value, ResolvedEncodeOptions? options, out NativePrimitiveNode primitive)

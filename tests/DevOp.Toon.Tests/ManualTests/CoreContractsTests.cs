@@ -23,6 +23,14 @@ public sealed class CoreContractsTests
         Assert.Equal("MAIN", decoded!.WarehouseCode);
     }
 
+    [Fact]
+    public void ToonExtensionDataAttribute_ComesFromCorePackage()
+    {
+        Assert.Equal("DevOp.Toon.Core", typeof(ToonExtensionDataAttribute).Namespace);
+        Assert.Equal("DevOp.Toon.Core", typeof(ToonExtensionDataAttribute).Assembly.GetName().Name);
+        Assert.Same(typeof(ToonPropertyNameAttribute).Assembly, typeof(ToonExtensionDataAttribute).Assembly);
+    }
+
     private sealed class CoreAnnotatedWarehouse
     {
         [ToonPropertyName("Warehouse")]
