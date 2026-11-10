@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
+using DevOp.Toon.Internal.Decode;
 using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Encode;
@@ -144,7 +145,7 @@ internal static class NativeNormalize
         {
             foreach (var entry in entries)
             {
-                if (IsMemberName(entry.Key, properties, extension!)) continue;
+                if (IsMemberName(entry.Key, type, properties, extension!)) continue;
                 objectNode[entry.Key] = Normalize(entry.Value, options);
             }
         }
@@ -152,14 +153,15 @@ internal static class NativeNormalize
         return objectNode;
     }
 
-    private static bool IsMemberName(string key, PropertyMetadata[] properties, PropertyInfo extension)
+    private static bool IsMemberName(string key, Type type, PropertyMetadata[] properties, PropertyInfo extension)
     {
         foreach (var property in properties)
         {
             if (ExtensionDataMetadata.IsExtension(property.Info, extension)) continue;
             if (property.Name == key || property.Info.Name == key) return true;
         }
-        return false;
+        // Decoding would bind the key to a member (constructor-bound types match case-insensitively), so the entry cannot round-trip.
+        return V4Materialization.BindsMember(type, key);
     }
 
     private static bool TryNormalizeByteSequence(object? value, ResolvedEncodeOptions? options, out NativePrimitiveNode primitive)

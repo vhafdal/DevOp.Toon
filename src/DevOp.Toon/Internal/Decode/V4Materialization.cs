@@ -17,7 +17,22 @@ internal static class V4Materialization
 {
     private static readonly ConcurrentDictionary<Type, Plan> plans = new();
     private static readonly ConcurrentDictionary<Type, CollectionPlan> collections = new();
+    private static readonly ConcurrentDictionary<Type, Plan?> bindablePlans = new();
     internal static Plan GetPlan(Type type) => plans.GetOrAdd(type, BuildPlan);
+
+    /// <summary>
+    /// Returns whether typed 4.x decoding of <paramref name="type"/> binds <paramref name="key"/> to a declared member,
+    /// using the same name comparison as the decoder; <see langword="false"/> when the type cannot be decoded.
+    /// </summary>
+    internal static bool BindsMember(Type type, string key)
+    {
+        var plan = bindablePlans.GetOrAdd(type, static target =>
+        {
+            try { return GetPlan(target); }
+            catch (NotSupportedException) { return null; }
+        });
+        return plan != null && plan.Members.ContainsKey(key);
+    }
 
     internal delegate bool PrimitiveSetter(object instance, ReadOnlySpan<char> token);
     private delegate T SpanParser<T>(ReadOnlySpan<char> token);
@@ -100,7 +115,7 @@ internal static class V4Materialization
             {
                 var target = Expression.Parameter(typeof(object), "instance");
                 plan.ExtensionName = $"{type}.{property.Name}";
-                plan.ExtensionGetter = Expression.Lambda<Func<object, object?>>(Expression.Convert(Expression.Property(Expression.Convert(target, type), property), typeof(object)), target).Compile();
+                plan.ExtensionGetter = Expression.Lambda<Func<object, object?>>(Expression.Convert(Expression.Property(type.IsValueType ? Expression.Unbox(target, type) : Expression.Convert(target, type), property), typeof(object)), target).Compile();
                 if (plan.Constructor != null)
                     plan.ExtensionArgument = Array.FindIndex(selectedParameters, p => string.Equals(p.Name, property.Name, StringComparison.OrdinalIgnoreCase));
                 if (property.SetMethod?.IsPublic == true)

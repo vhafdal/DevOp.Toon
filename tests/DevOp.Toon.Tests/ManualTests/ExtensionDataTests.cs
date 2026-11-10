@@ -161,6 +161,72 @@ public sealed class ExtensionDataTests
     }
 
     [Fact]
+    public void Decode_StructWithLazyGetter_CapturesIntoBoxedValue()
+    {
+        var decoded = ToonDecoder.Decode<LazyAccountStruct>("Name: Cash\nextra: 1", Decode(ToonProtocolVersion.CustomV4_4));
+
+        Assert.Equal("Cash", decoded.Name);
+        Assert.Equal(1d, decoded.Annotations["extra"]);
+    }
+
+    [Fact]
+    public void Decode_ConstructorBoundCaseVariantKey_BindsToMember()
+    {
+        var decoded = ToonDecoder.Decode<AccountRecord>("name: Cash", Decode(ToonProtocolVersion.CustomV4_4))!;
+        var aliased = ToonDecoder.Decode<AliasedAccountRecord>("Name: Cash\nACCT: A1", Decode(ToonProtocolVersion.CustomV4_4))!;
+
+        Assert.Equal("Cash", decoded.Name);
+        Assert.Null(decoded.Annotations);
+        Assert.Equal("A1", aliased.Code);
+        Assert.Null(aliased.Annotations);
+    }
+
+    [Theory]
+    [MemberData(nameof(V4Versions))]
+    public void RoundTrip_ConstructorBoundCaseVariantOfClrName_MemberWins(ToonProtocolVersion version)
+    {
+        var source = new AccountRecord("declared", new Dictionary<string, object?> { ["name"] = "dropped1", ["NAME"] = "dropped2", ["@id"] = "a/1" });
+
+        var text = ToonEncoder.Encode(source, Encode(version));
+        var decoded = ToonDecoder.Decode<AccountRecord>(text, Decode(version))!;
+
+        Assert.DoesNotContain("dropped", text);
+        Assert.Equal("declared", decoded.Name);
+        Assert.Equal(["@id"], decoded.Annotations!.Keys);
+    }
+
+    [Theory]
+    [MemberData(nameof(V4Versions))]
+    public void RoundTrip_ConstructorBoundCaseVariantOfAlias_MemberWins(ToonProtocolVersion version)
+    {
+        var source = new AliasedAccountRecord("A1", "Cash", new Dictionary<string, object?>
+        {
+            ["ACCT"] = "dropped1", ["Acct"] = "dropped2", ["code"] = "dropped3", ["@id"] = "a/1"
+        });
+
+        var text = ToonEncoder.Encode(source, Encode(version));
+        var decoded = ToonDecoder.Decode<AliasedAccountRecord>(text, Decode(version))!;
+
+        Assert.DoesNotContain("dropped", text);
+        Assert.Equal("A1", decoded.Code);
+        Assert.Equal("Cash", decoded.Name);
+        Assert.Equal(["@id"], decoded.Annotations!.Keys);
+    }
+
+    [Theory]
+    [MemberData(nameof(V4Versions))]
+    public void RoundTrip_SetterBoundCaseVariantOfMemberName_KeptAsEntry(ToonProtocolVersion version)
+    {
+        var source = new Account { Name = "Cash", Annotations = new Dictionary<string, object?> { ["name"] = "kept" } };
+
+        var text = ToonEncoder.Encode(source, Encode(version));
+        var decoded = ToonDecoder.Decode<Account>(text, Decode(version))!;
+
+        Assert.Equal("Cash", decoded.Name);
+        Assert.Equal("kept", decoded.Annotations!["name"]);
+    }
+
+    [Fact]
     public void Decode_StructDto_Captures()
     {
         var decoded = ToonDecoder.Decode<AccountStruct>("Name: Cash\n@id: a/1", Decode(ToonProtocolVersion.CustomV4_4));
@@ -627,6 +693,21 @@ public sealed class ExtensionDataTests
     }
 
     public sealed record AccountRecord(string Name, [property: ToonExtensionData] IDictionary<string, object?>? Annotations);
+
+    public sealed record AliasedAccountRecord(
+        [property: ToonPropertyName("acct")] string Code,
+        string Name,
+        [property: ToonExtensionData] IDictionary<string, object?>? Annotations);
+
+    public struct LazyAccountStruct
+    {
+        private Dictionary<string, object?>? entries;
+
+        public string? Name { get; set; }
+
+        [ToonExtensionData]
+        public IDictionary<string, object?> Annotations => entries ??= new Dictionary<string, object?>();
+    }
 
     public sealed record InitAccount
     {

@@ -147,6 +147,7 @@ Name: Other Expenses
   `CustomLegacy` ignore the attribute: they write the dictionary as a nested object and
   capture nothing.
 - A member wins: an entry whose key equals a member's TOON name or CLR name is not written.
+  For constructor-bound types such as positional records the match ignores case, as decoding does.
 - Captured objects become `Dictionary<string, object?>`, arrays `List<object?>`, and numbers
   `double`.
 - Entries take part in tables like members do: uniform entries become columns, and other
