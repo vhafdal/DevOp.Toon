@@ -25,6 +25,7 @@ These fields are called **row spills**.
 | Keyed entries with collections or irregular fields | Nested object form | Keyed table plus entry spills, when eligible |
 | No eligible shared columns | List/nested form | List/nested form |
 | Omit null/empty values by default | Both omission options `false` | Both omission options `true` |
+| Annotation keys (`@id`, `@odata.context`, `Raven-Clr-Type`) | Quoted | Unquoted |
 | Transport version value | `4.4` | `custom-4.4` |
 
 Official grammar and examples are documented in the
@@ -91,6 +92,30 @@ The colon in `[2:]` identifies a keyed table. Each entry row starts with its dic
 its spills appear one indentation level deeper. Keyed tables need at least two nonempty
 object-valued entries and at least one eligible shared leaf. Arrays of objects need at least
 one eligible shared leaf. Otherwise the encoder uses the ordinary nested/list form.
+
+## Annotation keys
+
+JSON gives `@` no special meaning, but several conventions build on it: JSON-LD keywords
+(`@context`, `@id`, `@type`), OData annotations (`@odata.context`, `Name@odata.type`) and
+RavenDB metadata (`@metadata`, `@collection`). Official 4.4 can carry them, but its key grammar
+`[A-Za-z_][A-Za-z0-9_.]*` forces quotes. Custom 4.4 writes them unquoted:
+
+```toon
+@id: accounts/6900
+Name: Other Expenses
+@metadata:
+  @collection: Accounts
+  Raven-Clr-Type: "DevOp.Nexus.Domain.Finance.Account, DevOp.Nexus.Domain"
+  @flags: HasRevisions
+```
+
+An unquoted custom 4.4 key may also contain `@` anywhere and `-` anywhere except the first
+character, so it cannot be read as a list item. Any other key keeps the official rule and is
+quoted when needed. The 4.x profiles support neither path expansion nor key folding, so a dotted
+annotation key such as `@odata.context` always stays one key.
+
+Bind annotation keys to DTO members with `[ToonPropertyName("@id")]`, or decode the document
+as `ToonNode` or `Dictionary<string, object?>`.
 
 ## Use custom 4.4 without omitting data
 
