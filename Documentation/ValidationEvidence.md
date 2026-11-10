@@ -18,7 +18,7 @@ Client 0.2.0. Source and Release-package checks use isolated worktrees and local
 | Original raw JSON DOM check | Both lossless modes pass all 2,051 original rows/properties, including one-row Publication member |
 | Repository benchmark helpers | HTTP, stream, property-key, transport-options and raw-JSON helpers build; Product-based helpers retain existing DTO nullable warnings |
 
-All builds/tests use `devop-build-slot`. Build success for net8/net9 does not establish execution
+All builds and tests ran sequentially, one at a time. Build success for net8/net9 does not establish execution
 on native .NET 8/9 runtimes; those runtimes were unavailable. No coverage percentage or live
 production interoperability is claimed. TestServer fixtures emit the .NET 10 obsolete-WebHost
 warning; production API paths do not introduce that hosting API.

@@ -22,8 +22,8 @@ Client code. Its growth follows actual received bytes, ignores declared content 
 Build the unreleased package worktrees together through their normal Debug reference overrides:
 
 ```bash
-devop-build-slot dotnet build benchmarks/DevOp.Toon.HttpPayloadProbe/DevOp.Toon.HttpPayloadProbe.csproj -c Debug -p:ClientProject=/absolute/client/src/DevOp.Toon.Client/DevOp.Toon.Client.csproj -p:ToonProjectPath=/absolute/runtime/src/DevOp.Toon/DevOp.Toon.csproj -p:ToonCoreProjectPath=/absolute/core/DevOp.Toon.Core.csproj -v minimal
-devop-build-slot dotnet benchmarks/DevOp.Toon.HttpPayloadProbe/bin/Debug/net10.0/DevOp.Toon.HttpPayloadProbe.dll bytes /absolute/export/candidate-custom4.4-lossless.toon
+dotnet build benchmarks/DevOp.Toon.HttpPayloadProbe/DevOp.Toon.HttpPayloadProbe.csproj -c Debug -p:ClientProject=/absolute/client/src/DevOp.Toon.Client/DevOp.Toon.Client.csproj -p:ToonProjectPath=/absolute/runtime/src/DevOp.Toon/DevOp.Toon.csproj -p:ToonCoreProjectPath=/absolute/core/DevOp.Toon.Core.csproj -v minimal
+dotnet benchmarks/DevOp.Toon.HttpPayloadProbe/bin/Debug/net10.0/DevOp.Toon.HttpPayloadProbe.dll bytes /absolute/export/candidate-custom4.4-lossless.toon
 ```
 
 Run each mode in a fresh process, sequentially, and repeat in reverse order. Reports include 20

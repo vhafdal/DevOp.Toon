@@ -7,9 +7,9 @@ project references or require a running HTTP server.
 From the repository root:
 
 ```bash
-devop-build-slot dotnet restore samples/CustomV44/CustomV44.csproj --source https://api.nuget.org/v3/index.json
-devop-build-slot dotnet build samples/CustomV44/CustomV44.csproj -c Release --no-restore -v minimal
-devop-build-slot dotnet samples/CustomV44/bin/Release/net10.0/CustomV44.dll
+dotnet restore samples/CustomV44/CustomV44.csproj --source https://api.nuget.org/v3/index.json
+dotnet build samples/CustomV44/CustomV44.csproj -c Release --no-restore -v minimal
+dotnet samples/CustomV44/bin/Release/net10.0/CustomV44.dll
 ```
 
 The sample prints actual official and custom output for the same products. It checks complete

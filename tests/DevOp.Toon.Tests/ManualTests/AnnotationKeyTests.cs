@@ -5,7 +5,7 @@ namespace DevOp.Toon.Tests;
 
 public sealed class AnnotationKeyTests
 {
-    private const string AccountClrType = "DevOp.Nexus.Domain.Finance.Account, DevOp.Nexus.Domain";
+    private const string AccountClrType = "Contoso.Billing.Account, Contoso.Billing";
 
     [Fact]
     public void Encode_CustomV44_AnnotationKeys_Unquoted()

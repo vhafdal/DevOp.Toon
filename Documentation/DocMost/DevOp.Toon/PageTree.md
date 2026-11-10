@@ -1,6 +1,6 @@
 # DevOp.Toon Legacy Page Tree
 
-Legacy DocMost export reference. Do not treat this file as the active publishing workflow; Wiki.js is the source of truth.
+Legacy DocMost export reference. Do not treat this file as current; the maintained documentation is the Markdown in this repository and the published site linked from README.md.
 
 1. Home
 2. Getting Started

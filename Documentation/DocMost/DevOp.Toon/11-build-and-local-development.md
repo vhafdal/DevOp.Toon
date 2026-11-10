@@ -39,7 +39,7 @@ Important environment variables:
 Example:
 
 ```bash
-export DEVOP_TOON_CORE_CSPROJ=/home/valdi/Projects/DevOp.Toon.Core/DevOp.Toon.Core.csproj
+export DEVOP_TOON_CORE_CSPROJ=/path/to/DevOp.Toon.Core/DevOp.Toon.Core.csproj
 dotnet build -c Debug
 ```
 

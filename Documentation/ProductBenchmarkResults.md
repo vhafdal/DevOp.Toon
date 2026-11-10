@@ -125,7 +125,7 @@ excluded from the public repository.
 
 Use [the benchmark harness](../benchmarks/DevOp.Toon.ProtocolBenchmarks/README.md) for commands,
 including `--profiles`, `--warmups 30`, `--repeats 30` and the baseline/candidate comparator.
-All builds and executions use `devop-build-slot` and run sequentially. Full raw reports and
+All builds and executions ran sequentially, one at a time. Full raw reports and
 exploratory optimization results are retained locally and excluded from the public repository.
 Local report names distinguish isolated comparisons from multi-profile and intermediate experiments.
 

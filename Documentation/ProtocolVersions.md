@@ -150,7 +150,7 @@ var clientOptions = new DevOp.Toon.Client.ToonClientOptions
 
 Official fixture snapshots, immutable commit references, and upstream fixture attribution are in `tests/DevOp.Toon.Tests/ProtocolFixtures`. The fixture license applies to copied fixture material; implementation authorship and licensing remain separate.
 
-Use `benchmarks/DevOp.Toon.ProtocolBenchmarks` for the full 2,051-product baseline/candidate comparison. Preserve the input fixture files. Run validation through `devop-build-slot` and publish observed results only after correctness and regression gates pass.
+Use `benchmarks/DevOp.Toon.ProtocolBenchmarks` for the full 2,051-product baseline/candidate comparison. Preserve the input fixture files. Run builds and benchmarks sequentially, one at a time, and publish observed results only after correctness and regression gates pass.
 
 ## Conformance snapshots
 

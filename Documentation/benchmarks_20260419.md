@@ -124,7 +124,7 @@ On most datasets TOON allocates more transient heap during encode and decode tha
 - Heap allocations measured via `GC.GetAllocatedBytesForCurrentThread()`
 - Gzip and Brotli use `CompressionLevel.SmallestSize`; under `Optimal` the gap narrows slightly
 - All benchmarks run in-process on the same .NET runtime that would serve production traffic — no out-of-process overhead
-- Source and reproducible benchmarks: [github.com/valdi-hafdal/DevOp.Toon](https://github.com/valdi-hafdal/DevOp.Toon)
+- Source and reproducible benchmarks: [github.com/vhafdal/DevOp.Toon](https://github.com/vhafdal/DevOp.Toon)
 
 ### Environment
 

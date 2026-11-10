@@ -5,9 +5,8 @@ This page is the short version of the benchmark story.
 Use it when you need a simple developer-facing explanation of why `DevOp.Toon` is worth evaluating instead of JSON.
 
 For the full technical breakdown, see:
-- [BenchmarkCustomerOverview.md](/home/valdi/Projects/DevOp.Toon/Documentation/BenchmarkCustomerOverview.md)
-- [BenchmarkReport.md](/home/valdi/Projects/toon-dotnet/Documentation/BenchmarkReport.md)
-- [BenchmarkWorkflow.md](/home/valdi/Projects/toon-dotnet/Documentation/BenchmarkWorkflow.md)
+- [BenchmarkCustomerOverview.md](BenchmarkCustomerOverview.md)
+- [BenchmarkReport.md](BenchmarkReport.md)
 
 ## Headline Claims
 

@@ -106,8 +106,8 @@ This library supports two object-array layout modes through `ToonObjectArrayLayo
 - `Columnar`
 
 Implementation reference:
-- [Constants.cs](/home/valdi/Projects/toon-dotnet/src/DevOp.Toon/Constants.cs)
-- [ToonEncodeOptions.cs](/home/valdi/Projects/toon-dotnet/src/DevOp.Toon/Options/ToonEncodeOptions.cs)
+- [Constants.cs](../src/DevOp.Toon/Constants.cs)
+- [ToonEncodeOptions.cs](../src/DevOp.Toon/Options/ToonEncodeOptions.cs)
 
 ### `Auto`
 
@@ -126,7 +126,7 @@ It works like this:
 4. Write the remaining non-header fields under each row as nested content.
 
 Implementation reference:
-- [NativeEncoders.cs](/home/valdi/Projects/toon-dotnet/src/DevOp.Toon/Internal/Encode/NativeEncoders.cs)
+- [NativeEncoders.cs](../src/DevOp.Toon/Internal/Encode/NativeEncoders.cs)
 
 Relevant implementation points:
 - `TryExtractColumnarHeader(...)`
@@ -178,7 +178,7 @@ The `CustomLegacy` profile defaults are:
 - `ExcludeEmptyArrays = true`
 
 Implementation reference:
-- [ToonEncoder.cs](/home/valdi/Projects/toon-dotnet/src/DevOp.Toon/ToonEncoder.cs)
+- [ToonEncoder.cs](../src/DevOp.Toon/ToonEncoder.cs)
 
 Select `ToonProtocolVersion.CustomLegacy` explicitly to retain these defaults. The new default profile uses official TOON 4.4 and preserves null/empty values.
 

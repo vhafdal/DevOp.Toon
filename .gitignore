@@ -61,3 +61,8 @@ BenchmarkDotNet.Artifacts/
 # Local validation logs, raw samples, and machine-specific benchmark artifacts
 /Documentation/ValidationEvidence/
 /Documentation/BenchmarkEvidence/
+
+# Local agent worktrees and per-user Claude Code settings
+.claude/worktrees/
+.worktrees/
+.claude/settings.local.json

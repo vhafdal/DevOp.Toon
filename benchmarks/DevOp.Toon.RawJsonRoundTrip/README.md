@@ -11,8 +11,8 @@ and exponent, so formatting changes are allowed without accepting rounding diffe
 Build against an already-built runtime/Core directory, then supply the original fixture path:
 
 ```bash
-devop-build-slot dotnet build benchmarks/DevOp.Toon.RawJsonRoundTrip/DevOp.Toon.RawJsonRoundTrip.csproj -p:RuntimeDirectory=/absolute/compiled/runtime-directory -v minimal
-devop-build-slot dotnet benchmarks/DevOp.Toon.RawJsonRoundTrip/bin/Debug/net10.0/DevOp.Toon.RawJsonRoundTrip.dll /absolute/prods.json
+dotnet build benchmarks/DevOp.Toon.RawJsonRoundTrip/DevOp.Toon.RawJsonRoundTrip.csproj -p:RuntimeDirectory=/absolute/compiled/runtime-directory -v minimal
+dotnet benchmarks/DevOp.Toon.RawJsonRoundTrip/bin/Debug/net10.0/DevOp.Toon.RawJsonRoundTrip.dll /absolute/prods.json
 ```
 
 The JSON report records input/runtime hashes, row counts, publication-member counts and the first

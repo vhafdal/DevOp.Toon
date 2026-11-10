@@ -8,8 +8,8 @@ From the repository root, use the normal Debug local Core project override when 
 unreleased enum/API together with its Core worktree:
 
 ```bash
-devop-build-slot dotnet build samples/ProtocolVersions/ProtocolVersions.csproj -c Debug -p:ToonCoreProjectPath=/absolute/DevOp.Toon.Core/DevOp.Toon.Core.csproj -v minimal
-devop-build-slot dotnet samples/ProtocolVersions/bin/Debug/net10.0/ProtocolVersions.dll
+dotnet build samples/ProtocolVersions/ProtocolVersions.csproj -c Debug -p:ToonCoreProjectPath=/absolute/DevOp.Toon.Core/DevOp.Toon.Core.csproj -v minimal
+dotnet samples/ProtocolVersions/bin/Debug/net10.0/ProtocolVersions.dll
 ```
 
 Each round trip checks the complete nested array values and throws if data is lost. The sample

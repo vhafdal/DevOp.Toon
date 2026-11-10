@@ -5,8 +5,8 @@ Measures repeated small CLR payload encoding for plain aliases, quoted aliases, 
 Build the same probe source against separate before/after runtime worktrees, using the same optimization and runtime settings. Debug project references permit local Core substitution through `DEVOP_TOON_CORE_CSPROJ`. The runtime project defaults to this checkout's library and can be overridden:
 
 ```bash
-devop-build-slot dotnet build benchmarks/DevOp.Toon.PropertyKeyProbe/DevOp.Toon.PropertyKeyProbe.csproj -c Debug -p:Optimize=true -p:RuntimeProject=/path/to/before/src/DevOp.Toon/DevOp.Toon.csproj -o /tmp/toon-key-before
-devop-build-slot dotnet build benchmarks/DevOp.Toon.PropertyKeyProbe/DevOp.Toon.PropertyKeyProbe.csproj -c Debug -p:Optimize=true -p:RuntimeProject=/path/to/after/src/DevOp.Toon/DevOp.Toon.csproj -o /tmp/toon-key-after
+dotnet build benchmarks/DevOp.Toon.PropertyKeyProbe/DevOp.Toon.PropertyKeyProbe.csproj -c Debug -p:Optimize=true -p:RuntimeProject=/path/to/before/src/DevOp.Toon/DevOp.Toon.csproj -o /tmp/toon-key-before
+dotnet build benchmarks/DevOp.Toon.PropertyKeyProbe/DevOp.Toon.PropertyKeyProbe.csproj -c Debug -p:Optimize=true -p:RuntimeProject=/path/to/after/src/DevOp.Toon/DevOp.Toon.csproj -o /tmp/toon-key-after
 DOTNET_TieredCompilation=0 dotnet /tmp/toon-key-before/DevOp.Toon.PropertyKeyProbe.dll /tmp/toon-key-before.json
 DOTNET_TieredCompilation=0 dotnet /tmp/toon-key-after/DevOp.Toon.PropertyKeyProbe.dll /tmp/toon-key-after.json
 ```

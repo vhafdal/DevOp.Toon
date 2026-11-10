@@ -9,15 +9,15 @@ Run these commands sequentially from the repository root with the .NET 10 SDK. E
 a fresh forced restore and a separate output directory. No local-project override is needed.
 
 ```bash
-devop-build-slot dotnet restore benchmarks/DevOp.Toon.PublishedPackageBenchmarks/DevOp.Toon.PublishedPackageBenchmarks.csproj -p:RuntimePackageVersion=0.2.9 --force --source https://api.nuget.org/v3/index.json
-devop-build-slot dotnet build benchmarks/DevOp.Toon.PublishedPackageBenchmarks/DevOp.Toon.PublishedPackageBenchmarks.csproj -c Release --no-restore -p:RuntimePackageVersion=0.2.9 -o artifacts/published-before
+dotnet restore benchmarks/DevOp.Toon.PublishedPackageBenchmarks/DevOp.Toon.PublishedPackageBenchmarks.csproj -p:RuntimePackageVersion=0.2.9 --force --source https://api.nuget.org/v3/index.json
+dotnet build benchmarks/DevOp.Toon.PublishedPackageBenchmarks/DevOp.Toon.PublishedPackageBenchmarks.csproj -c Release --no-restore -p:RuntimePackageVersion=0.2.9 -o artifacts/published-before
 
-devop-build-slot dotnet restore benchmarks/DevOp.Toon.PublishedPackageBenchmarks/DevOp.Toon.PublishedPackageBenchmarks.csproj -p:RuntimePackageVersion=0.3.0 --force --source https://api.nuget.org/v3/index.json
-devop-build-slot dotnet build benchmarks/DevOp.Toon.PublishedPackageBenchmarks/DevOp.Toon.PublishedPackageBenchmarks.csproj -c Release --no-restore -p:RuntimePackageVersion=0.3.0 -o artifacts/published-after
+dotnet restore benchmarks/DevOp.Toon.PublishedPackageBenchmarks/DevOp.Toon.PublishedPackageBenchmarks.csproj -p:RuntimePackageVersion=0.3.0 --force --source https://api.nuget.org/v3/index.json
+dotnet build benchmarks/DevOp.Toon.PublishedPackageBenchmarks/DevOp.Toon.PublishedPackageBenchmarks.csproj -c Release --no-restore -p:RuntimePackageVersion=0.3.0 -o artifacts/published-after
 
 mkdir -p artifacts/published-results
-devop-build-slot env DOTNET_TieredCompilation=0 dotnet artifacts/published-before/DevOp.Toon.PublishedPackageBenchmarks.dll --data benchmarks/DevOp.Toon.Benchmarks/TestData --profiles custom-legacy-lossless --warmups 30 --repeats 50 --output artifacts/published-results/before-custom-lossless.json
-devop-build-slot env DOTNET_TieredCompilation=0 dotnet artifacts/published-after/DevOp.Toon.PublishedPackageBenchmarks.dll --data benchmarks/DevOp.Toon.Benchmarks/TestData --profiles custom4.4-lossless --warmups 30 --repeats 50 --output artifacts/published-results/after-custom-lossless.json
+env DOTNET_TieredCompilation=0 dotnet artifacts/published-before/DevOp.Toon.PublishedPackageBenchmarks.dll --data benchmarks/DevOp.Toon.Benchmarks/TestData --profiles custom-legacy-lossless --warmups 30 --repeats 50 --output artifacts/published-results/before-custom-lossless.json
+env DOTNET_TieredCompilation=0 dotnet artifacts/published-after/DevOp.Toon.PublishedPackageBenchmarks.dll --data benchmarks/DevOp.Toon.Benchmarks/TestData --profiles custom4.4-lossless --warmups 30 --repeats 50 --output artifacts/published-results/after-custom-lossless.json
 ```
 
 The baseline lossless command returns exit code 2 for its known numeric precision defect. Inspect
