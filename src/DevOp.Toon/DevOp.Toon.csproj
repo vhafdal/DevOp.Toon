@@ -33,7 +33,8 @@
 - Breaking: defaults encoding to official 4.4 and decoding to Auto; select CustomLegacy for previous wire behavior
 - Improves typed decoding allocations, cached property-key emission, and v4 stream buffer sizing
 - Fixes nested table detection, recursive CLR metadata, and Unicode validation edge cases
-- Improves protocol support, custom 4.4 usage guidance, and published-package benchmark documentation</PackageReleaseNotes>
+- Improves protocol support, custom 4.4 usage guidance, and published-package benchmark documentation
+- Custom 4.4 writes annotation keys such as @id, $ref, @odata.context and Raven-Clr-Type without quotes</PackageReleaseNotes>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
 

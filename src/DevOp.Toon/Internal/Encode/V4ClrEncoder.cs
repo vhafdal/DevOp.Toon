@@ -52,7 +52,7 @@ internal static class V4ClrEncoder
             if (key != null)
             {
                 V4Encoder.Start(writer, firstListField ? depth - 1 : depth, firstListField, options);
-                key.Write(writer); writer.Append(':');
+                key.Write(writer, options.AnnotationKeys); writer.Append(':');
                 depth++;
             }
             for (var propertyIndex = 0; propertyIndex < objectPlan.Properties.Count; propertyIndex++)
@@ -62,7 +62,7 @@ internal static class V4ClrEncoder
                 if (column != null && column.Nested == null)
                 {
                     V4Encoder.Start(writer, depth, false, options);
-                    objectPlan.PropertyKeys[propertyIndex].Write(writer); writer.Append(": ");
+                    objectPlan.PropertyKeys[propertyIndex].Write(writer, options.AnnotationKeys); writer.Append(": ");
                     column.Emit(writer, value, options.Delimiter);
                 }
                 else
@@ -125,11 +125,11 @@ internal static class V4ClrEncoder
             if (all) return false;
         }
         V4Encoder.Start(writer, firstListField ? depth - 1 : depth, firstListField, options);
-        if (key != null) key.Write(writer);
+        if (key != null) key.Write(writer, options.AnnotationKeys);
         writer.Append('['); writer.Append(rows.Count);
         if (options.Delimiter != ',') writer.Append(options.Delimiter);
         writer.Append(']');
-        Fields(writer, tablePlan, options.Delimiter, suppressed);
+        Fields(writer, tablePlan, options.Delimiter, suppressed, options.AnnotationKeys);
         writer.Append(':');
         for (var i = 0; i < rows.Count; i++)
         {
@@ -156,7 +156,7 @@ internal static class V4ClrEncoder
         if (IsNormalizedPrimitive(value, options))
         {
             V4Encoder.Start(writer, firstListField ? depth - 1 : depth, firstListField, options);
-            key.Write(writer); writer.Append(": ");
+            key.Write(writer, options.AnnotationKeys); writer.Append(": ");
             WritePrimitive(writer, value, options);
             return;
         }
@@ -202,7 +202,7 @@ internal static class V4ClrEncoder
 
     private static void ArrayHeader(CompactBufferWriter writer, PropertyKey? key, int count, ResolvedEncodeOptions options)
     {
-        if (key != null) key.Write(writer);
+        if (key != null) key.Write(writer, options.AnnotationKeys);
         writer.Append('['); writer.Append(count);
         if (options.Delimiter != ',') writer.Append(options.Delimiter);
         writer.Append("]:");
@@ -213,7 +213,7 @@ internal static class V4ClrEncoder
         V4Encoder.Start(writer, firstListField ? depth - 1 : depth, firstListField || anonymousListItem, options);
         if (rows.Count == 0 && !anonymousListItem)
         {
-            if (key != null) { key.Write(writer); writer.Append(": "); }
+            if (key != null) { key.Write(writer, options.AnnotationKeys); writer.Append(": "); }
             writer.Append("[]");
             return;
         }
@@ -274,7 +274,7 @@ internal static class V4ClrEncoder
             if (column != null && column.Nested == null)
             {
                 V4Encoder.Start(writer, first ? depth : depth + 1, first, options);
-                plan.PropertyKeys[i].Write(writer); writer.Append(": ");
+                plan.PropertyKeys[i].Write(writer, options.AnnotationKeys); writer.Append(": ");
                 column.Emit(writer, value, options.Delimiter);
             }
             else
@@ -288,7 +288,7 @@ internal static class V4ClrEncoder
         if (first) { V4Encoder.Start(writer, depth, false, options); writer.Append('-'); }
     }
 
-    private static void Fields(CompactBufferWriter writer, Plan plan, char delimiter, bool[]? suppressed)
+    private static void Fields(CompactBufferWriter writer, Plan plan, char delimiter, bool[]? suppressed, bool annotationKeys)
     {
         writer.Append('{');
         var first = true;
@@ -297,8 +297,8 @@ internal static class V4ClrEncoder
             if (suppressed != null && suppressed[i]) continue;
             if (!first) writer.Append(delimiter);
             var column = plan.Columns[i];
-            column.Key.Write(writer);
-            if (column.Nested != null) Fields(writer, column.Nested, delimiter, null);
+            column.Key.Write(writer, annotationKeys);
+            if (column.Nested != null) Fields(writer, column.Nested, delimiter, null, annotationKeys);
             first = false;
         }
         writer.Append('}');
@@ -324,32 +324,37 @@ internal static class V4ClrEncoder
     {
         internal readonly string Name;
         private readonly string? encoded;
+        private readonly string? annotationEncoded;
 
         internal PropertyKey(string name)
         {
             Name = name;
-            var plain = name.Length > 0 && (AsciiLetter(name[0]) || name[0] == '_');
-            foreach (var c in name) plain &= AsciiLetter(c) || c is >= '0' and <= '9' or '_' or '.';
-            if (plain) { encoded = name; return; }
+            encoded = Encode(name, false);
+            annotationEncoded = V4Encoder.IsPlainKey(name, true) ? name : encoded;
+        }
+
+        private static string? Encode(string name, bool annotationKeys)
+        {
+            if (V4Encoder.IsPlainKey(name, annotationKeys)) return name;
             try
             {
                 using var writer = new CompactBufferWriter(2, newLine: "\n");
-                V4Encoder.Key(writer, name);
-                encoded = writer.ToString();
+                V4Encoder.Key(writer, name, annotationKeys);
+                return writer.ToString();
             }
             catch (ArgumentException)
             {
                 // Invalid aliases must fail only when their property is emitted, after omissions.
+                return null;
             }
         }
 
-        internal void Write(CompactBufferWriter writer)
+        internal void Write(CompactBufferWriter writer, bool annotationKeys)
         {
-            if (encoded != null) writer.Append(encoded);
-            else V4Encoder.Key(writer, Name);
+            var text = annotationKeys ? annotationEncoded : encoded;
+            if (text != null) writer.Append(text);
+            else V4Encoder.Key(writer, Name, annotationKeys);
         }
-
-        private static bool AsciiLetter(char c) => c is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
     }
 
     private sealed class Column

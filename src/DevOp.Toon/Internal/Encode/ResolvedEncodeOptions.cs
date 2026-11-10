@@ -27,4 +27,6 @@ internal sealed class ResolvedEncodeOptions
     public bool IgnoreNullOrEmpty { get; set; } = false;
     /// <summary>Gets or sets whether empty array properties are omitted.</summary>
     public bool ExcludeEmptyArrays { get; set; } = false;
+    /// <summary>Gets whether annotation keys such as <c>@id</c> and <c>Raven-Clr-Type</c> are written unquoted.</summary>
+    public bool AnnotationKeys => ProtocolVersion == ToonProtocolVersion.CustomV4_4;
 }

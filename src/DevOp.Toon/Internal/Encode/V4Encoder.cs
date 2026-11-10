@@ -27,7 +27,7 @@ internal static class V4Encoder
             if (!listItem && TryKeyedRows(obj, out var rows, out var entryKeys) && TryColumns(rows, options, out var columns))
             {
                 Start(writer, depth, false, options);
-                Header(writer, key, rows.Count, true, columns, options.Delimiter);
+                Header(writer, key, rows.Count, true, columns, options);
                 WriteRows(writer, rows, entryKeys, columns, depth + 1, options);
                 return;
             }
@@ -56,7 +56,7 @@ internal static class V4Encoder
             if (key != null)
             {
                 Start(writer, depth, false, options);
-                Key(writer, key);
+                Key(writer, key, options.AnnotationKeys);
                 writer.Append(':');
                 depth++;
             }
@@ -65,7 +65,7 @@ internal static class V4Encoder
             return;
         }
         Start(writer, depth, listItem, options);
-        if (key != null) { Key(writer, key); writer.Append(": "); }
+        if (key != null) { Key(writer, key, options.AnnotationKeys); writer.Append(": "); }
         Primitive(writer, value, options.Delimiter, key == null && !listItem);
     }
 
@@ -80,19 +80,19 @@ internal static class V4Encoder
         {
             if (TryKeyedRows(obj, out var rows, out var keys) && TryColumns(rows, options, out var columns))
             {
-                Header(writer, key, rows.Count, true, columns, options.Delimiter);
+                Header(writer, key, rows.Count, true, columns, options);
                 WriteRows(writer, rows, keys, columns, depth + 2, options);
             }
             else
             {
-                Key(writer, key); writer.Append(':');
+                Key(writer, key, options.AnnotationKeys); writer.Append(':');
                 foreach (var pair in obj)
                     if (!Omit(pair.Value, options)) WriteValue(writer, pair.Value, pair.Key, depth + 2, false, options);
             }
         }
         else
         {
-            Key(writer, key); writer.Append(": "); Primitive(writer, value, options.Delimiter, false);
+            Key(writer, key, options.AnnotationKeys); writer.Append(": "); Primitive(writer, value, options.Delimiter, false);
         }
     }
 
@@ -106,13 +106,13 @@ internal static class V4Encoder
     {
         if (array.Count == 0 && !listItem)
         {
-            if (key != null) { Key(writer, key); writer.Append(": "); }
+            if (key != null) { Key(writer, key, options.AnnotationKeys); writer.Append(": "); }
             writer.Append("[]");
             return;
         }
         if (AllPrimitive(array))
         {
-            Header(writer, key, array.Count, false, null, options.Delimiter);
+            Header(writer, key, array.Count, false, null, options);
             if (array.Count > 0) writer.Append(' ');
             for (var i = 0; i < array.Count; i++)
             {
@@ -123,11 +123,11 @@ internal static class V4Encoder
         }
         if (!listItem && TryArrayRows(array, out var rows) && TryColumns(rows, options, out var columns))
         {
-            Header(writer, key, rows.Count, false, columns, options.Delimiter);
+            Header(writer, key, rows.Count, false, columns, options);
             WriteRows(writer, rows, null, columns, depth + 1, options);
             return;
         }
-        Header(writer, key, array.Count, false, null, options.Delimiter);
+        Header(writer, key, array.Count, false, null, options);
         foreach (var item in array) WriteValue(writer, item, null, depth + 1, true, options);
     }
 
@@ -242,7 +242,7 @@ internal static class V4Encoder
         for (var i = 0; i < rows.Count; i++)
         {
             Start(writer, depth, false, options);
-            if (keys != null) { Key(writer, keys[i]); writer.Append(": "); }
+            if (keys != null) { Key(writer, keys[i], options.AnnotationKeys); writer.Append(": "); }
             var first = true;
             Cells(writer, rows[i], columns, options.Delimiter, ref first);
             if (options.ProtocolVersion != ToonProtocolVersion.CustomV4_4) continue;
@@ -277,25 +277,26 @@ internal static class V4Encoder
         }
     }
 
-    private static void Header(CompactBufferWriter writer, string? key, int count, bool keyed, List<Column>? columns, char delimiter)
+    private static void Header(CompactBufferWriter writer, string? key, int count, bool keyed, List<Column>? columns, ResolvedEncodeOptions options)
     {
-        if (key != null) Key(writer, key);
+        var delimiter = options.Delimiter;
+        if (key != null) Key(writer, key, options.AnnotationKeys);
         writer.Append('['); writer.Append(count);
         if (keyed) writer.Append(':');
         if (delimiter != ',') writer.Append(delimiter);
         writer.Append(']');
-        if (columns != null) Fields(writer, columns, delimiter);
+        if (columns != null) Fields(writer, columns, delimiter, options.AnnotationKeys);
         writer.Append(':');
     }
 
-    private static void Fields(CompactBufferWriter writer, List<Column> columns, char delimiter)
+    private static void Fields(CompactBufferWriter writer, List<Column> columns, char delimiter, bool annotationKeys)
     {
         writer.Append('{');
         for (var i = 0; i < columns.Count; i++)
         {
             if (i != 0) writer.Append(delimiter);
-            Key(writer, columns[i].Name);
-            if (columns[i].Children != null) Fields(writer, columns[i].Children!, delimiter);
+            Key(writer, columns[i].Name, annotationKeys);
+            if (columns[i].Children != null) Fields(writer, columns[i].Children!, delimiter, annotationKeys);
         }
         writer.Append('}');
     }
@@ -307,11 +308,28 @@ internal static class V4Encoder
         return true;
     }
 
-    internal static void Key(CompactBufferWriter writer, string key)
+    internal static void Key(CompactBufferWriter writer, string key, bool annotationKeys)
     {
-        var plain = key.Length > 0 && (AsciiLetter(key[0]) || key[0] == '_');
-        foreach (var c in key) plain &= AsciiLetter(c) || c is >= '0' and <= '9' or '_' or '.';
-        if (plain) writer.Append(key); else Quote(writer, key);
+        if (IsPlainKey(key, annotationKeys)) writer.Append(key); else Quote(writer, key);
+    }
+
+    /// <summary>
+    /// Official keys match <c>[A-Za-z_][A-Za-z0-9_.]*</c>. Custom 4.4 also writes annotation keys
+    /// (<c>@id</c>, <c>$ref</c>, <c>@odata.context</c>, <c>Raven-Clr-Type</c>) unquoted: <c>@</c> and
+    /// <c>$</c> anywhere, <c>-</c> anywhere but first, because a leading <c>-</c> would read as a list item.
+    /// </summary>
+    internal static bool IsPlainKey(string key, bool annotationKeys)
+    {
+        if (key.Length == 0) return false;
+        var start = key[0];
+        if (!(AsciiLetter(start) || start == '_' || annotationKeys && start is '@' or '$')) return false;
+        foreach (var c in key)
+        {
+            if (AsciiLetter(c) || c is >= '0' and <= '9' or '_' or '.') continue;
+            if (annotationKeys && c is '@' or '$' or '-') continue;
+            return false;
+        }
+        return true;
     }
     private static bool AsciiLetter(char c) => c is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
 
