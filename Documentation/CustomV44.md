@@ -118,6 +118,42 @@ annotation key such as `@odata.context` always stays one key.
 Bind annotation keys to DTO members with `[ToonPropertyName("@id")]`, or decode the document
 as `ToonNode` or `Dictionary<string, object?>`.
 
+### Keep unknown keys with `[ToonExtensionData]`
+
+From **DevOp.Toon 0.4.0** with **Core 0.3.0**, a DTO can keep annotation keys it does not model.
+Mark one `IDictionary<string, object?>` or `Dictionary<string, object?>` property:
+
+```csharp
+public sealed class Account
+{
+    public string? Name { get; set; }
+
+    [ToonExtensionData]
+    public IDictionary<string, object?>? Annotations { get; set; }
+}
+```
+
+Decoding captures every key without a matching member; encoding writes the entries after the
+declared members, as siblings:
+
+```toon
+Name: Other Expenses
+@id: accounts/6900
+@metadata:
+  @collection: Accounts
+```
+
+- It applies to the 4.x profiles only (official 4.0 to 4.4 and custom 4.4). `V3_0` and
+  `CustomLegacy` ignore the attribute: they write the dictionary as a nested object and
+  capture nothing.
+- A member wins: an entry whose key equals a member's TOON name or CLR name is not written.
+- Captured objects become `Dictionary<string, object?>`, arrays `List<object?>`, and numbers
+  `double`.
+- Entries take part in tables like members do: uniform entries become columns, and other
+  entries spill under their row in custom 4.4 (official 4.4 falls back to list items).
+- `ToonService.Deserialize<T>(body, "application/json")` does not capture keys yet; that
+  JSON path uses the legacy materializer.
+
 ## Use custom 4.4 without omitting data
 
 Install runtime **0.3.0**; its Core dependency supplies the enum:
