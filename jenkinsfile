@@ -8,7 +8,8 @@ pipeline {
 
     parameters {
         string(name: 'GIT_REF', defaultValue: 'main', description: 'main for validation, or immutable annotated vMAJOR.MINOR.PATCH tag for publishing')
-        booleanParam(name: 'PUSH_NUGET', defaultValue: false, description: 'Publish the validated tagged package to NuGet.org; an existing version fails')
+        booleanParam(name: 'PUSH_NUGET', defaultValue: false, description: 'Publish the validated tagged package; an existing version fails on every target feed')
+        choice(name: 'NUGET_TARGET', choices: ['all', 'nuget.org', 'private'], description: 'Feeds for PUSH_NUGET: all = NuGet.org then the private feed; private alone is for a repair or an urgent internal release')
     }
 
     environment {
@@ -16,6 +17,7 @@ pipeline {
         CONFIG = 'Release'
         NUGET_OUTPUT = './nupkg'
         NUGET_SOURCE = 'https://api.nuget.org/v3/index.json'
+        PRIVATE_NUGET_SOURCE = 'https://nuget.devop.is/v3/index.json'
         DOTNET_CLI_TELEMETRY_OPTOUT = '1'
         DOTNET_NOLOGO = 'true'
         TEST_PROJECT = 'tests/DevOp.Toon.Tests/DevOp.Toon.Tests.csproj'
@@ -99,14 +101,53 @@ pipeline {
                         set -eu
                         sh tools/validate-release.sh package "$PROJECT" "$NUGET_OUTPUT" "$REQUESTED_REF" true >> release-proof.txt
                     '''
-                    withCredentials([string(credentialsId: 'nuget-org-api-key', variable: 'NUGET_API_KEY')]) {
-                        sh '''
-                            set -eu
-                            set +x
-                            for pkg in "$NUGET_OUTPUT"/*.nupkg; do
-                                dotnet nuget push "$pkg" --source "$NUGET_SOURCE" --api-key "$NUGET_API_KEY"
-                            done
-                        '''
+                    script {
+                        def target = params.NUGET_TARGET ?: 'all'
+                        if (target == 'all' || target == 'nuget.org') {
+                            withCredentials([string(credentialsId: 'nuget-org-api-key', variable: 'NUGET_API_KEY')]) {
+                                sh '''
+                                    set -eu
+                                    set +x
+                                    for pkg in "$NUGET_OUTPUT"/*.nupkg; do
+                                        dotnet nuget push "$pkg" --source "$NUGET_SOURCE" --api-key "$NUGET_API_KEY"
+                                    done
+                                '''
+                            }
+                        }
+                        if (target == 'all' || target == 'private') {
+                            // The private feed needs basic auth even to read its service index, so the push
+                            // uses a throwaway config holding the read credential next to the API key.
+                            withCredentials([
+                                string(credentialsId: 'devop-nuget', variable: 'NUGET_API_KEY'),
+                                usernamePassword(credentialsId: 'devop-nuget-credentials', usernameVariable: 'NUGET_USER', passwordVariable: 'NUGET_PASS')
+                            ]) {
+                                sh '''
+                                    set -eu
+                                    set +x
+                                    config="$(pwd)/private-push.nuget.config"
+                                    trap 'rm -f "$config"' EXIT
+                                    cat > "$config" <<CONFIG
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="private" value="$PRIVATE_NUGET_SOURCE" />
+  </packageSources>
+  <packageSourceCredentials>
+    <private>
+      <add key="Username" value="$NUGET_USER" />
+      <add key="ClearTextPassword" value="$NUGET_PASS" />
+    </private>
+  </packageSourceCredentials>
+</configuration>
+CONFIG
+                                    for pkg in "$NUGET_OUTPUT"/*.nupkg; do
+                                        echo "Pushing $(basename "$pkg") to the private feed"
+                                        dotnet nuget push "$pkg" --source private --api-key "$NUGET_API_KEY" --configfile "$config"
+                                    done
+                                '''
+                            }
+                        }
                     }
                 }
             }
