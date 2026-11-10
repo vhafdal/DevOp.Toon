@@ -5,9 +5,8 @@ This page is the customer-facing benchmark summary for `DevOp.Toon`.
 It is designed for product conversations, stakeholder reviews, landing-page copy, and customer evaluation discussions where the goal is to explain the value of `DevOp Toon` clearly without requiring readers to parse the full engineering benchmark report.
 
 For the deeper engineering breakdown, see:
-- [BenchmarkHighlights.md](/home/valdi/Projects/DevOp.Toon/Documentation/BenchmarkHighlights.md)
-- [BenchmarkReport.md](/home/valdi/Projects/DevOp.Toon/Documentation/BenchmarkReport.md)
-- [BenchmarkWorkflow.md](/home/valdi/Projects/DevOp.Toon/Documentation/BenchmarkWorkflow.md)
+- [BenchmarkHighlights.md](BenchmarkHighlights.md)
+- [BenchmarkReport.md](BenchmarkReport.md)
 
 ## Executive Summary
 

@@ -106,7 +106,7 @@ preservation (`$id`, `$ref`, `$values`) and JSON Schema (`$schema`). Official 4.
 Name: Other Expenses
 @metadata:
   @collection: Accounts
-  Raven-Clr-Type: "DevOp.Nexus.Domain.Finance.Account, DevOp.Nexus.Domain"
+  Raven-Clr-Type: "Contoso.Billing.Account, Contoso.Billing"
   @flags: HasRevisions
 ```
 

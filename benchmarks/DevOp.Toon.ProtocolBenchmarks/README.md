@@ -8,7 +8,7 @@ The baseline build selects `BASELINE` and calls only APIs available at commit `6
 Candidate builds additionally compare official 4.4 and custom 4.4. Both use identical DTO input,
 indentation, delimiter and omission policies. Compact omission profiles are reported separately.
 
-Run both builds with identical compiler/runtime settings, sequentially through `devop-build-slot`.
+Run both builds with identical compiler/runtime settings, sequentially, one at a time.
 Set `DEVOP_TOON_CORE_CSPROJ` when using the existing Debug local-project-reference workflow.
 `Optimize=true` can be used for optimized Debug comparisons; report that configuration explicitly.
 Use `--no-incremental` when rebuilding the comparison after changing compiler optimization settings;
@@ -17,11 +17,11 @@ assembly's recorded SHA-256 and debugging flags before comparing timings.
 
 ```bash
 mkdir -p artifacts
-devop-build-slot dotnet build benchmarks/DevOp.Toon.ProtocolBenchmarks/DevOp.Toon.ProtocolBenchmarks.csproj -c Debug -p:Optimize=true -p:BuildFlavor=baseline -p:RuntimeProject=/absolute/baseline/src/DevOp.Toon/DevOp.Toon.csproj
-devop-build-slot dotnet benchmarks/DevOp.Toon.ProtocolBenchmarks/bin/baseline/Debug/net10.0/DevOp.Toon.ProtocolBenchmarks.dll --data /absolute/TestData --output artifacts/toon-baseline.json
+dotnet build benchmarks/DevOp.Toon.ProtocolBenchmarks/DevOp.Toon.ProtocolBenchmarks.csproj -c Debug -p:Optimize=true -p:BuildFlavor=baseline -p:RuntimeProject=/absolute/baseline/src/DevOp.Toon/DevOp.Toon.csproj
+dotnet benchmarks/DevOp.Toon.ProtocolBenchmarks/bin/baseline/Debug/net10.0/DevOp.Toon.ProtocolBenchmarks.dll --data /absolute/TestData --output artifacts/toon-baseline.json
 
-devop-build-slot dotnet build benchmarks/DevOp.Toon.ProtocolBenchmarks/DevOp.Toon.ProtocolBenchmarks.csproj -c Debug -p:Optimize=true -p:BuildFlavor=candidate
-devop-build-slot dotnet benchmarks/DevOp.Toon.ProtocolBenchmarks/bin/candidate/Debug/net10.0/DevOp.Toon.ProtocolBenchmarks.dll --data /absolute/TestData --output artifacts/toon-candidate.json
+dotnet build benchmarks/DevOp.Toon.ProtocolBenchmarks/DevOp.Toon.ProtocolBenchmarks.csproj -c Debug -p:Optimize=true -p:BuildFlavor=candidate
+dotnet benchmarks/DevOp.Toon.ProtocolBenchmarks/bin/candidate/Debug/net10.0/DevOp.Toon.ProtocolBenchmarks.dll --data /absolute/TestData --output artifacts/toon-candidate.json
 ```
 
 Default measurement uses five warmups and five samples per operation. Override with
@@ -73,7 +73,7 @@ results, binary provenance, saved-fixture interpretation and validation limits.
 Export exact UTF-8 payloads by adding `--export-payloads artifacts/toon-protocol-payloads` to each benchmark execution. Then run:
 
 ```bash
-devop-build-slot python3 benchmarks/DevOp.Toon.ProtocolBenchmarks/compression_benchmark.py artifacts/toon-protocol-payloads --output artifacts/toon-compression-comparison.json
+python3 benchmarks/DevOp.Toon.ProtocolBenchmarks/compression_benchmark.py artifacts/toon-protocol-payloads --output artifacts/toon-compression-comparison.json
 ```
 
 The comparison uses installed system `libzstd`, `libbrotlienc`, `libbrotlidec`, the `zstd` CLI, and Python's standard-library gzip/zlib. These are benchmark-only prerequisites; no production package dependency is added. Native timings use single-threaded one-shot calls with fresh codec state and buffer/result allocations. CLI zstd output is separately verified against every original input. This is not a .NET transport benchmark or evidence of HTTP negotiation support.

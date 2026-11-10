@@ -8,10 +8,10 @@ Use `custom-legacy` or `4.4` to measure those stream paths; the report records `
 pre-encoded characters; this avoids attributing other encoder changes to UTF-8 sizing.
 
 ```bash
-devop-build-slot dotnet build benchmarks/DevOp.Toon.StreamBufferProbe/DevOp.Toon.StreamBufferProbe.csproj -c Debug -p:Optimize=true -p:ToonCoreProjectPath=/absolute/core/DevOp.Toon.Core.csproj -v minimal
-devop-build-slot dotnet benchmarks/DevOp.Toon.StreamBufferProbe/bin/Debug/net10.0/DevOp.Toon.StreamBufferProbe.dll convert-max /absolute/prods.json 30 50
-devop-build-slot dotnet benchmarks/DevOp.Toon.StreamBufferProbe/bin/Debug/net10.0/DevOp.Toon.StreamBufferProbe.dll convert-exact /absolute/prods.json 30 50
-devop-build-slot dotnet benchmarks/DevOp.Toon.StreamBufferProbe/bin/Debug/net10.0/DevOp.Toon.StreamBufferProbe.dll library-sync /absolute/prods.json 30 50 custom-legacy
+dotnet build benchmarks/DevOp.Toon.StreamBufferProbe/DevOp.Toon.StreamBufferProbe.csproj -c Debug -p:Optimize=true -p:ToonCoreProjectPath=/absolute/core/DevOp.Toon.Core.csproj -v minimal
+dotnet benchmarks/DevOp.Toon.StreamBufferProbe/bin/Debug/net10.0/DevOp.Toon.StreamBufferProbe.dll convert-max /absolute/prods.json 30 50
+dotnet benchmarks/DevOp.Toon.StreamBufferProbe/bin/Debug/net10.0/DevOp.Toon.StreamBufferProbe.dll convert-exact /absolute/prods.json 30 50
+dotnet benchmarks/DevOp.Toon.StreamBufferProbe/bin/Debug/net10.0/DevOp.Toon.StreamBufferProbe.dll library-sync /absolute/prods.json 30 50 custom-legacy
 ```
 
 Run modes in fresh processes, sequentially, and repeat in reverse order. Compare encoded/input

@@ -17,7 +17,8 @@ No unsupported fixture is silently ignored: a fixture above its snapshot's minim
 is excluded by its declared `minSpecVersion`; failures remain visible in the test output.
 
 Run `./specgen.sh` or `./specgen.ps1` from the repository to refresh these exact snapshots. The
-scripts use the repository build-slot wrapper and preserve the existing generated legacy suites.
+scripts use plain `dotnet` (or an optional local build wrapper when one is on PATH) and preserve the
+existing generated legacy suites.
 `TOON_SPEC_REPOSITORY` may point to a local clone for offline regeneration.
 
 The old `GeneratedTests` C# suites explicitly use `CustomLegacy`, preserving the implementation's
