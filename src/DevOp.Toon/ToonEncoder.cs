@@ -382,7 +382,7 @@ public static class ToonEncoder
         return options.GetResolvedOptions();
     }
 
-    private static bool IsV4(ToonProtocolVersion version) => version >= ToonProtocolVersion.V4_0 && version <= ToonProtocolVersion.V4_4 || version == ToonProtocolVersion.CustomV4_4;
+    private static bool IsV4(ToonProtocolVersion version) => ResolvedEncodeOptions.IsV4Protocol(version);
 
     private static bool CanProbeLegacyFastPath(object? data) => data is not IEnumerable || data is ICollection;
 

@@ -9,6 +9,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using DevOp.Toon.Core;
 using DevOp.Toon.Internal.Encode;
+using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Decode;
 
@@ -16,7 +17,22 @@ internal static class V4Materialization
 {
     private static readonly ConcurrentDictionary<Type, Plan> plans = new();
     private static readonly ConcurrentDictionary<Type, CollectionPlan> collections = new();
+    private static readonly ConcurrentDictionary<Type, Plan?> bindablePlans = new();
     internal static Plan GetPlan(Type type) => plans.GetOrAdd(type, BuildPlan);
+
+    /// <summary>
+    /// Returns whether typed 4.x decoding of <paramref name="type"/> binds <paramref name="key"/> to a declared member,
+    /// using the same name comparison as the decoder; <see langword="false"/> when the type cannot be decoded.
+    /// </summary>
+    internal static bool BindsMember(Type type, string key)
+    {
+        var plan = bindablePlans.GetOrAdd(type, static target =>
+        {
+            try { return GetPlan(target); }
+            catch (NotSupportedException) { return null; }
+        });
+        return plan != null && plan.Members.ContainsKey(key);
+    }
 
     internal delegate bool PrimitiveSetter(object instance, ReadOnlySpan<char> token);
     private delegate T SpanParser<T>(ReadOnlySpan<char> token);
@@ -43,6 +59,10 @@ internal static class V4Materialization
         internal Func<object?[], object>? Constructor;
         internal object?[]? Defaults;
         internal Dictionary<string, Member> Members = new(StringComparer.Ordinal);
+        internal Func<object, object?>? ExtensionGetter;
+        internal Action<object, object?>? ExtensionSetter;
+        internal int ExtensionArgument = -1;
+        internal string? ExtensionName;
     }
 
     private static Plan BuildPlan(Type type)
@@ -87,9 +107,24 @@ internal static class V4Materialization
             var args = Expression.Parameter(typeof(object[]), "args");
             plan.Constructor = Expression.Lambda<Func<object?[], object>>(Expression.Convert(Expression.New(constructor, parameters.Select((p, i) => Expression.Convert(Expression.ArrayIndex(args, Expression.Constant(i)), p.ParameterType))), typeof(object)), args).Compile();
         }
+        var extension = ExtensionDataMetadata.Find(type);
         var index = 0;
         foreach (var property in properties)
         {
+            if (extension != null && ExtensionDataMetadata.IsExtension(property, extension))
+            {
+                var target = Expression.Parameter(typeof(object), "instance");
+                plan.ExtensionName = $"{type}.{property.Name}";
+                plan.ExtensionGetter = Expression.Lambda<Func<object, object?>>(Expression.Convert(Expression.Property(type.IsValueType ? Expression.Unbox(target, type) : Expression.Convert(target, type), property), typeof(object)), target).Compile();
+                if (plan.Constructor != null)
+                    plan.ExtensionArgument = Array.FindIndex(selectedParameters, p => string.Equals(p.Name, property.Name, StringComparison.OrdinalIgnoreCase));
+                if (property.SetMethod?.IsPublic == true)
+                {
+                    var value = Expression.Parameter(typeof(object), "value");
+                    plan.ExtensionSetter = Expression.Lambda<Action<object, object?>>(Expression.Call(type.IsValueType ? Expression.Unbox(target, type) : Expression.Convert(target, type), property.SetMethod!, Expression.Convert(value, property.PropertyType)), target, value).Compile();
+                }
+                continue;
+            }
             var member = new Member { Type = property.PropertyType, Name = property.Name, WireName = property.Name, Index = index++ };
             if (plan.Constructor != null)
             {
@@ -335,16 +370,17 @@ internal static class V4Materialization
         private Dictionary<string, object?>? pending;
         private ulong seen;
         private HashSet<string>? overflow;
+        private IDictionary<string, object?>? extension;
 
         internal ObjectBuilder(Type? type)
         {
             this.type = type; plan = type == null || type == typeof(void) ? null : GetPlan(type);
             instance = type == null ? new NativeObjectNode() : plan?.Factory?.Invoke();
             arguments = plan?.Defaults == null ? null : (object?[])plan.Defaults.Clone();
-            pending = null; seen = 0; overflow = null;
+            pending = null; seen = 0; overflow = null; extension = null;
         }
 
-        internal Type? FieldType(string name) => type == null ? null : type == typeof(void) ? typeof(void) : plan!.ValueType ?? (plan.Members.TryGetValue(name, out var member) ? member.Type : typeof(void));
+        internal Type? FieldType(string name) => type == null ? null : type == typeof(void) ? typeof(void) : plan!.ValueType ?? (plan.Members.TryGetValue(name, out var member) ? member.Type : plan.ExtensionName != null ? typeof(object) : typeof(void));
         internal Member? FindMember(string name) => plan != null && plan.Members.TryGetValue(name, out var member) ? member : null;
         internal bool Contains(string name, Member? boundMember = null)
         {
@@ -374,8 +410,28 @@ internal static class V4Materialization
                 else if (instance != null) member.Setter!(instance, value);
                 else (pending ??= new Dictionary<string, object?>(StringComparer.Ordinal))[member.Name] = value;
             }
-            else (overflow ??= new HashSet<string>(StringComparer.Ordinal)).Add(name);
+            else
+            {
+                (overflow ??= new HashSet<string>(StringComparer.Ordinal)).Add(name);
+                if (plan?.ExtensionName != null) Extension()[name] = value;
+            }
         }
+
+        private IDictionary<string, object?> Extension()
+        {
+            if (extension != null) return extension;
+            if (instance == null) return extension = new Dictionary<string, object?>(StringComparer.Ordinal);
+            extension = (IDictionary<string, object?>?)plan!.ExtensionGetter!(instance);
+            if (extension != null) return extension;
+            if (plan.ExtensionSetter == null) throw UnsetExtension(plan);
+            extension = new Dictionary<string, object?>(StringComparer.Ordinal);
+            plan.ExtensionSetter(instance, extension);
+            return extension;
+        }
+
+        private static NotSupportedException UnsetExtension(Plan plan)
+            => new($"TOON cannot store extension data in '{plan.ExtensionName}': it has no public setter and is not initialised.");
+
         internal bool TrySetPrimitive(string name, ReadOnlySpan<char> token, Member? boundMember = null)
         {
             var member = boundMember ?? FindMember(name);
@@ -412,8 +468,16 @@ internal static class V4Materialization
         internal object? Finish()
         {
             if (arguments == null) return instance;
+            if (extension != null && plan!.ExtensionArgument >= 0) arguments[plan.ExtensionArgument] = extension;
             var value = plan!.Constructor!(arguments);
             if (pending != null) foreach (var entry in pending) plan.Members[entry.Key].Setter!(value, entry.Value);
+            if (extension != null && plan.ExtensionArgument < 0)
+            {
+                var target = (IDictionary<string, object?>?)plan.ExtensionGetter!(value);
+                if (target != null) foreach (var entry in extension) target[entry.Key] = entry.Value;
+                else if (plan.ExtensionSetter != null) plan.ExtensionSetter(value, extension);
+                else throw UnsetExtension(plan);
+            }
             return value;
         }
     }

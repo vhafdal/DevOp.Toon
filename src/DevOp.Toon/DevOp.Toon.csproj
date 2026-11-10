@@ -10,7 +10,7 @@
 
 		<!-- Package Information -->
 		<PackageId>DevOp.Toon</PackageId>
-		<Version>0.3.0</Version>
+		<Version>0.4.0</Version>
 		<Authors>Þorvaldur Hafdal</Authors>
 		<Company>DevOp</Company>
 		<Description>Token-Oriented Object Notation (TOON) - a token-efficient JSON alternative for LLM prompts</Description>
@@ -27,14 +27,12 @@
 		<Title>DevOp Toon</Title>
 		<Copyright>Þorvaldur Hafdal(DevOp)</Copyright>
 		<PackageIcon>Assets\DevOp.Toon-128.png</PackageIcon>
-		<PackageReleaseNotes>Adds version-aware TOON serialization and modern custom layouts.
-- Adds official TOON 4.0 through 4.4 and grouped custom 4.4 encoding and decoding
-- Adds automatic version detection and explicit enum-based version selection
-- Breaking: defaults encoding to official 4.4 and decoding to Auto; select CustomLegacy for previous wire behavior
-- Improves typed decoding allocations, cached property-key emission, and v4 stream buffer sizing
-- Fixes nested table detection, recursive CLR metadata, and Unicode validation edge cases
-- Improves protocol support, custom 4.4 usage guidance, and published-package benchmark documentation
-- Custom 4.4 writes annotation keys such as @id, $ref, @odata.context and Raven-Clr-Type without quotes</PackageReleaseNotes>
+		<PackageReleaseNotes>Adds extension data for 4.x payloads and unquoted annotation keys in custom 4.4.
+- Adds [ToonExtensionData]: 4.x typed decoding captures keys that match no member into one IDictionary&lt;string, object?&gt; or Dictionary&lt;string, object?&gt; property (objects as Dictionary&lt;string, object?&gt;, arrays as List&lt;object?&gt;, numbers as double)
+- Adds 4.x encoding of extension data entries as sibling keys after the declared members, including table columns and custom 4.4 row spills; a member wins any key collision
+- Adds NotSupportedException for more than one extension data property or an unsupported property type; V3_0 and CustomLegacy ignore the attribute
+- Improves custom 4.4 output by writing annotation keys such as @id, @metadata, $ref, @odata.context and Raven-Clr-Type without quotes ('@' and '$' anywhere, '-' after the first character); official profiles still quote them
+- Updates DevOp.Toon.Core dependency to 0.3.0</PackageReleaseNotes>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
 
@@ -53,7 +51,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
-		<PackageReference Include="DevOp.Toon.Core" Version="0.2.0" Condition="'$(Configuration)' != 'Debug' or '$(ToonCoreProjectPath)' == ''" />
+		<PackageReference Include="DevOp.Toon.Core" Version="0.3.0" Condition="'$(Configuration)' != 'Debug' or '$(ToonCoreProjectPath)' == ''" />
 	</ItemGroup>
 
 	<ItemGroup Condition="'$(Configuration)' == 'Debug' and '$(ToonCoreProjectPath)' != ''">

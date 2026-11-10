@@ -99,6 +99,18 @@ items[2]{Id,Customer{Name,Country}}:
 
 The same extension applies to keyed tables: each entry row begins with its key and colon, and that entry's spills appear one level deeper. At least two object-valued entries and one shared leaf are required. If no eligible columns exist, normal object/list encoding applies. Header fields and spills cannot overwrite each other. Official versions do not accept these extensions.
 
+## Extension data
+
+From **DevOp.Toon 0.4.0** (Core **0.3.0**), a property marked `[ToonExtensionData]` of type
+`IDictionary<string, object?>` or `Dictionary<string, object?>` captures object keys that match no
+member when decoding, and its entries are written after the declared members when encoding.
+Only the 4.x profiles (official 4.0 to 4.4 and `CustomV4_4`) honour it; `V3_0` and `CustomLegacy`
+treat it as an ordinary nested dictionary. A member always wins a key collision, captured numbers
+are `double`, and a type may declare only one such property (inherited ones included), otherwise
+encoding and decoding throw `NotSupportedException`. The JSON form
+`ToonService.Deserialize<T>(body, "application/json")` uses the legacy materializer and does not
+capture keys yet. See [the custom 4.4 guide](CustomV44.md#keep-unknown-keys-with-toonextensiondata).
+
 ## Detection and ambiguity
 
 `ToonDecoder.DetectVersion(text)` returns a `ToonVersionDetectionResult`. `DetectedVersion` is nullable because many documents share syntax. `SelectedVersion` is the compatible decoder choice, not evidence of the producer's exact version. `RequiresVersionHint` means decoding could change the meaning and requires explicit `ToonDecodeOptions.ProtocolVersion`.

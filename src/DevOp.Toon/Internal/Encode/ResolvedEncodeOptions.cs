@@ -29,4 +29,9 @@ internal sealed class ResolvedEncodeOptions
     public bool ExcludeEmptyArrays { get; set; } = false;
     /// <summary>Gets whether annotation keys such as <c>@id</c> and <c>Raven-Clr-Type</c> are written unquoted.</summary>
     public bool AnnotationKeys => ProtocolVersion == ToonProtocolVersion.CustomV4_4;
+    /// <summary>Gets whether the options select an official 4.x or custom 4.4 profile.</summary>
+    public bool IsV4 => IsV4Protocol(ProtocolVersion);
+
+    internal static bool IsV4Protocol(ToonProtocolVersion version)
+        => version >= ToonProtocolVersion.V4_0 && version <= ToonProtocolVersion.V4_4 || version == ToonProtocolVersion.CustomV4_4;
 }

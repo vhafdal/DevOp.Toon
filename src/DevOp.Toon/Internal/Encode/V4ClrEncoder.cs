@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
+using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Encode;
 
@@ -428,7 +429,7 @@ internal static class V4ClrEncoder
             var spillKeys = new List<PropertyKey>();
             PropertyKeys = new PropertyKey[Properties.Count];
             for (var i = 0; i < Properties.Count; i++) PropertyKeys[i] = new PropertyKey(Properties[i].Name);
-            Eligible = active.Add(type);
+            Eligible = ExtensionDataMetadata.Find(type) == null && active.Add(type);
             if (Eligible)
             {
                 var names = new HashSet<string>(StringComparer.Ordinal);
