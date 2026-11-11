@@ -48,6 +48,20 @@ namespace DevOp.Toon.Internal.Decode
             return true;
         }
 
+        /// <summary>
+        /// Returns whether typed legacy decoding of <paramref name="type"/> binds <paramref name="key"/> to a declared member or
+        /// constructor parameter; <see langword="false"/> when the direct path cannot decode the type.
+        /// </summary>
+        internal static bool BindsMember(Type type, string key)
+        {
+            TypePlan plan;
+            try { plan = GetPlan(type); }
+            catch (NotSupportedException) { return false; }
+
+            return plan.Kind == PlanKind.Object &&
+                   (plan.Properties?.ContainsKey(key) == true || plan.ConstructorParameterLookup?.ContainsKey(key) == true);
+        }
+
         private static TypePlan GetPlan(Type type)
         {
             lock (SyncRoot)

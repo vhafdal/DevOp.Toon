@@ -128,7 +128,7 @@ internal static class NativeNormalize
     {
         var type = plainObject.GetType();
         var properties = GetProperties(type);
-        var extension = options?.IsV4 == true ? ExtensionDataMetadata.Find(type) : null;
+        var extension = ExtensionDataMetadata.Find(type);
         var objectNode = new NativeObjectNode();
         IDictionary<string, object?>? entries = null;
         foreach (var property in properties)
@@ -145,7 +145,7 @@ internal static class NativeNormalize
         {
             foreach (var entry in entries)
             {
-                if (IsMemberName(entry.Key, type, properties, extension!)) continue;
+                if (IsMemberName(entry.Key, type, properties, extension!, options?.IsV4 == true)) continue;
                 objectNode[entry.Key] = Normalize(entry.Value, options);
             }
         }
@@ -153,7 +153,7 @@ internal static class NativeNormalize
         return objectNode;
     }
 
-    private static bool IsMemberName(string key, Type type, PropertyMetadata[] properties, PropertyInfo extension)
+    private static bool IsMemberName(string key, Type type, PropertyMetadata[] properties, PropertyInfo extension, bool isV4)
     {
         foreach (var property in properties)
         {
@@ -161,7 +161,9 @@ internal static class NativeNormalize
             if (property.Name == key || property.Info.Name == key) return true;
         }
         // Decoding would bind the key to a member (constructor-bound types match case-insensitively), so the entry cannot round-trip.
-        return V4Materialization.BindsMember(type, key);
+        // The legacy decoders also bind constructor parameter names that have no matching property.
+        return V4Materialization.BindsMember(type, key) ||
+               (!isV4 && (DirectMaterializer.BindsMember(type, key) || NativeTypedMaterializer.BindsMember(type, key)));
     }
 
     private static bool TryNormalizeByteSequence(object? value, ResolvedEncodeOptions? options, out NativePrimitiveNode primitive)
@@ -437,6 +439,7 @@ internal static class NativeNormalize
 
             var propertyName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name ?? property.Name;
             var enumerableElementType = GetEnumerableElementType(property.PropertyType);
+            var valueDeclaresExtensionData = IsPlainObjectType(property.PropertyType) && DeclaresExtensionData(property.PropertyType);
             var nestedObjectProperties = IsPlainObjectType(property.PropertyType)
                 ? CreateNestedPropertyCache(property.PropertyType)
                 : null;
@@ -448,10 +451,25 @@ internal static class NativeNormalize
                 CreateGetter(property),
                 enumerableElementType,
                 BuildCachedEmptyEnumerableHeader(propertyName, enumerableElementType),
-                nestedObjectProperties));
+                nestedObjectProperties,
+                valueDeclaresExtensionData));
         }
 
         return metadata.ToArray();
+    }
+
+    /// <summary>
+    /// Returns whether <paramref name="type"/> marks any public instance property with <see cref="ToonExtensionDataAttribute"/>,
+    /// without validating it; validation happens when a value of the type is encoded.
+    /// </summary>
+    internal static bool DeclaresExtensionData(Type type)
+    {
+        foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (Attribute.IsDefined(property, typeof(ToonExtensionDataAttribute), inherit: true)) return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -469,6 +487,7 @@ internal static class NativeNormalize
         /// <param name="enumerableElementType">The enumerable element type when the property is a non-string enumerable.</param>
         /// <param name="cachedEmptyEnumerableHeader">A cached empty array header for enumerable properties.</param>
         /// <param name="nestedObjectProperties">Cached nested properties when the property type is a plain object.</param>
+        /// <param name="valueDeclaresExtensionData">Whether the property type declares a <see cref="ToonExtensionDataAttribute"/> property.</param>
         public PropertyMetadata(
             PropertyInfo info,
             string name,
@@ -476,7 +495,8 @@ internal static class NativeNormalize
             Func<object, object?> getter,
             Type? enumerableElementType,
             string? cachedEmptyEnumerableHeader,
-            PropertyMetadata[]? nestedObjectProperties)
+            PropertyMetadata[]? nestedObjectProperties,
+            bool valueDeclaresExtensionData)
         {
             Info = info;
             Name = name;
@@ -485,6 +505,7 @@ internal static class NativeNormalize
             EnumerableElementType = enumerableElementType;
             CachedEmptyEnumerableHeader = cachedEmptyEnumerableHeader;
             NestedObjectProperties = nestedObjectProperties;
+            ValueDeclaresExtensionData = valueDeclaresExtensionData;
         }
 
         /// <summary>Gets the reflected property.</summary>
@@ -507,6 +528,9 @@ internal static class NativeNormalize
 
         /// <summary>Gets cached nested object properties when the property type is a plain object.</summary>
         public PropertyMetadata[]? NestedObjectProperties { get; }
+
+        /// <summary>Gets whether the property type declares extension data, so its values are flattened rather than written member by member.</summary>
+        public bool ValueDeclaresExtensionData { get; }
     }
 
     private static PropertyMetadata[]? CreateNestedPropertyCache(Type type)

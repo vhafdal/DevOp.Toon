@@ -57,6 +57,20 @@ internal static class NativeTypedMaterializer
         return TryConvert(node, plan, legacyDocument, out value);
     }
 
+    /// <summary>
+    /// Returns whether typed decoding of <paramref name="type"/> on the native route binds <paramref name="key"/> to a declared
+    /// member or constructor parameter; <see langword="false"/> when the type cannot be decoded.
+    /// </summary>
+    internal static bool BindsMember(Type type, string key)
+    {
+        TypePlan plan;
+        try { plan = GetPlan(type); }
+        catch (NotSupportedException) { return false; }
+
+        return plan.Kind == PlanKind.Object &&
+               (plan.Properties?.ContainsKey(key) == true || plan.ConstructorParameterLookup?.ContainsKey(key) == true);
+    }
+
     private static TypePlan GetPlan(Type type)
     {
         lock (SyncRoot)

@@ -444,13 +444,11 @@ public sealed class ExtensionDataTests
     [Theory]
     [InlineData(ToonProtocolVersion.V3_0)]
     [InlineData(ToonProtocolVersion.CustomLegacy)]
-    public void Encode_LegacyProfiles_IgnoreAttribute(ToonProtocolVersion version)
+    public void Encode_LegacyProfiles_FlattenEntries(ToonProtocolVersion version)
     {
         var text = ToonEncoder.Encode(SampleAccount(), Encode(version));
 
-        Assert.StartsWith("Name: Other Expenses\nAnnotations", text);
-        Assert.DoesNotContain("\n@id", text);
-        Assert.DoesNotContain("\n\"@id\"", text);
+        Assert.Equal(OfficialAccount, text);
     }
 
     [Theory]
