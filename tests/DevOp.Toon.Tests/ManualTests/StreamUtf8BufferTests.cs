@@ -102,6 +102,7 @@ public sealed class StreamUtf8BufferTests
             Write(buffer, offset, count);
             return Task.CompletedTask;
         }
+#if !NETFRAMEWORK
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             Token = cancellationToken;
@@ -111,6 +112,7 @@ public sealed class StreamUtf8BufferTests
             storage.Write(buffer.Span);
             return ValueTask.CompletedTask;
         }
+#endif
         protected override void Dispose(bool disposing) { Closed = true; if (disposing) storage.Dispose(); base.Dispose(disposing); }
     }
 }
