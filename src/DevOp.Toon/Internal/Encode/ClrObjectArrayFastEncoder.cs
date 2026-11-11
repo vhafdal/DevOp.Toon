@@ -80,7 +80,7 @@ internal static class ClrObjectArrayFastEncoder
 
         var rowLayout = GetRowLayout(elementType!, properties);
         var headerProperties = rowLayout.HeaderProperties;
-        if (headerProperties.Length == 0 || rowLayout.HasExtensionEntries(rows))
+        if (headerProperties.Length == 0 || rowLayout.HasExtensionEntries(rows) || rowLayout.HasBase64ByteColumns(options))
         {
             return false;
         }
@@ -790,6 +790,11 @@ internal static class ClrObjectArrayFastEncoder
         if (TryCollectRows(enumerable, items, declaredElementType, out var properties, out var elementType))
         {
             var rowLayout = GetRowLayout(elementType!, properties);
+            if (rowLayout.HasBase64ByteColumns(options))
+            {
+                return false;
+            }
+
             if (rowLayout.HasExtensionEntries(items))
             {
                 if (key is null)
@@ -870,6 +875,11 @@ internal static class ClrObjectArrayFastEncoder
         if (TryCollectRows(enumerable, items, declaredElementType, out var properties, out var elementType))
         {
             var rowLayout = GetRowLayout(elementType!, properties);
+            if (rowLayout.HasBase64ByteColumns(options))
+            {
+                return false;
+            }
+
             if (rowLayout.HasExtensionEntries(items))
             {
                 if (key is null)
@@ -2000,7 +2010,25 @@ internal static class ClrObjectArrayFastEncoder
             CompactNonHeaderEmitters = compactNonHeaderEmitters;
             MemberCount = memberCount;
             ExtensionGetter = extensionGetter;
+            for (int i = 0; i < nonHeaderProperties.Length; i++)
+            {
+                if (nonHeaderProperties[i].EnumerableElementType == typeof(byte))
+                {
+                    HasByteSequenceMember = true;
+                    break;
+                }
+            }
         }
+
+        /// <summary>Gets whether a non-header member is a byte sequence, which base64 output turns into a scalar column.</summary>
+        public bool HasByteSequenceMember { get; }
+
+        /// <summary>
+        /// Returns whether the options write the row type's byte sequences as base64 scalars: the slow path then makes them
+        /// table columns, which these cached layouts cannot, so the rows must be normalized instead.
+        /// </summary>
+        public bool HasBase64ByteColumns(ResolvedEncodeOptions options)
+            => HasByteSequenceMember && options.ByteArrayFormat == ToonByteArrayFormat.Base64String;
 
         /// <summary>Gets the number of encoded member properties, excluding an extension data property.</summary>
         public int MemberCount { get; }
