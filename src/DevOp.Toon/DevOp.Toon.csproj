@@ -27,12 +27,10 @@
 		<Title>DevOp Toon</Title>
 		<Copyright>Þorvaldur Hafdal(DevOp)</Copyright>
 		<PackageIcon>Assets\DevOp.Toon-128.png</PackageIcon>
-		<PackageReleaseNotes>Adds extension data for 4.x payloads and unquoted annotation keys in custom 4.4.
-- Adds [ToonExtensionData]: 4.x typed decoding captures keys that match no member into one IDictionary&lt;string, object?&gt; or Dictionary&lt;string, object?&gt; property (objects as Dictionary&lt;string, object?&gt;, arrays as List&lt;object?&gt;, numbers as double)
-- Adds 4.x encoding of extension data entries as sibling keys after the declared members, including table columns and custom 4.4 row spills; a member wins any key collision
-- Adds NotSupportedException for more than one extension data property or an unsupported property type; V3_0 and CustomLegacy ignore the attribute
-- Improves custom 4.4 output by writing annotation keys such as @id, @metadata, $ref, @odata.context and Raven-Clr-Type without quotes ('@' and '$' anywhere, '-' after the first character); official profiles still quote them
-- Updates DevOp.Toon.Core dependency to 0.3.0</PackageReleaseNotes>
+		<PackageReleaseNotes>Adds opt-in constant columns for custom 4.4 tables.
+- Adds ToonEncodeOptions.ConstantColumns (default false): with CustomV4_4, a column whose value is identical in every row of a table with at least three rows is written once in the table header as Name=value; other protocol versions ignore the option and their output is unchanged; readers from 0.4.0 and earlier cannot decode output written with it, so enable it only after every reader is updated
+- Adds CustomV4_4 decoding of header constants, applied to every row exactly like a cell value for typed, ToonNode and JSON targets; empty or malformed constants, constants on field groups, duplicate fields and headers without a cell column are rejected
+- Improves automatic version detection so an unquoted '=' inside a header field list selects CustomV4_4 without requiring a version hint</PackageReleaseNotes>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
 

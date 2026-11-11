@@ -13,5 +13,7 @@ dotnet samples/ProtocolVersions/bin/Debug/net10.0/ProtocolVersions.dll
 ```
 
 Each round trip checks the complete nested array values and throws if data is lost. The sample
-prints the selected transport version names and both wire layouts. See
+prints the selected transport version names and both wire layouts. It then encodes a small chart of
+accounts with `ConstantColumns` enabled, so the columns shared by every row appear once in the
+header, and checks that every account decodes unchanged. See
 [the version guide](../../Documentation/ProtocolVersions.md) for HTTP metadata and migration.

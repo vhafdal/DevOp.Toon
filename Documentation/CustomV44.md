@@ -26,6 +26,7 @@ These fields are called **row spills**.
 | No eligible shared columns | List/nested form | List/nested form |
 | Omit null/empty values by default | Both omission options `false` | Both omission options `true` |
 | Annotation keys (`@id`, `$ref`, `@odata.context`, `Raven-Clr-Type`) | Quoted | Unquoted |
+| Column with the same value in every row | Repeated in each row | Repeated, or once in the header with `ConstantColumns` |
 | Transport version value | `4.4` | `custom-4.4` |
 
 Official grammar and examples are documented in the
@@ -82,16 +83,62 @@ For a dictionary of products, custom 4.4 also keeps the entry keys alongside the
 
 ```toon
 [2:]{Id,Customer{Name,Country}}:
-  "sku-1": 1,Ada,IS
+  sku-1: 1,Ada,IS
     Tags[2]: a,b
-  "sku-2": 2,Bob,GB
+  sku-2: 2,Bob,GB
     Tags[1]: c
 ```
+
+DevOp.Toon 0.3.0 quoted these entry keys (`"sku-1":`); from 0.4.0 custom 4.4 writes them
+unquoted, as described under [annotation keys](#annotation-keys).
 
 The colon in `[2:]` identifies a keyed table. Each entry row starts with its dictionary key;
 its spills appear one indentation level deeper. Keyed tables need at least two nonempty
 object-valued entries and at least one eligible shared leaf. Arrays of objects need at least
 one eligible shared leaf. Otherwise the encoder uses the ordinary nested/list form.
+
+## Constant columns
+
+In releases after DevOp.Toon 0.4.0, setting `ToonEncodeOptions.ConstantColumns = true` with
+`CustomV4_4` writes a column whose value is the same in every row once, in the table header, as
+`Name=value`. The rows then carry only the columns that vary. The
+[protocol version sample](../samples/ProtocolVersions/README.md) prints this output:
+
+```toon
+[3]{CompanyId=acme,IsSystem=false,CreatedBy=system,AccountCode,Name,AccountType}:
+  6900,Other Expenses,Expense
+  1000,Cash,Asset
+  2000,Payables,Liability
+```
+
+Without the option the same table repeats `acme,false,system,` on every row. Decoding gives every
+row the header value, exactly as if each row had held it in a cell.
+
+- **Opt-in and custom-only.** The option defaults to `false`. Every other protocol version ignores
+  it, and its output is byte-for-byte unchanged.
+- **When a column becomes a constant.** The table needs at least three rows, and the column must be
+  present in every row with the same written value. Values must also share a type: `1`, `1.0` and
+  `"1"` are different, as are `DateTime` values that differ only in `Kind`, `DateTimeOffset` values
+  for the same instant with different offsets, and `Uri` values that differ only in the fragment.
+  A column missing from some rows is written as a row spill, as before.
+- **Every table keeps a cell.** If every column would be constant, the first leaf column in header
+  order stays a cell, so each row still has a line.
+- **Nested groups and keyed tables.** Leaves inside a nested group can be constants
+  (`{Id,Customer{Country=IS,Name}}`), and keyed tables keep their entry keys and spills.
+- **Nulls and empty strings.** With `IgnoreNullOrEmpty = true`, a top-level column that is null or
+  empty in every row is still omitted first. Otherwise it is written as `Note=null` or `Tag=""`. A
+  column that mixes null and `""` is not a constant.
+- **Quoting.** A header value is quoted wherever a cell would be, and also when it contains `=`,
+  `,`, `|`, a tab or header punctuation: `Expr="a=b"`, `Pair="x,y"`. Only the first unquoted `=`
+  in a field separates the name from the value; a quoted name such as `"a=b"` remains an ordinary
+  column.
+
+The decoders in this release always accept constant columns in `CustomV4_4` input. `Auto`
+detection treats an unquoted `=` inside a header field list as custom 4.4, since no other encoder
+writes one. Readers from DevOp.Toon 0.4.0 and earlier cannot read this output: under `CustomV4_4`,
+`V4_4` or `Auto` they reject it with a row-width error, and an explicit `V4_0` to `V4_3` non-strict
+reader can bind the cells to the wrong columns. Turn the option on only when every reader has
+been updated.
 
 ## Annotation keys
 
@@ -310,6 +357,35 @@ Compared with **legacy custom**, a separate fresh-process old/new pair found cus
 **17.0% slower**, allocated **42.1% less memory during decoding**, and produced **3.9% fewer bytes**.
 The older encoder also has a reported numeric precision defect. These are different comparisons;
 custom 4.4 is not a speed upgrade for every existing workload.
+
+### Constant columns
+
+A size-only comparison on **11 November 2026** (.NET 10.0.14, local runtime build, `Indent = 1`, comma delimiter)
+encoded the same 2,051 product DTOs and a synthetic chart of accounts with and
+without `ConstantColumns`. The accounts dataset has 1,000 deterministic rows whose company, currency,
+status, audit and opening-balance fields are the same for every row, while code, name, type and VAT
+code vary. Gzip and Brotli use `CompressionLevel.Optimal`. Every lossless profile round-tripped its
+complete typed model.
+
+| Dataset and profile | UTF-8 bytes | Gzip bytes | Brotli bytes |
+| --- | ---: | ---: | ---: |
+| Products, custom 4.4 lossless | 2,939,907 | 371,233 | 326,843 |
+| Products, custom 4.4 lossless + constants | 2,817,346 (-4.2%) | 373,127 (+0.5%) | 327,823 (+0.3%) |
+| Products, custom 4.4 compact | 2,547,079 | 362,284 | 320,527 |
+| Products, custom 4.4 compact + constants | 2,426,532 (-4.7%) | 362,164 (-0.0%) | 319,626 (-0.3%) |
+| Accounts, custom 4.4 lossless | 113,529 | 7,495 | 3,362 |
+| Accounts, custom 4.4 lossless + constants | 44,598 (-60.7%) | 6,624 (-11.6%) | 3,134 (-6.8%) |
+| Accounts, custom 4.4 compact | 108,518 | 7,490 | 3,319 |
+| Accounts, custom 4.4 compact + constants | 44,582 (-58.9%) | 6,611 (-11.7%) | 3,117 (-6.1%) |
+
+Constant columns cut uncompressed size substantially when many columns repeat, but gzip and
+Brotli already remove most of that repetition: on the product fixture the compressed payloads
+became slightly larger. Expect the benefit mainly where payloads are not compressed, or for
+wide tables with many row-invariant columns. Encoding with the option on allocated 7,094,544
+bytes for the product fixture against 7,213,952 bytes with it off; timings on the shared
+measurement machine varied too much between runs to report a speed difference. The
+[protocol benchmark harness](../benchmarks/DevOp.Toon.ProtocolBenchmarks/README.md) reproduces
+these figures with the `custom4.4-constants-lossless` and `custom4.4-constants-compact` profiles.
 
 See [published-package results and reproduction](PublishedPackageBenchmarks.md) for the complete
 method, provenance and fidelity limits. For performance budgets, run the equivalent profiles in

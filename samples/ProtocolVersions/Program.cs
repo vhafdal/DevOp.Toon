@@ -42,6 +42,43 @@ var explicitResult = ToonDecoder.Decode<Product>(ambiguousBody, new ToonDecodeOp
 if (explicitResult.Id != 3) throw new InvalidOperationException("Explicit body version was not applied.");
 Console.WriteLine("Ambiguous comment syntax decoded using the supplied 4.4 body version.");
 
+Account[] accounts =
+[
+    new() { CompanyId = "acme", IsSystem = false, CreatedBy = "system", AccountCode = 6900, Name = "Other Expenses", AccountType = "Expense" },
+    new() { CompanyId = "acme", IsSystem = false, CreatedBy = "system", AccountCode = 1000, Name = "Cash", AccountType = "Asset" },
+    new() { CompanyId = "acme", IsSystem = false, CreatedBy = "system", AccountCode = 2000, Name = "Payables", AccountType = "Liability" }
+];
+var constantText = ToonEncoder.Encode(accounts, new ToonEncodeOptions
+{
+    ProtocolVersion = ToonProtocolVersion.CustomV4_4,
+    Indent = 2,
+    IgnoreNullOrEmpty = false,
+    ExcludeEmptyArrays = false,
+    ConstantColumns = true
+});
+var decodedAccounts = ToonDecoder.Decode<Account[]>(constantText, new ToonDecodeOptions
+{
+    ProtocolVersion = ToonProtocolVersion.CustomV4_4,
+    Indent = 2
+})!;
+if (!decodedAccounts.Select(Describe).SequenceEqual(accounts.Select(Describe)))
+    throw new InvalidOperationException("Constant columns did not round-trip.");
+Console.WriteLine("custom-4.4 with ConstantColumns: every account preserved");
+Console.WriteLine(constantText);
+
+static string Describe(Account account) =>
+    $"{account.CompanyId}|{account.IsSystem}|{account.CreatedBy}|{account.AccountCode}|{account.Name}|{account.AccountType}";
+
+public sealed class Account
+{
+    public string CompanyId { get; set; } = "";
+    public bool IsSystem { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public int AccountCode { get; set; }
+    public string Name { get; set; } = "";
+    public string AccountType { get; set; } = "";
+}
+
 public sealed class Product
 {
     public int Id { get; set; }

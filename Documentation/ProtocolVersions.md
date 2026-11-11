@@ -99,6 +99,23 @@ items[2]{Id,Customer{Name,Country}}:
 
 The same extension applies to keyed tables: each entry row begins with its key and colon, and that entry's spills appear one level deeper. At least two object-valued entries and one shared leaf are required. If no eligible columns exist, normal object/list encoding applies. Header fields and spills cannot overwrite each other. Official versions do not accept these extensions.
 
+### Constant columns
+
+`ToonEncodeOptions.ConstantColumns` (default `false`) lets `CustomV4_4` write a column whose value is
+the same in every row of a table with at least three rows once in the header, as `Name=value`:
+
+```toon
+[3]{CompanyId=acme,IsSystem=false,CreatedBy=system,AccountCode,Name,AccountType}:
+  6900,Other Expenses,Expense
+  1000,Cash,Asset
+  2000,Payables,Liability
+```
+
+Other protocol versions ignore the option and produce unchanged output. Custom 4.4 decoders in this
+release always accept constant columns, and `Auto` selects `CustomV4_4` when a header field list
+contains an unquoted `=`. Readers from DevOp.Toon 0.4.0 and earlier cannot decode the output, so
+enable it only when every reader is updated. See [the custom 4.4 guide](CustomV44.md#constant-columns).
+
 ## Extension data
 
 From **DevOp.Toon 0.4.0** (Core **0.3.0**), a property marked `[ToonExtensionData]` of type
