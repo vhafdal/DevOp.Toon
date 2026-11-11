@@ -69,7 +69,83 @@ public sealed class LegacyRouteParityTests
         Assert.Equal(["Other"], decoded.Annotations!.Keys);
     }
 
+    [Theory]
+    [MemberData(nameof(AllVersions))]
+    public void Decode_ListItemFirstFieldArrayHeader_KeepsDecimalExact(ToonProtocolVersion version)
+    {
+        const string text = "[2]:\n  - Tags[2]: a,b\n    Name: Cash\n    Balance: 0.1234567890123456789012345678\n  - Name: Bank\n    Balance: 1.10";
+        var options = Options(version);
+
+        var lines = ToonDecoder.Decode<List<LedgerLine>>(text, options)!;
+        var records = ToonDecoder.Decode<List<LedgerLineRecord>>(text, options)!;
+        var annotated = ToonDecoder.Decode<List<AnnotatedLedgerLine>>(text, options)!;
+
+        Assert.Equal(0.1234567890123456789012345678m, lines[0].Balance);
+        Assert.Equal(1.10m, lines[1].Balance);
+        Assert.Equal("1.10", lines[1].Balance.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(["a", "b"], lines[0].Tags);
+        Assert.Equal("Cash", lines[0].Name);
+        Assert.Equal(0.1234567890123456789012345678m, records[0].Balance);
+        Assert.Equal(["a", "b"], records[0].Tags);
+        Assert.Equal("Bank", records[1].Name);
+        Assert.Equal(0.1234567890123456789012345678m, annotated[0].Balance);
+        Assert.Equal(["a", "b"], Assert.IsType<List<object?>>(annotated[0].Annotations!["Tags"]));
+        Assert.Null(annotated[1].Annotations);
+    }
+
+    [Theory]
+    [InlineData(ToonProtocolVersion.V3_0)]
+    [InlineData(ToonProtocolVersion.CustomLegacy)]
+    public void Decode_ListItemFirstFieldTable_MatchesEncoder(ToonProtocolVersion version)
+    {
+        var source = new List<RowsLine>
+        {
+            new() { Rows = [new() { K = "a", V = 1 }, new() { K = "b", V = 2 }], Name = "Cash", Balance = 0.1234567890123456789012345678m },
+            new() { Rows = [new() { K = "c", V = 3 }], Name = "Bank", Balance = 2m }
+        };
+        var text = ToonEncoder.Encode(source.Select(r => new Dictionary<string, object?> { ["Rows"] = r.Rows, ["Name"] = r.Name, ["Balance"] = r.Balance }).ToList(),
+            new ToonEncodeOptions { ProtocolVersion = version, Indent = 2 });
+
+        var decoded = ToonDecoder.Decode<List<RowsLine>>(text, Options(version))!;
+
+        Assert.Equal(source.Select(r => r.Name), decoded.Select(r => r.Name));
+        Assert.Equal(source.Select(r => r.Balance), decoded.Select(r => r.Balance));
+        Assert.Equal(["a", "b"], decoded[0].Rows!.Select(r => r.K));
+        Assert.Equal(3, decoded[1].Rows![0].V);
+    }
+
     private static ToonDecodeOptions Options(ToonProtocolVersion version) => new() { ProtocolVersion = version, Indent = 2 };
+
+    public sealed class LedgerLine
+    {
+        public List<string>? Tags { get; set; }
+        public string? Name { get; set; }
+        public decimal Balance { get; set; }
+    }
+
+    public sealed record LedgerLineRecord(string Name, decimal Balance, List<string>? Tags);
+
+    public sealed class AnnotatedLedgerLine
+    {
+        public string? Name { get; set; }
+        public decimal Balance { get; set; }
+
+        [ToonExtensionData]
+        public IDictionary<string, object?>? Annotations { get; set; }
+    }
+
+    public sealed class KeyValueRow
+    {
+        public string? K { get; set; }
+        public int V { get; set; }
+    }
+
+    public sealed class RowsLine
+    {
+        public List<KeyValueRow>? Rows { get; set; }
+        public string? Name { get; set; }
+        public decimal Balance { get; set; }
+    }
 
     public sealed record NotedRecord(int Id)
     {

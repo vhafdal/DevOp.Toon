@@ -318,6 +318,33 @@ namespace DevOp.Toon.Internal.Decode
             return members;
         }
 
+        /// <summary>
+        /// Parses the array header after a list item's hyphen as a keyed object field, with the key range relative to the
+        /// whole line; <see langword="false"/> for a keyless header, which is the item itself.
+        /// </summary>
+        private static bool TryGetListItemFieldHeader(string content, int itemStart, out ParsedFieldInfo field)
+        {
+            field = null!;
+            var header = Parser.ParseArrayHeaderLine(content.Substring(itemStart), Constants.DEFAULT_DELIMITER_CHAR);
+            if (header == null || (header.HasKeyRange ? header.KeyEndExclusive <= header.KeyStart : string.IsNullOrEmpty(header.Header.Key)))
+            {
+                return false;
+            }
+
+            field = ParsedFieldInfo.FromArrayHeader(new ArrayHeaderParseResult
+            {
+                Header = header.Header,
+                InlineValues = header.InlineValues,
+                KeyStart = header.HasKeyRange ? header.KeyStart + itemStart : -1,
+                KeyEndExclusive = header.HasKeyRange ? header.KeyEndExclusive + itemStart : -1
+            });
+            return true;
+        }
+
+        // A list item's first field sits on the hyphen line, so the rows of an array header there are one level deeper
+        // than for an ordinary field at the item's depth.
+        private static int ListItemArrayDepth(int baseDepth, int contentStart) => contentStart > 0 ? baseDepth + 1 : baseDepth;
+
         private static bool TryReadConstructorMemberField(
             TypePlan plan,
             object?[] arguments,
@@ -732,14 +759,15 @@ namespace DevOp.Toon.Internal.Decode
             var field = parsedField ?? ParseFieldContent(content, contentStart);
             if (field.ArrayHeader != null)
             {
+                var arrayDepth = ListItemArrayDepth(baseDepth, contentStart);
                 var key = GetArrayHeaderKey(content, field.ArrayHeader);
                 if (!TryGetConstructorParameter(plan, key, out var parameter))
                 {
-                    if (TryReadConstructorMemberField(plan, arguments, key, cursor, content, baseDepth, options, field, out var memberRead))
+                    if (TryReadConstructorMemberField(plan, arguments, key, cursor, content, arrayDepth, options, field, out var memberRead))
                     {
                         if (!memberRead)
                         {
-                            SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                            SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options);
                         }
 
                         return memberRead;
@@ -747,7 +775,7 @@ namespace DevOp.Toon.Internal.Decode
 
                     if (plan.Extension == null || !TryCaptureConstructorExtensionField(plan, arguments, key, cursor, content, contentStart, baseDepth, options))
                     {
-                        SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                        SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options);
                     }
 
                     return true;
@@ -755,11 +783,11 @@ namespace DevOp.Toon.Internal.Decode
 
                 object? arrayValue;
                 var valueRead = parameter.Plan.Kind == PlanKind.Dictionary
-                    ? TryReadDictionaryFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out arrayValue)
-                    : TryReadArrayFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out arrayValue);
+                    ? TryReadDictionaryFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options, out arrayValue)
+                    : TryReadArrayFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options, out arrayValue);
                 if (!valueRead)
                 {
-                    SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                    SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options);
                     return false;
                 }
 
@@ -1109,24 +1137,25 @@ namespace DevOp.Toon.Internal.Decode
             var field = parsedField ?? ParseFieldContent(content, contentStart);
             if (field.ArrayHeader != null)
             {
+                var arrayDepth = ListItemArrayDepth(baseDepth, contentStart);
                 if (!TryGetProperty(plan, content, field.ArrayHeader, out var property))
                 {
                     if (plan.Extension == null ||
                         !TryCaptureExtensionField(plan, ref extensionEntries, GetArrayHeaderKey(content, field.ArrayHeader), cursor, content, contentStart, baseDepth, options))
                     {
-                        SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                        SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options);
                     }
 
                     return;
                 }
 
-                if (TryReadArrayFromHeader(cursor, property.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out var arrayValue))
+                if (TryReadArrayFromHeader(cursor, property.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options, out var arrayValue))
                 {
                     property.Setter(instance, arrayValue);
                     return;
                 }
 
-                SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options);
                 return;
             }
 
@@ -1625,6 +1654,12 @@ namespace DevOp.Toon.Internal.Decode
             var field = ParseListItemContent(line.Content, itemStart);
             if (field.ArrayHeader != null)
             {
+                // A keyed header ("- Tags[2]: a,b") is the first field of an object item, not the item itself.
+                if (plan.Kind == PlanKind.Object && TryGetListItemFieldHeader(line.Content, itemStart, out var firstField))
+                {
+                    return TryReadObjectFromListItem(cursor, plan, line, itemStart, firstField, baseDepth, options, out value);
+                }
+
                 if (plan.Kind == PlanKind.Dictionary)
                 {
                     return TryReadDictionaryFromHeader(cursor, plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out value);
