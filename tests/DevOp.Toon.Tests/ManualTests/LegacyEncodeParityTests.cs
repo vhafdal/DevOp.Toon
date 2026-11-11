@@ -49,6 +49,31 @@ public sealed class LegacyEncodeParityTests
         Assert.Contains("Items[2]{Name,Data,Bag}:\n  a,AQID,CQ==\n  b,BA==,Cg==", custom);
     }
 
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Encode_KeyFoldingBelowRoot_FastPathMatchesSlowPath(ToonProtocolVersion version)
+    {
+        foreach (var indent in new[] { 1, 2 })
+        {
+            var options = new ToonEncodeOptions { ProtocolVersion = version, Indent = indent, KeyFolding = ToonKeyFolding.Safe };
+            var deep = SampleDeep();
+
+            AssertParity(deep, options);
+            AssertParity(new List<DeepShape> { deep, SampleDeep() }, options);
+            AssertParity(new List<RowWithDeep> { new() { Id = 1, Deep = SampleDeep() }, new() { Id = 2, Deep = SampleDeep() } }, options);
+            AssertParity(new MapShape { Id = 1, Map = new Dictionary<string, Leaf> { ["only"] = new() { Name = "n" } } }, options);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Encode_KeyFoldingAtDepthTwo_FoldsChain(ToonProtocolVersion version)
+    {
+        var text = ToonEncoder.Encode(SampleDeep(), new ToonEncodeOptions { ProtocolVersion = version, Indent = 2, KeyFolding = ToonKeyFolding.Safe });
+
+        Assert.Equal("Id: 1\nA:\n  X: 2\n  B.Name: n", text);
+    }
+
     private static void AssertParity(object value, ToonEncodeOptions options)
     {
         var expected = ToonEncoder.Encode(ToSlowEquivalent(value), options);
