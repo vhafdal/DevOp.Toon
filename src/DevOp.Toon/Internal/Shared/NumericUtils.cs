@@ -334,7 +334,8 @@ namespace DevOp.Toon.Internal.Shared
 
         /// <summary>
         /// Binds number text to <see cref="double"/>, parsing the text once; a result outside the finite range never binds and
-        /// negative zero binds as zero.
+        /// negative zero binds as zero. Like the other floating-point binders it expects text already matched as a number: it
+        /// checks the shape only to tell a failure apart.
         /// </summary>
         public static NumberBinding TryBindDouble(ReadOnlySpan<char> text, out double value)
         {
@@ -343,9 +344,8 @@ namespace DevOp.Toon.Internal.Shared
 #else
             var parsed = double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
 #endif
-            if (!IsNumberShaped(text)) return NumberBinding.Invalid;
             // .NET Framework fails the parse on overflow where .NET returns an infinity.
-            if (!parsed || !IsFinite(value)) return NumberBinding.OutOfRange;
+            if (!parsed || !IsFinite(value)) return IsNumberShaped(text) ? NumberBinding.OutOfRange : NumberBinding.Invalid;
             if (value == 0) value = 0d;
             return NumberBinding.Bound;
         }
@@ -361,8 +361,7 @@ namespace DevOp.Toon.Internal.Shared
 #else
             var parsed = float.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
 #endif
-            if (!IsNumberShaped(text)) return NumberBinding.Invalid;
-            if (!parsed || !IsFinite(value)) return NumberBinding.OutOfRange;
+            if (!parsed || !IsFinite(value)) return IsNumberShaped(text) ? NumberBinding.OutOfRange : NumberBinding.Invalid;
             if (value == 0) value = 0f;
             return NumberBinding.Bound;
         }
@@ -372,18 +371,12 @@ namespace DevOp.Toon.Internal.Shared
         /// </summary>
         public static NumberBinding TryBindDecimal(ReadOnlySpan<char> text, out decimal value)
         {
-            if (!IsNumberShaped(text))
-            {
-                value = default;
-                return NumberBinding.Invalid;
-            }
-
 #if NETSTANDARD2_0
             var parsed = decimal.TryParse(text.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
 #else
             var parsed = decimal.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
 #endif
-            return parsed ? NumberBinding.Bound : NumberBinding.OutOfRange;
+            return parsed ? NumberBinding.Bound : IsNumberShaped(text) ? NumberBinding.OutOfRange : NumberBinding.Invalid;
         }
 
         /// <summary>

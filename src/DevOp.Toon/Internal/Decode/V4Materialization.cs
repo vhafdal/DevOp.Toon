@@ -162,28 +162,20 @@ internal static class V4Materialization
     {
         var nullable = Nullable.GetUnderlyingType(property.PropertyType);
         var type = nullable ?? property.PropertyType;
-        if (type == typeof(bool)) return nullable == null ? BuildTrySetter<bool>(property, TryBoolean) : BuildTrySetter(property, Lift<bool>(TryBoolean));
-        if (type == typeof(byte)) return nullable == null ? BuildTrySetter<byte>(property, TryByte) : BuildTrySetter(property, Lift<byte>(TryByte));
-        if (type == typeof(sbyte)) return nullable == null ? BuildTrySetter<sbyte>(property, TrySByte) : BuildTrySetter(property, Lift<sbyte>(TrySByte));
-        if (type == typeof(short)) return nullable == null ? BuildTrySetter<short>(property, TryInt16) : BuildTrySetter(property, Lift<short>(TryInt16));
-        if (type == typeof(ushort)) return nullable == null ? BuildTrySetter<ushort>(property, TryUInt16) : BuildTrySetter(property, Lift<ushort>(TryUInt16));
-        if (type == typeof(int)) return nullable == null ? BuildTrySetter<int>(property, TryInt32) : BuildTrySetter(property, Lift<int>(TryInt32));
-        if (type == typeof(uint)) return nullable == null ? BuildTrySetter<uint>(property, TryUInt32) : BuildTrySetter(property, Lift<uint>(TryUInt32));
-        if (type == typeof(long)) return nullable == null ? BuildTrySetter<long>(property, TryInt64) : BuildTrySetter(property, Lift<long>(TryInt64));
-        if (type == typeof(ulong)) return nullable == null ? BuildTrySetter<ulong>(property, TryUInt64) : BuildTrySetter(property, Lift<ulong>(TryUInt64));
-        if (type == typeof(float)) return nullable == null ? BuildTrySetter<float>(property, TrySingle) : BuildTrySetter(property, Lift<float>(TrySingle));
-        if (type == typeof(double)) return nullable == null ? BuildTrySetter<double>(property, TryDouble) : BuildTrySetter(property, Lift<double>(TryDouble));
-        if (type == typeof(decimal)) return nullable == null ? BuildTrySetter<decimal>(property, TryDecimal) : BuildTrySetter(property, Lift<decimal>(TryDecimal));
+        if (type == typeof(bool)) return nullable == null ? BuildTrySetter<bool>(property, TryBoolean) : BuildNullableTrySetter<bool>(property, TryBoolean);
+        if (type == typeof(byte)) return nullable == null ? BuildTrySetter<byte>(property, TryByte) : BuildNullableTrySetter<byte>(property, TryByte);
+        if (type == typeof(sbyte)) return nullable == null ? BuildTrySetter<sbyte>(property, TrySByte) : BuildNullableTrySetter<sbyte>(property, TrySByte);
+        if (type == typeof(short)) return nullable == null ? BuildTrySetter<short>(property, TryInt16) : BuildNullableTrySetter<short>(property, TryInt16);
+        if (type == typeof(ushort)) return nullable == null ? BuildTrySetter<ushort>(property, TryUInt16) : BuildNullableTrySetter<ushort>(property, TryUInt16);
+        if (type == typeof(int)) return nullable == null ? BuildTrySetter<int>(property, TryInt32) : BuildNullableTrySetter<int>(property, TryInt32);
+        if (type == typeof(uint)) return nullable == null ? BuildTrySetter<uint>(property, TryUInt32) : BuildNullableTrySetter<uint>(property, TryUInt32);
+        if (type == typeof(long)) return nullable == null ? BuildTrySetter<long>(property, TryInt64) : BuildNullableTrySetter<long>(property, TryInt64);
+        if (type == typeof(ulong)) return nullable == null ? BuildTrySetter<ulong>(property, TryUInt64) : BuildNullableTrySetter<ulong>(property, TryUInt64);
+        if (type == typeof(float)) return nullable == null ? BuildTrySetter<float>(property, TrySingle) : BuildNullableTrySetter<float>(property, TrySingle);
+        if (type == typeof(double)) return nullable == null ? BuildTrySetter<double>(property, TryDouble) : BuildNullableTrySetter<double>(property, TryDouble);
+        if (type == typeof(decimal)) return nullable == null ? BuildTrySetter<decimal>(property, TryDecimal) : BuildNullableTrySetter<decimal>(property, TryDecimal);
         return null;
     }
-
-    private static SpanTryParser<T?> Lift<T>(SpanTryParser<T> parser) where T : struct
-        => (ReadOnlySpan<char> token, out T? value) =>
-        {
-            var parsed = parser(token, out var inner);
-            value = inner;
-            return parsed;
-        };
 
     // A token the parser rejects falls back to the reader, which binds it again and reports why it does not fit.
     private static PrimitiveSetter BuildTrySetter<T>(PropertyInfo property, SpanTryParser<T> parser)
@@ -194,6 +186,20 @@ internal static class V4Materialization
             T parsed;
             if (token.SequenceEqual("null")) parsed = default!;
             else if (!parser(token, out parsed)) return false;
+            setter(target, parsed);
+            return true;
+        };
+    }
+
+    private static PrimitiveSetter BuildNullableTrySetter<T>(PropertyInfo property, SpanTryParser<T> parser) where T : struct
+    {
+        var setter = CompileSetter<T?>(property);
+        return (target, token) =>
+        {
+            T? parsed;
+            if (token.SequenceEqual("null")) parsed = null;
+            else if (parser(token, out var value)) parsed = value;
+            else return false;
             setter(target, parsed);
             return true;
         };
