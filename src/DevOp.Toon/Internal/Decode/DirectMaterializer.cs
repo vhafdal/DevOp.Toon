@@ -1920,6 +1920,53 @@ namespace DevOp.Toon.Internal.Decode
         private static bool TryConvertPrimitive(Type type, string source, int start, int endExclusive, out object? value, bool alreadyTrimmed = false)
         {
             NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
+            if (TryConvertPrimitiveCore(type, source, start, endExclusive, out value))
+            {
+                return true;
+            }
+
+            if (start >= endExclusive || !IsTextScalarOrBoolean(type))
+            {
+                return false;
+            }
+
+            value = ConvertScalarAsV4(type, source, start, endExclusive);
+            return true;
+        }
+
+        private static bool IsTextScalarOrBoolean(Type type)
+            => type == typeof(bool) || type == typeof(Guid) || type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(TimeSpan) || type == typeof(char)
+#if NET6_0_OR_GREATER
+               || type == typeof(DateOnly) || type == typeof(TimeOnly)
+#endif
+            ;
+
+        /// <summary>
+        /// Converts a token the legacy parsers rejected for a boolean, date, time, <see cref="Guid"/> or <see cref="char"/>
+        /// member as 4.x decoding converts it, instead of leaving the member at its default: <c>null</c> to the default, text
+        /// by the invariant parse of the type, a number to a boolean as nonzero; anything else throws a format error.
+        /// </summary>
+        private static object? ConvertScalarAsV4(Type type, string source, int start, int endExclusive)
+        {
+            var token = source.AsSpan(start, endExclusive - start);
+            object? decoded;
+            if (token.SequenceEqual(Constants.NULL_LITERAL)) decoded = null;
+            else if (token.SequenceEqual(Constants.TRUE_LITERAL)) decoded = true;
+            else if (token.SequenceEqual(Constants.FALSE_LITERAL)) decoded = false;
+            else if (token[0] == Constants.DOUBLE_QUOTE) decoded = Parser.ParseStringLiteral(source, start, endExclusive);
+            else if (IsNumberToken(token) && double.TryParse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && NumericUtils.IsFinite(number)) decoded = number;
+            else decoded = token.ToString();
+            var value = V4Materialization.Scalar(decoded, type, out var error);
+            if (error != null)
+            {
+                throw ToonFormatException.Syntax(decoded is double ? $"Value {token.ToString()} is not a valid {type.FullName}" : error);
+            }
+
+            return value;
+        }
+
+        private static bool TryConvertPrimitiveCore(Type type, string source, int start, int endExclusive, out object? value)
+        {
             if (start >= endExclusive)
             {
                 if (type == typeof(string))

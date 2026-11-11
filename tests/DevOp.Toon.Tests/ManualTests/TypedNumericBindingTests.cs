@@ -214,6 +214,81 @@ public sealed class TypedNumericBindingTests
         ("float?", "NaN"), ("double", "\"1e400\""), ("bool", "abc"), ("bool?", "\"yes\""), ("Guid", "abc"), ("Guid?", "\"x\""),
         ("DateTime", "abc"), ("DateTime?", "\"null\""), ("TimeSpan", "\"x\""));
 
+    public static TheoryData<string, string> TextScalarCases => Cases(
+        ("Guid", "42"), ("Guid", "true"), ("Guid?", "1.5"), ("DateTime", "42"), ("DateTime?", "false"), ("DateTimeOffset", "1.5"),
+        ("TimeSpan", "false"), ("TimeSpan?", "7"), ("Uri", "42"), ("Version", "1"), ("Version", "true"), ("char", "5"), ("char?", "true"),
+        ("byte[]", "42"), ("byte[]", "false"));
+
+    [Theory]
+    [MemberData(nameof(TextScalarCases))]
+    public void Decode_NumberOrBooleanIntoTextScalarMember_ThrowsFormatExceptionWithTokenLineOnEveryShape(string type, string token)
+        => AssertErrorOnEveryShape(type, token, Strict());
+
+    [Fact]
+    public void Decode_NumberIntoUnsupportedMember_IsNotReportedAsFormatError()
+    {
+        var error = Record.Exception(() => ToonDecoder.Decode<Holder<Unsupported>>("V: 42", Strict()));
+
+        Assert.NotNull(error);
+        Assert.IsNotType<ToonFormatException>(error);
+    }
+
+    [Theory]
+    [InlineData("true")]
+    [InlineData("false")]
+    public void Decode_BooleanTokenIntoStringMember_KeepsTokenTextOnEveryShape(string token)
+    {
+        foreach (var (shape, decode, _) in ShapesFor("string", token, Strict()))
+            Assert.True(token == (string?)decode(), $"{shape}: expected {token}, got {decode()}");
+    }
+
+    public static TheoryData<ToonProtocolVersion, string, string> LegacyTextScalarRejectedCases
+    {
+        get
+        {
+            var data = new TheoryData<ToonProtocolVersion, string, string>();
+            foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
+            foreach (var (type, token) in new[] { ("bool", "abc"), ("bool", "\"yes\""), ("Guid", "abc"), ("Guid", "42"), ("Guid", "true"), ("DateTime", "abc"), ("DateTime", "42"),
+                         ("TimeSpan", "abc"), ("TimeSpan", "true"), ("DateTimeOffset", "abc"), ("char", "ab") })
+                data.Add(version, type, token);
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyTextScalarRejectedCases))]
+    public void Decode_LegacyTextScalarMemberTokenThatDoesNotParse_ThrowsFormatException(ToonProtocolVersion version, string type, string token)
+    {
+        Assert.Throws<ToonFormatException>(() => ShapesFor(type, token, Strict()).First().Decode());
+        foreach (var (shape, decode, _) in LegacyShapesFor(type, token, Strict(version)))
+        {
+            var error = Record.Exception(decode);
+            Assert.True(error is ToonFormatException, $"{shape}: {(error == null ? "decoded " + Format(decode()) : error.GetType().Name + ": " + error.Message)}");
+        }
+    }
+
+    public static TheoryData<ToonProtocolVersion, string, string> LegacyTextScalarAcceptedCases
+    {
+        get
+        {
+            var data = new TheoryData<ToonProtocolVersion, string, string>();
+            foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
+            foreach (var (type, token) in new[] { ("bool", "true"), ("bool", "\"true\""), ("bool", "\"False\""), ("bool", "1"), ("bool", "0"), ("bool", "null"),
+                         ("Guid", "null"), ("Guid", "\"11111111-2222-3333-4444-555555555555\""), ("DateTime", "null"), ("TimeSpan", "\"01:02:03\""), ("char", "x") })
+                data.Add(version, type, token);
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyTextScalarAcceptedCases))]
+    public void Decode_LegacyTextScalarMember_BindsAsV4(ToonProtocolVersion version, string type, string token)
+    {
+        var expected = Format(ShapesFor(type, token, Strict()).First().Decode());
+        foreach (var (shape, decode, _) in LegacyShapesFor(type, token, Strict(version)))
+            Assert.True(expected == Format(decode()), $"{shape}: expected {expected}, got {Format(decode())}");
+    }
+
     [Theory]
     [MemberData(nameof(InvalidTokenCases))]
     public void Decode_TokenNotValidForNumericMember_ThrowsFormatExceptionWithTokenLineOnEveryShape(string type, string token)
@@ -362,6 +437,7 @@ public sealed class TypedNumericBindingTests
         double d => d.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
         float f => f.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
         IFormattable formattable => formattable.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+        byte[] bytes => Convert.ToBase64String(bytes),
         _ => value.ToString() ?? string.Empty
     };
 
@@ -391,6 +467,8 @@ public sealed class TypedNumericBindingTests
         "ByteEnum" => typeof(ByteEnum), "ByteEnum?" => typeof(ByteEnum?), "IntEnum" => typeof(IntEnum), "IntEnum?" => typeof(IntEnum?),
         "LongEnum" => typeof(LongEnum), "FlagEnum" => typeof(FlagEnum), "bool" => typeof(bool), "bool?" => typeof(bool?),
         "Guid" => typeof(Guid), "Guid?" => typeof(Guid?), "DateTime" => typeof(DateTime), "DateTime?" => typeof(DateTime?), "TimeSpan" => typeof(TimeSpan),
+        "TimeSpan?" => typeof(TimeSpan?), "DateTimeOffset" => typeof(DateTimeOffset), "Uri" => typeof(Uri), "Version" => typeof(Version),
+        "char" => typeof(char), "char?" => typeof(char?), "byte[]" => typeof(byte[]),
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 
@@ -398,6 +476,22 @@ public sealed class TypedNumericBindingTests
     {
         var method = typeof(TypedNumericBindingTests).GetMethod(nameof(Shapes), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
         return (IEnumerable<(string, Func<object?>, int)>)method.MakeGenericMethod(ClrType(type)).Invoke(null, [token, options])!;
+    }
+
+    internal static IEnumerable<(string Shape, Func<object?> Decode, int Line)> LegacyShapesFor(string type, string token, ToonDecodeOptions options)
+    {
+        var method = typeof(TypedNumericBindingTests).GetMethod(nameof(LegacyShapes), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        return (IEnumerable<(string, Func<object?>, int)>)method.MakeGenericMethod(ClrType(type)).Invoke(null, [token, options])!;
+    }
+
+    private static IEnumerable<(string Shape, Func<object?> Decode, int Line)> LegacyShapes<T>(string token, ToonDecodeOptions options)
+    {
+        yield return ("property", () => ToonDecoder.Decode<Holder<T>>($"V: {token}", options)!.V, 1);
+        yield return ("constructor", () => ToonDecoder.Decode<Rec<T>>($"V: {token}", options)!.V, 1);
+        yield return ("row", () => ToonDecoder.Decode<List<Holder<T>>>($"[1]{{V}}:\n  {token}", options)![0].V, 2);
+        yield return ("constructor row", () => ToonDecoder.Decode<List<Rec<T>>>($"[1]{{V}}:\n  {token}", options)![0].V, 2);
+        yield return ("list item", () => ToonDecoder.Decode<List<Holder<T>>>($"[1]:\n  - V: {token}", options)![0].V, 2);
+        yield return ("nested", () => ToonDecoder.Decode<Outer<T>>($"Inner:\n  V: {token}", options)!.Inner!.V, 2);
     }
 
     private static IEnumerable<(string Shape, Func<object?> Decode, int Line)> Shapes<T>(string token, ToonDecodeOptions options)
@@ -444,6 +538,11 @@ public sealed class TypedNumericBindingTests
         public int A { get; set; }
         public byte V { get; set; }
         public int B { get; set; }
+    }
+
+    public struct Unsupported
+    {
+        public int Value { get; set; }
     }
 
     public sealed class Dotted

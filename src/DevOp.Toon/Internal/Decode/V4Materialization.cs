@@ -533,6 +533,7 @@ internal static class V4Materialization
         var numberType = effective.IsEnum ? Enum.GetUnderlyingType(effective) : effective;
         // A number bound to text keeps its token: going through the double would round 9007199254740993 and drop 1.50's zero.
         if (effective == typeof(string)) return token.ToString();
+        if (IsTextScalar(effective)) { error = NotValid(token.ToString(), effective); return null; }
         if (!IsNumeric(numberType)) return Scalar(parsed, type, out error);
         object value;
         NumberBinding result;
@@ -569,6 +570,7 @@ internal static class V4Materialization
         if (value == null) return nullable != null || !type.IsValueType ? null : Activator.CreateInstance(type);
         type = nullable ?? type;
         if (type.IsInstanceOfType(value)) return value;
+        if (value is bool flag && type == typeof(string)) return flag ? "true" : "false";
         try
         {
             var converted = Convert(value, type);
@@ -584,8 +586,18 @@ internal static class V4Materialization
         catch (OverflowException) { error = NumericUtils.OutsideRange(Text(value), type); }
         catch (FormatException) { error = NotValid(Text(value), type); }
         catch (ArgumentException) { error = NotValid(Text(value), type); }
+        // A type the decoder cannot bind keeps its own exception; only a known text scalar given the wrong token kind is a format error.
+        catch (InvalidCastException) when (IsTextScalar(type)) { error = NotValid(Text(value), type); }
         return null;
     }
+
+    private static bool IsTextScalar(Type type)
+        => type == typeof(Guid) || type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(TimeSpan) || type == typeof(char)
+           || type == typeof(Version) || type == typeof(Uri) || type == typeof(byte[])
+#if NET6_0_OR_GREATER
+           || type == typeof(DateOnly) || type == typeof(TimeOnly)
+#endif
+           || (typeof(IEnumerable<byte>).IsAssignableFrom(type) && type.IsAssignableFrom(typeof(List<byte>)));
 
     private static object? Convert(object value, Type type)
     {

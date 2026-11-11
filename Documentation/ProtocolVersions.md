@@ -178,8 +178,9 @@ is unchanged and still reads numbers as `double`.
   `true` and `false` bind to numeric members as 1 and 0, and `null` into a non-nullable member
   binds as its default: TOON writes NaN and infinities as `null`, so the library's own output
   stays decodable into the same type.
-- An unquoted number bound to a `string` member keeps its token text (`1.50`, `9007199254740993`);
-  0.4.0 rounded it through a `double` on the 4.x profiles.
+- An unquoted number or `true`/`false` bound to a `string` member keeps its token text (`1.50`,
+  `9007199254740993`, `true`); 0.4.0 rounded a number through a `double` and wrote `True`/`False`
+  on the 4.x profiles.
 
 On the legacy path-expansion route (`ExpandPaths`) and in `ToonService.Deserialize<T>` with JSON,
 numbers follow the same rule, while `null`, `true`, `false` and text in a numeric or enum member
@@ -188,9 +189,12 @@ still fail with `NotSupportedException`, as in 0.4.0.
 A token that does not fit throws `ToonFormatException` with `Kind` `Syntax` and a message naming
 the token and the CLR type, for example `Number 1.5 is not an integer (System.Int16)` or
 `Number 300 is outside the range of System.Byte`. On the 4.x profiles `LineNumber` is the line of
-the token, and the same applies to `bool`, `Guid`, date and time members given text they cannot
-parse. 0.4.0 let `OverflowException`, `FormatException` or `ArgumentException` escape on the 4.x
-profiles, so code that caught those types must catch `ToonFormatException` instead. The binding rule does not depend
+the token. The same applies to `bool`, `Guid`, `char`, date, time, `Uri`, `Version` and byte array
+members given a token they cannot take, such as `abc` for a `Guid` or `42` for a `DateTime`; on the
+`V3_0` and `CustomLegacy` direct route such a member no longer keeps its default. 0.4.0 let
+`OverflowException`, `FormatException`, `ArgumentException` or `InvalidCastException` escape on the
+4.x profiles, so code that caught those types must catch `ToonFormatException` instead. A member
+type the decoder does not support keeps its own exception. The binding rule does not depend
 on `Strict`. Exceptions thrown by a member's own setter or constructor still propagate unchanged.
 
 ## Detection and ambiguity
