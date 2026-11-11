@@ -59,7 +59,8 @@ namespace DevOp.Toon.Internal.Decode
             catch (NotSupportedException) { return false; }
 
             return plan.Kind == PlanKind.Object &&
-                   (plan.Properties?.ContainsKey(key) == true || plan.ConstructorParameterLookup?.ContainsKey(key) == true);
+                   (plan.Properties?.ContainsKey(key) == true || plan.ConstructorParameterLookup?.ContainsKey(key) == true ||
+                    plan.ConstructorMembers?.ContainsKey(key) == true);
         }
 
         private static TypePlan GetPlan(Type type)
@@ -254,6 +255,7 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             var extension = ExtensionDataAccessor.Find(type);
+            var constructorMembers = BuildConstructorMemberPlans(properties, bestLookup, extension, building);
             var extensionArgument = -1;
             HashSet<string>? unboundMembers = null;
             if (extension != null)
@@ -262,7 +264,7 @@ namespace DevOp.Toon.Internal.Decode
                 foreach (var property in properties)
                 {
                     if (property.GetIndexParameters().Length == 0 && !extension.IsExtension(property) &&
-                        !bestLookup.ContainsKey(property.Name))
+                        !bestLookup.ContainsKey(property.Name) && constructorMembers?.ContainsKey(property.Name) != true)
                     {
                         AddMemberNames(unboundMembers ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase), property);
                     }
@@ -273,8 +275,113 @@ namespace DevOp.Toon.Internal.Decode
                 type,
                 CreateConstructorFactory(bestConstructor),
                 bestParameters,
-                bestLookup).WithExtension(extension, extensionArgument, unboundMembers);
+                bestLookup).WithExtension(extension, extensionArgument, unboundMembers)
+                .WithConstructorMembers(constructorMembers);
             return true;
+        }
+
+        /// <summary>
+        /// Plans the settable members of a constructor-bound type that no constructor parameter covers; they are assigned
+        /// after construction. Members whose type the direct path cannot build stay unbound, as before.
+        /// </summary>
+        private static Dictionary<string, PropertyPlan>? BuildConstructorMemberPlans(
+            PropertyInfo[] properties,
+            Dictionary<string, ConstructorParameterPlan> lookup,
+            ExtensionDataAccessor? extension,
+            HashSet<Type> building)
+        {
+            Dictionary<string, PropertyPlan>? members = null;
+            foreach (var property in properties)
+            {
+                if (!property.CanWrite || property.GetIndexParameters().Length != 0 || lookup.ContainsKey(property.Name) ||
+                    extension?.IsExtension(property) == true)
+                {
+                    continue;
+                }
+
+                var propertyPlan = BuildPlan(property.PropertyType, building);
+                if (!propertyPlan.IsSupported)
+                {
+                    continue;
+                }
+
+                var entry = new PropertyPlan(propertyPlan, CreateSetter(property), null);
+                members ??= new Dictionary<string, PropertyPlan>(StringComparer.OrdinalIgnoreCase);
+                members[property.Name] = entry;
+                var toonName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
+                if (toonName is { Length: > 0 })
+                {
+                    members[toonName] = entry;
+                }
+            }
+
+            return members;
+        }
+
+        /// <summary>
+        /// Parses the array header after a list item's hyphen as a keyed object field, with the key range relative to the
+        /// whole line; <see langword="false"/> for a keyless header, which is the item itself.
+        /// </summary>
+        private static bool TryGetListItemFieldHeader(string content, int itemStart, out ParsedFieldInfo field)
+        {
+            field = null!;
+            var header = Parser.ParseArrayHeaderLine(content.Substring(itemStart), Constants.DEFAULT_DELIMITER_CHAR);
+            if (header == null || (header.HasKeyRange ? header.KeyEndExclusive <= header.KeyStart : string.IsNullOrEmpty(header.Header.Key)))
+            {
+                return false;
+            }
+
+            field = ParsedFieldInfo.FromArrayHeader(new ArrayHeaderParseResult
+            {
+                Header = header.Header,
+                InlineValues = header.InlineValues,
+                KeyStart = header.HasKeyRange ? header.KeyStart + itemStart : -1,
+                KeyEndExclusive = header.HasKeyRange ? header.KeyEndExclusive + itemStart : -1
+            });
+            return true;
+        }
+
+        // A list item's first field sits on the hyphen line, so the rows of an array header there are one level deeper
+        // than for an ordinary field at the item's depth.
+        private static int ListItemArrayDepth(int baseDepth, int contentStart) => contentStart > 0 ? baseDepth + 1 : baseDepth;
+
+        private static bool TryReadConstructorMemberField(
+            TypePlan plan,
+            object?[] arguments,
+            string key,
+            LineCursor cursor,
+            string content,
+            int baseDepth,
+            ResolvedDecodeOptions options,
+            ParsedFieldInfo field,
+            out bool valueRead)
+        {
+            if (plan.ConstructorMembers == null || !plan.ConstructorMembers.TryGetValue(key, out var member))
+            {
+                valueRead = false;
+                return false;
+            }
+
+            valueRead = TryReadFieldValue(cursor, content, baseDepth, member.Plan, options, field, out var value);
+            if (valueRead)
+            {
+                AddPendingMember(plan, arguments, member, value);
+            }
+
+            return true;
+        }
+
+        private static void AddPendingMember(TypePlan plan, object?[] arguments, PropertyPlan member, object? value)
+        {
+            var slot = plan.ConstructorMemberSlot;
+            var pending = arguments[slot] as List<KeyValuePair<PropertyPlan, object?>>;
+            if (pending == null)
+            {
+                pending = new List<KeyValuePair<PropertyPlan, object?>>();
+                arguments[slot] = pending;
+            }
+
+            pending.Add(new KeyValuePair<PropertyPlan, object?>(member, value));
         }
 
         private static void AddMemberNames(HashSet<string> names, PropertyInfo property)
@@ -409,7 +516,9 @@ namespace DevOp.Toon.Internal.Decode
             var valuePlan = BuildPlan(valueType, building);
             if (!valuePlan.IsSupported)
             {
-                return false;
+                // A recognized container whose values this path cannot build must not be read as a plain object:
+                // leave the whole target to the native materializer. Recursive element types keep the old behaviour.
+                return !building.Contains(valueType);
             }
 
             var concreteDictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(string), valueType);
@@ -437,7 +546,7 @@ namespace DevOp.Toon.Internal.Decode
                 var elementPlan = BuildPlan(elementType, building);
                 if (!elementPlan.IsSupported)
                 {
-                    return false;
+                    return !building.Contains(elementType);
                 }
 
                 plan = TypePlan.Array(
@@ -467,7 +576,7 @@ namespace DevOp.Toon.Internal.Decode
             var elementPlanForList = BuildPlan(elementTypeForList, building);
             if (!elementPlanForList.IsSupported)
             {
-                return false;
+                return !building.Contains(elementTypeForList);
             }
 
             var concreteListType = typeof(List<>).MakeGenericType(elementTypeForList);
@@ -650,12 +759,23 @@ namespace DevOp.Toon.Internal.Decode
             var field = parsedField ?? ParseFieldContent(content, contentStart);
             if (field.ArrayHeader != null)
             {
+                var arrayDepth = ListItemArrayDepth(baseDepth, contentStart);
                 var key = GetArrayHeaderKey(content, field.ArrayHeader);
                 if (!TryGetConstructorParameter(plan, key, out var parameter))
                 {
+                    if (TryReadConstructorMemberField(plan, arguments, key, cursor, content, arrayDepth, options, field, out var memberRead))
+                    {
+                        if (!memberRead)
+                        {
+                            SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options);
+                        }
+
+                        return memberRead;
+                    }
+
                     if (plan.Extension == null || !TryCaptureConstructorExtensionField(plan, arguments, key, cursor, content, contentStart, baseDepth, options))
                     {
-                        SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                        SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options);
                     }
 
                     return true;
@@ -663,11 +783,11 @@ namespace DevOp.Toon.Internal.Decode
 
                 object? arrayValue;
                 var valueRead = parameter.Plan.Kind == PlanKind.Dictionary
-                    ? TryReadDictionaryFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out arrayValue)
-                    : TryReadArrayFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out arrayValue);
+                    ? TryReadDictionaryFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options, out arrayValue)
+                    : TryReadArrayFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options, out arrayValue);
                 if (!valueRead)
                 {
-                    SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                    SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options);
                     return false;
                 }
 
@@ -678,6 +798,11 @@ namespace DevOp.Toon.Internal.Decode
             var fieldKey = GetFieldKey(content, field);
             if (!TryGetConstructorParameter(plan, fieldKey, out var parameterPlan))
             {
+                if (TryReadConstructorMemberField(plan, arguments, fieldKey, cursor, content, baseDepth, options, field, out var memberRead))
+                {
+                    return memberRead;
+                }
+
                 if (plan.Extension != null && TryCaptureConstructorExtensionField(plan, arguments, fieldKey, cursor, content, contentStart, baseDepth, options))
                 {
                     return true;
@@ -1012,24 +1137,25 @@ namespace DevOp.Toon.Internal.Decode
             var field = parsedField ?? ParseFieldContent(content, contentStart);
             if (field.ArrayHeader != null)
             {
+                var arrayDepth = ListItemArrayDepth(baseDepth, contentStart);
                 if (!TryGetProperty(plan, content, field.ArrayHeader, out var property))
                 {
                     if (plan.Extension == null ||
                         !TryCaptureExtensionField(plan, ref extensionEntries, GetArrayHeaderKey(content, field.ArrayHeader), cursor, content, contentStart, baseDepth, options))
                     {
-                        SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                        SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options);
                     }
 
                     return;
                 }
 
-                if (TryReadArrayFromHeader(cursor, property.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out var arrayValue))
+                if (TryReadArrayFromHeader(cursor, property.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options, out var arrayValue))
                 {
                     property.Setter(instance, arrayValue);
                     return;
                 }
 
-                SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options);
                 return;
             }
 
@@ -1318,6 +1444,7 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             var columnPlans = GetOrCreateConstructorColumnPlans(elementPlan, header.Fields);
+            var memberColumns = elementPlan.ConstructorMembers == null ? null : GetConstructorMemberColumns(elementPlan.ConstructorMembers, header.Fields);
             var tokenRanges = new Parser.TokenRange[columnPlans.Length];
             var rowDepth = baseDepth + 1;
             int rowCount = 0;
@@ -1348,6 +1475,17 @@ namespace DevOp.Toon.Internal.Decode
                     var parameter = columnPlans[i];
                     if (parameter == null)
                     {
+                        if (memberColumns?[i] is { } member)
+                        {
+                            if (!TryReadPrimitiveLikeValue(member.Plan, line.SourceString, contentOffset + tokenRanges[i].Start, contentOffset + tokenRanges[i].EndExclusive, out var memberValue, alreadyTrimmed: true))
+                            {
+                                return false;
+                            }
+
+                            AddPendingMember(elementPlan, arguments, member, memberValue);
+                            continue;
+                        }
+
                         if (elementPlan.Extension != null)
                         {
                             var slot = elementPlan.ConstructorParameters.Length;
@@ -1396,6 +1534,20 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             return rowCount == header.Length;
+        }
+
+        private static PropertyPlan?[] GetConstructorMemberColumns(Dictionary<string, PropertyPlan> members, List<string> fields)
+        {
+            var columns = new PropertyPlan?[fields.Count];
+            for (int i = 0; i < fields.Count; i++)
+            {
+                if (members.TryGetValue(fields[i], out var member))
+                {
+                    columns[i] = member;
+                }
+            }
+
+            return columns;
         }
 
         private static PropertyPlan?[] GetOrCreateColumnPlans(TypePlan elementPlan, List<string> fields)
@@ -1502,6 +1654,12 @@ namespace DevOp.Toon.Internal.Decode
             var field = ParseListItemContent(line.Content, itemStart);
             if (field.ArrayHeader != null)
             {
+                // A keyed header ("- Tags[2]: a,b") is the first field of an object item, not the item itself.
+                if (plan.Kind == PlanKind.Object && TryGetListItemFieldHeader(line.Content, itemStart, out var firstField))
+                {
+                    return TryReadObjectFromListItem(cursor, plan, line, itemStart, firstField, baseDepth, options, out value);
+                }
+
                 if (plan.Kind == PlanKind.Dictionary)
                 {
                     return TryReadDictionaryFromHeader(cursor, plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options, out value);
@@ -2860,7 +3018,8 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             // An extension-data type keeps its collected entries in one slot past the constructor arguments.
-            arguments = new object?[plan.ConstructorParameters.Length + (plan.Extension != null ? 1 : 0)];
+            // Pending values of members assigned after construction take one more slot.
+            arguments = new object?[plan.ConstructorParameters.Length + (plan.Extension != null ? 1 : 0) + (plan.ConstructorMembers != null ? 1 : 0)];
             assigned = new bool[plan.ConstructorParameters.Length];
             return true;
         }
@@ -2903,6 +3062,14 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             var value = plan.ConstructorFactory!(arguments);
+            if (plan.ConstructorMembers != null && arguments[plan.ConstructorMemberSlot] is List<KeyValuePair<PropertyPlan, object?>> pending)
+            {
+                foreach (var entry in pending)
+                {
+                    entry.Key.Setter(value, entry.Value);
+                }
+            }
+
             if (extensionEntries != null && plan.ExtensionArgument < 0)
             {
                 plan.Extension!.Populate(value, extensionEntries);
@@ -4129,6 +4296,16 @@ namespace DevOp.Toon.Internal.Decode
             public ExtensionDataAccessor? Extension { get; private set; }
             public int ExtensionArgument { get; private set; } = -1;
             public HashSet<string>? UnboundMembers { get; private set; }
+
+            public Dictionary<string, PropertyPlan>? ConstructorMembers { get; private set; }
+
+            public int ConstructorMemberSlot => ConstructorParameters!.Length + (Extension != null ? 1 : 0);
+
+            public TypePlan WithConstructorMembers(Dictionary<string, PropertyPlan>? members)
+            {
+                ConstructorMembers = members;
+                return this;
+            }
 
             public TypePlan WithExtension(ExtensionDataAccessor? extension, int argument, HashSet<string>? unboundMembers)
             {

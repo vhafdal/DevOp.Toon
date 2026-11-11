@@ -18,6 +18,8 @@ internal static class NativeTypedMaterializer
     private static readonly object SyncRoot = new object();
     private static readonly Dictionary<Type, TypePlan> PlanCache = new Dictionary<Type, TypePlan>();
     private const double MaxExactDoubleInteger = 9007199254740992d;
+    // (double)decimal.MaxValue rounds up past decimal.MaxValue, so every double at or above it overflows the conversion.
+    private const double MaxDecimalAsDouble = (double)decimal.MaxValue;
     private const decimal MaxExactParsedDecimalInteger = 1000000000000000m;
 
     /// <summary>
@@ -63,7 +65,8 @@ internal static class NativeTypedMaterializer
         catch (NotSupportedException) { return false; }
 
         return plan.Kind == PlanKind.Object &&
-               (plan.Properties?.ContainsKey(key) == true || plan.ConstructorParameterLookup?.ContainsKey(key) == true);
+               (plan.Properties?.ContainsKey(key) == true || plan.ConstructorParameterLookup?.ContainsKey(key) == true ||
+                plan.ConstructorMembers?.ContainsKey(key) == true);
     }
 
     private static TypePlan GetPlan(Type type)
@@ -255,6 +258,7 @@ internal static class NativeTypedMaterializer
         }
 
         var extension = ExtensionDataAccessor.Find(type);
+        var constructorMembers = BuildConstructorMemberPlans(properties, bestLookup, extension, building);
         var extensionArgument = -1;
         HashSet<string>? unboundMembers = null;
         if (extension != null)
@@ -263,7 +267,7 @@ internal static class NativeTypedMaterializer
             foreach (var property in properties)
             {
                 if (property.GetIndexParameters().Length == 0 && !extension.IsExtension(property) &&
-                    !bestLookup.ContainsKey(property.Name))
+                    !bestLookup.ContainsKey(property.Name) && constructorMembers?.ContainsKey(property.Name) != true)
                 {
                     AddMemberNames(unboundMembers ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase), property);
                 }
@@ -274,8 +278,47 @@ internal static class NativeTypedMaterializer
             type,
             CreateConstructorFactory(bestConstructor),
             bestParameters,
-            bestLookup).WithExtension(extension, extensionArgument, unboundMembers);
+            bestLookup).WithExtension(extension, extensionArgument, unboundMembers)
+            .WithConstructorMembers(constructorMembers);
         return true;
+    }
+
+    /// <summary>
+    /// Plans the settable members of a constructor-bound type that no constructor parameter covers; they are assigned
+    /// after construction. Members whose type cannot be materialized stay unbound, as before.
+    /// </summary>
+    private static Dictionary<string, PropertyPlan>? BuildConstructorMemberPlans(
+        PropertyInfo[] properties,
+        Dictionary<string, ConstructorParameterPlan> lookup,
+        ExtensionDataAccessor? extension,
+        HashSet<Type> building)
+    {
+        Dictionary<string, PropertyPlan>? members = null;
+        foreach (var property in properties)
+        {
+            if (!property.CanWrite || property.GetIndexParameters().Length != 0 || lookup.ContainsKey(property.Name) ||
+                extension?.IsExtension(property) == true)
+            {
+                continue;
+            }
+
+            var propertyPlan = BuildPlan(property.PropertyType, building);
+            if (!propertyPlan.IsSupported)
+            {
+                continue;
+            }
+
+            var entry = new PropertyPlan(propertyPlan, CreateSetter(property));
+            members ??= new Dictionary<string, PropertyPlan>(StringComparer.OrdinalIgnoreCase);
+            members[property.Name] = entry;
+            var toonName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
+            if (toonName is { Length: > 0 })
+            {
+                members[toonName] = entry;
+            }
+        }
+
+        return members;
     }
 
     private static void AddMemberNames(HashSet<string> names, PropertyInfo property)
@@ -588,10 +631,23 @@ internal static class NativeTypedMaterializer
         var arguments = new object?[plan.ConstructorParameters.Length];
         var assigned = new bool[plan.ConstructorParameters.Length];
         Dictionary<string, object?>? extensionEntries = null;
+        List<KeyValuePair<PropertyPlan, object?>>? pendingMembers = null;
         foreach (var kvp in objectNode)
         {
             if (!plan.ConstructorParameterLookup.TryGetValue(kvp.Key, out var parameter))
             {
+                if (plan.ConstructorMembers != null && plan.ConstructorMembers.TryGetValue(kvp.Key, out var member))
+                {
+                    if (!TryConvert(kvp.Value, member.Plan, out var memberValue))
+                    {
+                        value = null;
+                        return false;
+                    }
+
+                    (pendingMembers ??= new List<KeyValuePair<PropertyPlan, object?>>()).Add(new KeyValuePair<PropertyPlan, object?>(member, memberValue));
+                    continue;
+                }
+
                 if (plan.Extension != null)
                 {
                     CaptureExtension(plan, kvp.Key, kvp.Value, ref extensionEntries);
@@ -624,6 +680,14 @@ internal static class NativeTypedMaterializer
         }
 
         value = plan.ConstructorFactory(arguments);
+        if (pendingMembers != null)
+        {
+            foreach (var entry in pendingMembers)
+            {
+                entry.Key.Setter(value, entry.Value);
+            }
+        }
+
         if (extensionEntries != null && plan.ExtensionArgument < 0)
         {
             plan.Extension!.Populate(value, extensionEntries);
@@ -950,6 +1014,11 @@ internal static class NativeTypedMaterializer
 
             if (primitiveValue is double decimalDouble)
             {
+                if (double.IsNaN(decimalDouble) || Math.Abs(decimalDouble) >= MaxDecimalAsDouble)
+                {
+                    throw ToonFormatException.Syntax($"Number {decimalDouble.ToString("R", CultureInfo.InvariantCulture)} is outside the range of System.Decimal");
+                }
+
                 value = Convert.ToDecimal(decimalDouble, CultureInfo.InvariantCulture);
                 return true;
             }
@@ -1484,6 +1553,15 @@ internal static class NativeTypedMaterializer
 
         /// <summary>Gets the names of declared members the object cannot bind, which are never captured as extension data.</summary>
         public HashSet<string>? UnboundMembers { get; private set; }
+
+        /// <summary>Gets settable members of a constructor-bound object that are assigned after construction.</summary>
+        public Dictionary<string, PropertyPlan>? ConstructorMembers { get; private set; }
+
+        public TypePlan WithConstructorMembers(Dictionary<string, PropertyPlan>? members)
+        {
+            ConstructorMembers = members;
+            return this;
+        }
 
         public TypePlan WithExtension(ExtensionDataAccessor? extension, int argument, HashSet<string>? unboundMembers)
         {

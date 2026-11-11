@@ -145,7 +145,7 @@ internal static class NativeEncoders
 
     internal static void EncodeNamedValue(string key, object? rawValue, LineWriter writer, int depth, ResolvedEncodeOptions options)
     {
-        EncodeKeyValuePair(key, NativeNormalize.Normalize(rawValue), writer, depth, options);
+        EncodeKeyValuePair(key, NativeNormalize.Normalize(rawValue, options), writer, depth, options);
     }
 
     /// <summary>

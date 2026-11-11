@@ -20,6 +20,44 @@ public sealed class SingleEnumerationTests
         Assert.Equal(1, input.Enumerations);
     }
 
+    [Theory]
+    [InlineData(ToonProtocolVersion.CustomLegacy)]
+    [InlineData(ToonProtocolVersion.V3_0)]
+    public void Encode_NestedSingleUseEnumerableWithKeyFolding_EnumeratesOnce(ToonProtocolVersion version)
+    {
+        var values = new SingleUseValues();
+        var root = new NestedSequenceHolder { Name = "a", Values = values };
+        var rows = new List<NestedSequenceHolder> { new() { Name = "r", Values = new SingleUseValues() } };
+        var options = new ToonEncodeOptions { ProtocolVersion = version, KeyFolding = ToonKeyFolding.Safe };
+
+        var rootText = ToonEncoder.Encode(root, options);
+        var rowsText = ToonEncoder.Encode(rows, options);
+
+        Assert.Equal(1, values.Enumerations);
+        Assert.Equal(1, rows[0].Values is SingleUseValues rowValues ? rowValues.Enumerations : -1);
+        var decodeOptions = new ToonDecodeOptions { ProtocolVersion = version, Indent = 1 };
+        Assert.Equal(new[] { 1, 2 }, ToonDecoder.Decode<NestedSequenceHolder>(rootText, decodeOptions)!.Values);
+        Assert.Equal(new[] { 1, 2 }, ToonDecoder.Decode<List<NestedSequenceHolder>>(rowsText, decodeOptions)![0].Values);
+    }
+
+    public sealed class NestedSequenceHolder
+    {
+        public string Name { get; set; } = "";
+        public IEnumerable<int> Values { get; set; } = Array.Empty<int>();
+    }
+
+    private sealed class SingleUseValues : IEnumerable<int>
+    {
+        public int Enumerations { get; private set; }
+        public IEnumerator<int> GetEnumerator()
+        {
+            if (++Enumerations > 1) throw new InvalidOperationException("Source enumerated twice.");
+            yield return 1;
+            yield return 2;
+        }
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
     private sealed class SingleUseRows : IEnumerable<object>
     {
         public int Enumerations { get; private set; }

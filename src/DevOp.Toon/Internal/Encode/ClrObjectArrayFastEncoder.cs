@@ -80,9 +80,20 @@ internal static class ClrObjectArrayFastEncoder
 
         var rowLayout = GetRowLayout(elementType!, properties);
         var headerProperties = rowLayout.HeaderProperties;
-        if (headerProperties.Length == 0 || rowLayout.HasExtensionEntries(rows))
+        if (headerProperties.Length == 0 || rowLayout.HasExtensionEntries(rows) || rowLayout.HasBase64ByteColumns(options))
         {
             return false;
+        }
+
+        if (options.KeyFolding != ToonKeyFolding.Off)
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (ContainsFoldCandidate(rows[i], options, 0))
+                {
+                    return false;
+                }
+            }
         }
 
         var isFullyTabular = headerProperties.Length == rowLayout.MemberCount;
@@ -207,7 +218,7 @@ internal static class ClrObjectArrayFastEncoder
             return false;
         }
 
-        if (options.KeyFolding != ToonKeyFolding.Off && HasKeyFoldableProperty(properties, data))
+        if (options.KeyFolding != ToonKeyFolding.Off && (HasKeyFoldableProperty(properties, data) || ContainsFoldCandidate(data, options, 0)))
         {
             compactWriter = null!;
             return false;
@@ -263,6 +274,103 @@ internal static class ClrObjectArrayFastEncoder
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Returns whether key folding on the slow path could fold a key anywhere inside <paramref name="value"/>: some member,
+    /// dictionary entry or list item member holds an object with exactly one member. The fast path does not fold below the
+    /// root, so such values are encoded through normalization. Only called when key folding is enabled.
+    /// </summary>
+    private static bool ContainsFoldCandidate(object? value, ResolvedEncodeOptions options, int depth)
+    {
+        if (options.FlattenDepth < 2 || value is null || value is string || NativeNormalize.IsPrimitiveOrNull(value) || value is IEnumerable<byte>)
+        {
+            return false;
+        }
+
+        if (depth >= 64)
+        {
+            return true;
+        }
+
+        if (DictionaryEntries.Get(value) is { } entries)
+        {
+            foreach (var entry in entries)
+            {
+                if (IsSingleMemberObject(entry.Value) || ContainsFoldCandidate(entry.Value, options, depth + 1))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if (value is IEnumerable sequence)
+        {
+            // Probing a lazy sequence would consume it before the encoder writes it; the slow path enumerates it once.
+            if (sequence is not ICollection)
+            {
+                return true;
+            }
+
+            foreach (var item in sequence)
+            {
+                if (ContainsFoldCandidate(item, options, depth + 1))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if (!NativeNormalize.IsPlainObjectType(value.GetType()))
+        {
+            return false;
+        }
+
+        if (GetPlainObjectEmitters(value.GetType()).HasExtensionEntries(value))
+        {
+            return true;
+        }
+
+        var properties = NativeNormalize.GetCachedProperties(value.GetType());
+        for (int i = 0; i < properties.Count; i++)
+        {
+            var member = properties[i].Getter(value);
+            if (IsSingleMemberObject(member) || ContainsFoldCandidate(member, options, depth + 1))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsSingleMemberObject(object? value)
+    {
+        if (value is null || value is string || NativeNormalize.IsPrimitiveOrNull(value))
+        {
+            return false;
+        }
+
+        if (DictionaryEntries.Get(value) is { } entries)
+        {
+            var count = 0;
+            foreach (var _ in entries)
+            {
+                if (++count > 1)
+                {
+                    return false;
+                }
+            }
+
+            return count == 1;
+        }
+
+        return value is not IEnumerable && NativeNormalize.IsPlainObjectType(value.GetType()) &&
+               NativeNormalize.GetCachedProperties(value.GetType()).Count == 1;
     }
 
     private static bool TryCollectRows(object? data, out List<object> rows, out IReadOnlyList<NativeNormalize.PropertyMetadata> properties, out Type? elementType)
@@ -790,6 +898,11 @@ internal static class ClrObjectArrayFastEncoder
         if (TryCollectRows(enumerable, items, declaredElementType, out var properties, out var elementType))
         {
             var rowLayout = GetRowLayout(elementType!, properties);
+            if (rowLayout.HasBase64ByteColumns(options))
+            {
+                return false;
+            }
+
             if (rowLayout.HasExtensionEntries(items))
             {
                 if (key is null)
@@ -870,6 +983,11 @@ internal static class ClrObjectArrayFastEncoder
         if (TryCollectRows(enumerable, items, declaredElementType, out var properties, out var elementType))
         {
             var rowLayout = GetRowLayout(elementType!, properties);
+            if (rowLayout.HasBase64ByteColumns(options))
+            {
+                return false;
+            }
+
             if (rowLayout.HasExtensionEntries(items))
             {
                 if (key is null)
@@ -2000,7 +2118,25 @@ internal static class ClrObjectArrayFastEncoder
             CompactNonHeaderEmitters = compactNonHeaderEmitters;
             MemberCount = memberCount;
             ExtensionGetter = extensionGetter;
+            for (int i = 0; i < nonHeaderProperties.Length; i++)
+            {
+                if (nonHeaderProperties[i].EnumerableElementType == typeof(byte))
+                {
+                    HasByteSequenceMember = true;
+                    break;
+                }
+            }
         }
+
+        /// <summary>Gets whether a non-header member is a byte sequence, which base64 output turns into a scalar column.</summary>
+        public bool HasByteSequenceMember { get; }
+
+        /// <summary>
+        /// Returns whether the options write the row type's byte sequences as base64 scalars: the slow path then makes them
+        /// table columns, which these cached layouts cannot, so the rows must be normalized instead.
+        /// </summary>
+        public bool HasBase64ByteColumns(ResolvedEncodeOptions options)
+            => HasByteSequenceMember && options.ByteArrayFormat == ToonByteArrayFormat.Base64String;
 
         /// <summary>Gets the number of encoded member properties, excluding an extension data property.</summary>
         public int MemberCount { get; }
