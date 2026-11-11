@@ -121,12 +121,40 @@ enable it only when every reader is updated. See [the custom 4.4 guide](CustomV4
 From **DevOp.Toon 0.4.0** (Core **0.3.0**), a property marked `[ToonExtensionData]` of type
 `IDictionary<string, object?>` or `Dictionary<string, object?>` captures object keys that match no
 member when decoding, and its entries are written after the declared members when encoding.
-Only the 4.x profiles (official 4.0 to 4.4 and `CustomV4_4`) honour it; `V3_0` and `CustomLegacy`
-treat it as an ordinary nested dictionary. A member always wins a key collision, captured numbers
-are `double`, and a type may declare only one such property (inherited ones included), otherwise
-encoding and decoding throw `NotSupportedException`. The JSON form
-`ToonService.Deserialize<T>(body, "application/json")` uses the legacy materializer and does not
-capture keys yet. See [the custom 4.4 guide](CustomV44.md#keep-unknown-keys-with-toonextensiondata).
+A member always wins a key collision, captured numbers are `double`, and a type may declare only
+one such property (inherited ones included), otherwise encoding and decoding throw
+`NotSupportedException`. See [the custom 4.4 guide](CustomV44.md#keep-unknown-keys-with-toonextensiondata).
+
+In 0.4.0 only the 4.x profiles (official 4.0 to 4.4 and `CustomV4_4`) honoured the attribute.
+**After 0.4.0**, `V3_0` and `CustomLegacy` honour it too, which changes their output for attributed
+types. Entries become sibling keys, quoted when a key does not start with a letter or `_`:
+
+```toon
+Name: Other Expenses
+"@id": accounts/6900
+"@metadata":
+  "@collection": Accounts
+```
+
+Uniform entries form table columns (`[2]{Name,"@id"}:`). Entries that differ between rows make
+`V3_0` fall back to list items, while `CustomLegacy` keeps the columns every row shares and writes
+the rest under the row. The `CustomLegacy` defaults omit null, empty-string and empty-array entries,
+and key folding folds entry chains such as `meta.collection: Accounts`. Types without the attribute
+encode exactly as before.
+
+Typed legacy decoding captures unmatched keys on every route, including path expansion (an
+expanded dotted key is captured as a nested entry) and structs. For documents written by 0.4.0,
+a legacy decoder still reads the dictionary when it was written as a nested object under the
+property's TOON name or CLR name: the object's entries are merged into the bag, and a sibling
+entry with the same key wins. A key under that name holding anything other than an object, such
+as the `Annotations[2]{Key}:` rows that 0.4.0 `CustomLegacy` wrote, stays one ordinary entry. The
+4.x profiles and the JSON route do not merge; there such an object is an ordinary entry.
+
+On every profile, a key naming a declared member that the decoder cannot bind (a computed
+getter-only property, a 4.x property without a public setter, or an extra member of a
+constructor-bound legacy type) is skipped rather than captured; 0.4.0 captured such keys on 4.x.
+`ToonService.Deserialize<T>(body, "application/json")` now captures unmatched keys too, with
+numbers as `double`.
 
 ## Detection and ambiguity
 
