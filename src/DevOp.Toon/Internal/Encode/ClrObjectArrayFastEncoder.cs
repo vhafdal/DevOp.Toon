@@ -308,6 +308,12 @@ internal static class ClrObjectArrayFastEncoder
 
         if (value is IEnumerable sequence)
         {
+            // Probing a lazy sequence would consume it before the encoder writes it; the slow path enumerates it once.
+            if (sequence is not ICollection)
+            {
+                return true;
+            }
+
             foreach (var item in sequence)
             {
                 if (ContainsFoldCandidate(item, options, depth + 1))
