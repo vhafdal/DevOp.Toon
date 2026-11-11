@@ -26,6 +26,7 @@ internal static class V4ProtocolDetector
         var collected = collectLines ? new List<V4SourceLine>() : null;
         var official = false;
         var spill = false;
+        var constants = false;
         var legacyConflict = false;
         var minorConflict = source.Length > 0 && source[0] == '\ufeff';
         // A later non-strict depth jump can reveal a smaller unit for a hyphen-carried header.
@@ -101,6 +102,8 @@ internal static class V4ProtocolDetector
                         if (quoted) continue;
                         if (ch == '{') { braces++; if (braces > 1) official = true; }
                         if (ch == '}') braces--;
+                        // No encoder writes an unquoted '=' in a field list unless it is a custom 4.4 constant column.
+                        if (ch == '=' && braces > 0) constants = true;
                         if (ch == ':' && braces == 0) { headerColon = p; break; }
                     }
                 }
@@ -170,8 +173,8 @@ internal static class V4ProtocolDetector
             }
             start = newline + 1;
         }
-        var version = spill ? ToonProtocolVersion.CustomV4_4 : ToonProtocolVersion.V4_4;
-        return new Detection(version, minorConflict || legacyConflict && !official, official && spill, gcd > 0 ? gcd : null, collected);
+        var version = spill || constants ? ToonProtocolVersion.CustomV4_4 : ToonProtocolVersion.V4_4;
+        return new Detection(version, minorConflict || legacyConflict && !official && !constants, official && spill || constants, gcd > 0 ? gcd : null, collected);
     }
 
     private static bool HasNumericConflict(ReadOnlySpan<char> token)

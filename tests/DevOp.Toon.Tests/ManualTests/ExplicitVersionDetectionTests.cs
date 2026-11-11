@@ -34,4 +34,50 @@ public sealed class ExplicitVersionDetectionTests
         var options = ToonDecoder.DetectOptions(source, new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V4_4, Indent = 7 });
         Assert.Equal(expected, options.Indent);
     }
+
+    [Theory]
+    [InlineData("[3]{Id,C=1}:\n  1\n  2\n  3")]
+    [InlineData("rows[3]{Id,Customer{Country=IS,Name}}:\n  1,Ada\n  2,Bob\n  3,Cy")]
+    [InlineData("rows[3|]{Id|\"my key\"=5}:\n  1\n  2\n  3")]
+    public void DetectVersion_UnquotedEqualsInHeader_SelectsCustomV44(string source)
+    {
+        var detection = ToonDecoder.DetectVersion(source);
+        Assert.False(detection.RequiresVersionHint);
+        Assert.Equal(ToonProtocolVersion.CustomV4_4, detection.SelectedVersion);
+        Assert.Equal(ToonProtocolVersion.CustomV4_4, detection.DetectedVersion);
+    }
+
+    [Fact]
+    public void DetectVersion_QuotedEqualsInHeaderKey_SelectsOfficial()
+        => Assert.Equal(ToonProtocolVersion.V4_4, ToonDecoder.DetectVersion("[2]{Id,\"a=b\"}:\n  1,x\n  2,y").SelectedVersion);
+
+    [Theory]
+    [InlineData("[2]{Id,Expr}:\n  1,a=b\n  2,c=d")]
+    [InlineData("x: a=b")]
+    [InlineData("t[2]: a=b,c")]
+    [InlineData("\"k=v\"[2]{Id}:\n  1\n  2")]
+    public void DetectVersion_EqualsInCellOrValue_SelectsOfficial(string source)
+        => Assert.Equal(ToonProtocolVersion.V4_4, ToonDecoder.DetectVersion(source).SelectedVersion);
+
+    [Fact]
+    public void Decode_AutoConstantHeaderWithoutSpill_RoundTrips()
+    {
+        const string source = "rows[3]{CompanyId=vhafdal,AccountCode}:\n  6900\n  6910\n  6920";
+
+        var json = System.Text.Json.Nodes.JsonNode.Parse(ToonDecoder.Toon2Json(source))!["rows"]!.AsArray();
+        Assert.All(json, row => Assert.Equal("vhafdal", (string?)row!["CompanyId"]));
+        Assert.Equal(ToonProtocolVersion.CustomV4_4, ToonDecoder.DetectOptions(source).ProtocolVersion);
+    }
+
+    [Fact]
+    public void Decode_AutoConstantHeaderWithLegacyConflictToken_DoesNotRequireHint()
+    {
+        const string cells = "rows[3]{Code,Value}:\n  x,.5\n  x,.5\n  x,.5";
+        const string constants = "rows[3]{Code=x,Value}:\n  .5\n  .5\n  .5";
+        Assert.True(ToonDecoder.DetectVersion(cells).RequiresVersionHint);
+
+        Assert.False(ToonDecoder.DetectVersion(constants).RequiresVersionHint);
+        var json = System.Text.Json.Nodes.JsonNode.Parse(ToonDecoder.Toon2Json(constants))!["rows"]!.AsArray();
+        Assert.All(json, row => Assert.Equal(".5", (string?)row!["Value"]));
+    }
 }
