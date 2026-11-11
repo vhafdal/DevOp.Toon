@@ -508,6 +508,127 @@ public sealed class ConstantColumnTests
         Assert.Equal(json, ToonDecoder.Toon2Json(text, Custom()));
     }
 
+    [Fact]
+    public void Encode_ClrAndNodePaths_ProduceIdenticalBytes()
+    {
+        AssertSamePaths(Accounts());
+        AssertSamePaths(Enumerable.Range(1, 4).Select(i => Scalars.Sample() with { Id = i, Missing = i == 2 ? 5 : null }).ToArray());
+        AssertSamePaths(Enumerable.Range(1, 3).Select(i => new Order { Id = i, Customer = new Customer { Country = "IS", Name = "n" + i } }).ToArray());
+        AssertSamePaths(Enumerable.Range(1, 3).Select(i => new Noted { Id = i, Note = null, Tag = "", G = new NullLeaf { X = null, Y = 1 } }).ToArray());
+        AssertSamePaths(Enumerable.Range(1, 3).Select(i => new { G = new { X = 1, Y = 2 }, Z = 3 }).ToArray());
+        AssertSamePaths(Enumerable.Range(1, 3).Select(i => new Mixed { Id = i, Kind = "x|y,a=b", Name = "n" }).ToArray(), ToonDelimiter.PIPE);
+        AssertSamePaths(Enumerable.Range(1, 3).Select(i => new Mixed { Id = i, Kind = "x\ty", Name = "n" }).ToArray(), ToonDelimiter.TAB);
+        var ignoring = Encode();
+        ignoring.IgnoreNullOrEmpty = true;
+        var noted = Enumerable.Range(1, 3).Select(i => new Noted { Id = i, Note = null, Tag = "", G = new NullLeaf { X = null, Y = i } }).ToArray();
+        Assert.Equal(ToonEncoder.Encode(noted.Select(row => row), ignoring), ToonEncoder.Encode(noted, ignoring));
+    }
+
+    [Fact]
+    public void Encode_SameTokenRules_HoistOnlyWhenEveryCellTokenIsIdentical()
+    {
+        AssertHoistMatchesTokens(0.0, -0.0);
+        AssertHoistMatchesTokens(double.NaN, double.NaN);
+        AssertHoistMatchesTokens(0f, -0f);
+        AssertHoistMatchesTokens(1.0m, 1.00m);
+        AssertHoistMatchesTokens(1.5m, 1.50m);
+        AssertHoistMatchesTokens("Name", "name");
+        AssertHoistMatchesTokens(new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Unspecified));
+        AssertHoistMatchesTokens(new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Local), new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Local));
+        AssertHoistMatchesTokens((DateTime?)new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc), (DateTime?)new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Local));
+        AssertHoistMatchesTokens(new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 1, 2, 1, 0, 0, TimeSpan.FromHours(1)));
+        AssertHoistMatchesTokens((DateTimeOffset?)null, (DateTimeOffset?)new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero));
+        AssertHoistMatchesTokens(new Uri("https://example.com/a#x"), new Uri("https://example.com/a#y"));
+        AssertHoistMatchesTokens(new Uri("https://example.com/a"), new Uri("https://example.com/a"));
+        AssertHoistMatchesTokens(new Version(1, 2), new Version(1, 2, 0));
+        AssertHoistMatchesTokens(LineKind.Credit, LineKind.Debit);
+        AssertHoistMatchesTokens((LineKind?)LineKind.Credit, (LineKind?)LineKind.Credit);
+        AssertHoistMatchesTokens((int?)null, (int?)0);
+        AssertHoistMatchesTokens(TimeSpan.FromHours(1), TimeSpan.FromMinutes(60));
+        AssertHoistMatchesTokens('a', 'A');
+        AssertHoistMatchesTokens(long.MaxValue, long.MaxValue);
+    }
+
+    [Fact]
+    public void Encode_PolymorphicRows_FallsBackAndRoundTrips()
+    {
+        var rows = new List<BaseRow> { new() { Id = 1, Kind = "A" }, new DerivedRow { Id = 2, Kind = "A", Extra = "e" }, new() { Id = 3, Kind = "A" } };
+
+        var text = ToonEncoder.Encode(rows, Encode());
+
+        Assert.Equal("[3]{Id,Kind=A}:\n  1\n  2\n    Extra: e\n  3", text);
+        Assert.Equal(ToonDecoder.Toon2Json(ToonEncoder.Encode(rows, Encode(constants: false)), Custom()), ToonDecoder.Toon2Json(text, Custom()));
+    }
+
+    [Fact]
+    public void Encode_ConcurrentFirstUseWithAndWithoutConstants_ProducesStableOutput()
+    {
+        var rows = Enumerable.Range(1, 3).Select(i => new FirstUseRow { Id = i, Kind = "K", Child = new FirstUseChild { Code = 7, Name = "c" + i } }).ToArray();
+        var on = Encode();
+        var off = Encode(constants: false);
+        var results = new string[64];
+
+        Parallel.For(0, results.Length, i => results[i] = ToonEncoder.Encode(rows, i % 2 == 0 ? on : off));
+
+        for (var i = 0; i < results.Length; i++)
+            Assert.Equal(i % 2 == 0
+                ? "[3]{Id,Kind=K,Child{Code=7,Name}}:\n  1,c1\n  2,c2\n  3,c3"
+                : "[3]{Id,Kind,Child{Code,Name}}:\n  1,K,7,c1\n  2,K,7,c2\n  3,K,7,c3", results[i]);
+    }
+
+    private static void AssertSamePaths<T>(T[] rows, ToonDelimiter delimiter = ToonDelimiter.COMMA)
+    {
+        var options = Encode();
+        options.Delimiter = delimiter;
+        var clr = ToonEncoder.Encode(rows, options);
+        Assert.Equal(ToonEncoder.Encode(rows.Select(row => row), options), clr);
+        Assert.Equal(clr, Encoding.UTF8.GetString(ToonEncoder.EncodeToBytes(rows, options)));
+        Assert.Contains("=", clr.Split('\n')[0]);
+    }
+
+    private static void AssertHoistMatchesTokens<T>(T first, T second)
+    {
+        var rows = new[] { new Holder<T> { Id = 1, V = first }, new Holder<T> { Id = 2, V = second }, new Holder<T> { Id = 3, V = first } };
+        var cells = ToonEncoder.Encode(rows, Encode(constants: false)).Split('\n').Skip(1).Select(line => line.Substring(line.IndexOf(',') + 1)).ToArray();
+        var identical = cells.Distinct(StringComparer.Ordinal).Count() == 1;
+
+        foreach (var text in new[] { ToonEncoder.Encode(rows, Encode()), ToonEncoder.Encode(rows.Select(row => row), Encode()) })
+        {
+            Assert.True(identical == text.StartsWith("[3]{Id,V=", StringComparison.Ordinal), $"{typeof(T).Name}: {text}");
+            Assert.Equal(ToonDecoder.Toon2Json(string.Join("\n", ToonEncoder.Encode(rows, Encode(constants: false))), Custom()), ToonDecoder.Toon2Json(text, Custom()));
+        }
+    }
+
+    public sealed class Holder<T>
+    {
+        public int Id { get; set; }
+        public T V { get; set; } = default!;
+    }
+
+    public class BaseRow
+    {
+        public int Id { get; set; }
+        public string? Kind { get; set; }
+    }
+
+    public sealed class DerivedRow : BaseRow
+    {
+        public string? Extra { get; set; }
+    }
+
+    public sealed class FirstUseChild
+    {
+        public int Code { get; set; }
+        public string? Name { get; set; }
+    }
+
+    public sealed class FirstUseRow
+    {
+        public int Id { get; set; }
+        public string? Kind { get; set; }
+        public FirstUseChild? Child { get; set; }
+    }
+
     private const string AccountsJson =
         "[{\"CompanyId\":\"vhafdal\",\"IsSystem\":false,\"CreatedBy\":\"system\",\"AccountCode\":6900,\"Name\":\"Other Expenses\",\"AccountType\":\"Expense\"}," +
         "{\"CompanyId\":\"vhafdal\",\"IsSystem\":false,\"CreatedBy\":\"system\",\"AccountCode\":1000,\"Name\":\"Cash\",\"AccountType\":\"Asset\"}," +

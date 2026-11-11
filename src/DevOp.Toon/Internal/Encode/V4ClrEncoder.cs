@@ -26,7 +26,6 @@ internal static class V4ClrEncoder
     internal static bool TryEncodeToBuffer(object? value, ResolvedEncodeOptions options, out CompactBufferWriter writer)
     {
         writer = null!;
-        if (options.ConstantColumns) return false;
         if (value == null || NativeNormalize.IsPrimitiveOrNull(value) || value is not IList && !NativeNormalize.IsPlainObjectType(value.GetType()) || value is IList { Count: 0 } || options.ByteArrayFormat == ToonByteArrayFormat.Base64String && value is IEnumerable<byte>) return false;
         writer = new CompactBufferWriter(options.Indent, newLine: "\n");
         try
@@ -126,19 +125,24 @@ internal static class V4ClrEncoder
             foreach (var flag in suppressed) all &= flag;
             if (all) return false;
         }
+        bool[]? constants = null;
+        if (options.ConstantColumns && rows.Count >= ConstantColumnTokens.MinimumRows)
+            constants = MarkConstants(rows, tablePlan, suppressed);
         V4Encoder.Start(writer, firstListField ? depth - 1 : depth, firstListField, options);
         if (key != null) key.Write(writer, options.AnnotationKeys);
         writer.Append('['); writer.Append(rows.Count);
         if (options.Delimiter != ',') writer.Append(options.Delimiter);
         writer.Append(']');
-        Fields(writer, tablePlan, options.Delimiter, suppressed, options.AnnotationKeys);
+        var headerLeaf = 0;
+        Fields(writer, tablePlan, rows[0]!, options.Delimiter, suppressed, constants, ref headerLeaf, options.AnnotationKeys);
         writer.Append(':');
         for (var i = 0; i < rows.Count; i++)
         {
             var row = rows[i]!;
             V4Encoder.Start(writer, depth + 1, false, options);
             var first = true;
-            Cells(writer, row, tablePlan, options.Delimiter, ref first, suppressed);
+            var leaf = 0;
+            Cells(writer, row, tablePlan, options.Delimiter, ref first, suppressed, constants, ref leaf);
             if (custom)
             {
                 for (var spillIndex = 0; spillIndex < tablePlan.Spills.Length; spillIndex++)
@@ -290,35 +294,78 @@ internal static class V4ClrEncoder
         if (first) { V4Encoder.Start(writer, depth, false, options); writer.Append('-'); }
     }
 
-    private static void Fields(CompactBufferWriter writer, Plan plan, char delimiter, bool[]? suppressed, bool annotationKeys)
+    /// <summary>
+    /// Returns, per leaf column in depth-first header order, whether every row writes the same token. The mask is
+    /// local to one table write: plans are cached per type and shared by every option set.
+    /// </summary>
+    private static bool[] MarkConstants(IList rows, Plan plan, bool[]? suppressed)
+    {
+        var constants = new bool[plan.LeafCount];
+        var level = new object[rows.Count];
+        for (var r = 0; r < rows.Count; r++) level[r] = rows[r]!;
+        var leaf = 0;
+        var firstWritten = -1;
+        var cells = 0;
+        MarkConstants(level, plan, suppressed, constants, ref leaf, ref firstWritten, ref cells);
+        if (cells == 0 && firstWritten >= 0) constants[firstWritten] = false;
+        return constants;
+    }
+
+    private static void MarkConstants(object[] rows, Plan plan, bool[]? suppressed, bool[] constants, ref int leaf, ref int firstWritten, ref int cells)
+    {
+        for (var i = 0; i < plan.Columns.Length; i++)
+        {
+            var column = plan.Columns[i];
+            if (column.Nested != null)
+            {
+                var children = new object[rows.Length];
+                for (var r = 0; r < rows.Length; r++) children[r] = column.Property.Getter(rows[r])!;
+                MarkConstants(children, column.Nested, null, constants, ref leaf, ref firstWritten, ref cells);
+                continue;
+            }
+            var index = leaf++;
+            if (suppressed != null && suppressed[i]) continue;
+            if (firstWritten < 0) firstWritten = index;
+            var compare = column.SameToken.Value;
+            var same = compare != null;
+            for (var r = 1; same && r < rows.Length; r++) same = compare!(rows[0], rows[r]);
+            constants[index] = same;
+            if (!same) cells++;
+        }
+    }
+
+    private static void Fields(CompactBufferWriter writer, Plan plan, object sample, char delimiter, bool[]? suppressed, bool[]? constants, ref int leaf, bool annotationKeys)
     {
         writer.Append('{');
         var first = true;
         for (var i = 0; i < plan.Columns.Length; i++)
         {
-            if (suppressed != null && suppressed[i]) continue;
-            if (!first) writer.Append(delimiter);
             var column = plan.Columns[i];
+            if (suppressed != null && suppressed[i]) { leaf++; continue; }
+            if (!first) writer.Append(delimiter);
             column.Key.Write(writer, annotationKeys);
-            if (column.Nested != null) Fields(writer, column.Nested, delimiter, null, annotationKeys);
+            if (column.Nested != null) Fields(writer, column.Nested, column.Property.Getter(sample)!, delimiter, null, constants, ref leaf, annotationKeys);
+            else if (constants != null && constants[leaf++])
+            {
+                writer.Append('=');
+                ConstantColumnTokens.WriteHeaderValue(writer, (column, sample, delimiter), static (target, cell) => cell.column.Emit(target, cell.sample, cell.delimiter));
+            }
             first = false;
         }
         writer.Append('}');
     }
 
-    private static void Cells(CompactBufferWriter writer, object row, Plan plan, char delimiter, ref bool first, bool[]? suppressed)
+    private static void Cells(CompactBufferWriter writer, object row, Plan plan, char delimiter, ref bool first, bool[]? suppressed, bool[]? constants, ref int leaf)
     {
         for (var i = 0; i < plan.Columns.Length; i++)
         {
-            if (suppressed != null && suppressed[i]) continue;
             var column = plan.Columns[i];
-            if (column.Nested != null) Cells(writer, column.Property.Getter(row)!, column.Nested, delimiter, ref first, null);
-            else
-            {
-                if (!first) writer.Append(delimiter);
-                column.Emit(writer, row, delimiter);
-                first = false;
-            }
+            if (column.Nested != null) { Cells(writer, column.Property.Getter(row)!, column.Nested, delimiter, ref first, null, constants, ref leaf); continue; }
+            var index = leaf++;
+            if (suppressed != null && suppressed[i] || constants != null && constants[index]) continue;
+            if (!first) writer.Append(delimiter);
+            column.Emit(writer, row, delimiter);
+            first = false;
         }
     }
 
@@ -365,7 +412,33 @@ internal static class V4ClrEncoder
         internal PropertyKey Key = null!;
         internal Plan? Nested;
         internal Action<CompactBufferWriter, object, char> Emit = null!;
+        /// <summary>Compares the column of two rows by written token, or yields null when the type is never constant.</summary>
+        /// <remarks>Compiled on first use so encoding with constant columns off never pays for it.</remarks>
+        internal Lazy<Func<object, object, bool>?> SameToken = null!;
     }
+
+    private static Func<object, object, bool>? CompileTokenComparer(NativeNormalize.PropertyMetadata property)
+    {
+        var type = property.Info.PropertyType;
+        if (!ConstantColumnTokens.Supported(type)) return null;
+        var left = Expression.Parameter(typeof(object), "left");
+        var right = Expression.Parameter(typeof(object), "right");
+        var declaring = property.Info.DeclaringType!;
+        var leftValue = Expression.Property(Expression.Convert(left, declaring), property.Info);
+        var rightValue = Expression.Property(Expression.Convert(right, declaring), property.Info);
+        MethodInfo method;
+        if (type == typeof(DateTime) || type == typeof(DateTime?) || type == typeof(DateTimeOffset) || type == typeof(DateTimeOffset?) || type == typeof(Uri))
+            method = typeof(V4ClrEncoder).GetMethod(nameof(SameToken), BindingFlags.Static | BindingFlags.NonPublic, null, new[] { type, type }, null)!;
+        else method = typeof(V4ClrEncoder).GetMethod(nameof(SameDefault), BindingFlags.Static | BindingFlags.NonPublic)!.MakeGenericMethod(type);
+        return Expression.Lambda<Func<object, object, bool>>(Expression.Call(method, leftValue, rightValue), left, right).Compile();
+    }
+
+    private static bool SameDefault<T>(T left, T right) => EqualityComparer<T>.Default.Equals(left, right);
+    private static bool SameToken(DateTime left, DateTime right) => ConstantColumnTokens.Same(left, right);
+    private static bool SameToken(DateTime? left, DateTime? right) => left.HasValue ? right.HasValue && ConstantColumnTokens.Same(left.Value, right.Value) : !right.HasValue;
+    private static bool SameToken(DateTimeOffset left, DateTimeOffset right) => left.EqualsExact(right);
+    private static bool SameToken(DateTimeOffset? left, DateTimeOffset? right) => left.HasValue ? right.HasValue && left.Value.EqualsExact(right.Value) : !right.HasValue;
+    private static bool SameToken(Uri? left, Uri? right) => left == null ? right == null : right != null && string.Equals(left.ToString(), right.ToString(), StringComparison.Ordinal);
 
     private static Action<CompactBufferWriter, object, char> CompileEmitter(NativeNormalize.PropertyMetadata property)
     {
@@ -421,6 +494,8 @@ internal static class V4ClrEncoder
         internal readonly PropertyKey[] SpillKeys;
         internal readonly NativeNormalize.PropertyMetadata[] Spills;
         internal readonly bool Eligible;
+        /// <summary>Gets the number of leaf columns, nested groups included.</summary>
+        internal readonly int LeafCount;
         internal Plan(Type type) : this(type, new HashSet<Type>()) { }
         private Plan(Type type, HashSet<Type> active)
         {
@@ -440,7 +515,7 @@ internal static class V4ClrEncoder
                     var key = PropertyKeys[propertyIndex];
                     if (!names.Add(property.Name)) { Eligible = false; break; }
                     var target = Nullable.GetUnderlyingType(property.Info.PropertyType) ?? property.Info.PropertyType;
-                    if (Scalar(target)) columns.Add(new Column { Property = property, Key = key, Emit = CompileEmitter(property) });
+                    if (Scalar(target)) columns.Add(new Column { Property = property, Key = key, Emit = CompileEmitter(property), SameToken = new Lazy<Func<object, object, bool>?>(() => CompileTokenComparer(property), System.Threading.LazyThreadSafetyMode.PublicationOnly) });
                     else if (NativeNormalize.IsPlainObjectType(target) && !active.Contains(target))
                     {
                         var child = new Plan(target, active);
@@ -453,6 +528,7 @@ internal static class V4ClrEncoder
                 active.Remove(type);
             }
             Columns = columns.ToArray();
+            foreach (var column in Columns) LeafCount += column.Nested?.LeafCount ?? 1;
             nestedColumns = Columns.Where(column => column.Nested != null).ToArray();
             PropertyColumns = new Column?[Properties.Count];
             for (var i = 0; i < Properties.Count; i++)
