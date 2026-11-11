@@ -2,7 +2,7 @@ using System.Reflection;
 
 namespace DevOp.Toon.Tests;
 
-public class Kan1TypedDecodeTests
+public class TypedDecodeShapeTests
 {
     [Fact]
     public void Decode_RootArrayTarget_WithPositionalRecords_ReturnsArray()

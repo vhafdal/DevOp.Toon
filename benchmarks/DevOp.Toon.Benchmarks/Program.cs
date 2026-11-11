@@ -66,7 +66,7 @@ public static class Program
             return;
         }
 
-        if (KanShapeProfiler.TryRun(args))
+        if (CustomerShapeProfiler.TryRun(args))
         {
             return;
         }
