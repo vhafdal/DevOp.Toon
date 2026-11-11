@@ -16,6 +16,8 @@ internal static class NativeTypedMaterializer
 {
     private static readonly object SyncRoot = new object();
     private static readonly Dictionary<Type, TypePlan> PlanCache = new Dictionary<Type, TypePlan>();
+    private const double MaxExactDoubleInteger = 9007199254740992d;
+    private const decimal MaxExactParsedDecimalInteger = 1000000000000000m;
 
     /// <summary>
     /// Attempts to convert a native node into the requested CLR type.
@@ -727,14 +729,7 @@ internal static class NativeTypedMaterializer
                 return true;
             }
 
-            if (primitiveValue is long longValue && longValue >= int.MinValue && longValue <= int.MaxValue)
-            {
-                value = (int)longValue;
-                return true;
-            }
-
-            value = null;
-            return false;
+            return TryConvertIntegerPrimitive(primitiveValue, int.MinValue, int.MaxValue, static candidate => (int)candidate, out value);
         }
 
         if (targetType == typeof(uint))
@@ -753,6 +748,23 @@ internal static class NativeTypedMaterializer
             if (primitiveValue is int intPrimitive)
             {
                 value = (long)intPrimitive;
+                return true;
+            }
+
+            // Text numbers arrive as double, or as a decimal of at most 15 significant digits; past those limits the value is no longer exact.
+            if (primitiveValue is double doubleLong &&
+                Math.Abs(doubleLong) <= MaxExactDoubleInteger &&
+                Math.Abs(doubleLong % 1d) < double.Epsilon)
+            {
+                value = (long)doubleLong;
+                return true;
+            }
+
+            if (primitiveValue is decimal decimalLong &&
+                Math.Abs(decimalLong) < MaxExactParsedDecimalInteger &&
+                decimal.Truncate(decimalLong) == decimalLong)
+            {
+                value = (long)decimalLong;
                 return true;
             }
 
@@ -1270,7 +1282,10 @@ internal static class NativeTypedMaterializer
     {
         var target = Expression.Parameter(typeof(object), "target");
         var value = Expression.Parameter(typeof(object), "value");
-        var convertedTarget = Expression.Convert(target, property.DeclaringType!);
+        var declaringType = property.DeclaringType!;
+        Expression convertedTarget = declaringType.IsValueType
+            ? Expression.Unbox(target, declaringType)
+            : Expression.Convert(target, declaringType);
         var convertedValue = Expression.Convert(value, property.PropertyType);
         var body = Expression.Assign(Expression.Property(convertedTarget, property), convertedValue);
         return Expression.Lambda<Action<object, object?>>(body, target, value).Compile();
