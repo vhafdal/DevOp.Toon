@@ -2373,16 +2373,20 @@ namespace DevOp.Toon.Internal.Decode
         }
 
         /// <summary>
-        /// Handles a token that did not parse as the numeric <paramref name="type"/>. A number the type cannot hold throws the
-        /// format error the native and JSON routes report instead of leaving the member at its default; an integral number in
-        /// exponent or fraction form that fits an integer type converts. Any other token is not converted.
+        /// Handles a token that did not parse as the numeric <paramref name="type"/> instead of leaving the member at its
+        /// default, converting what 4.x decoding converts and otherwise throwing a format error. A number the type cannot hold
+        /// throws the error the native and JSON routes report; an integral number in exponent or fraction form that fits an
+        /// integer type converts; a fraction rounds into byte, sbyte, short and ushort and is outside the range of the other
+        /// integer types. Any other token converts as 4.x converts it: <c>null</c> to zero, <c>true</c> and <c>false</c> to one
+        /// and zero, and text, quoted or not, by the invariant parse of the type.
         /// </summary>
         private static bool TryConvertNumberOutsideType(Type type, ReadOnlySpan<char> token, out object? value)
         {
             value = null;
             if (!IsNumberToken(token))
             {
-                return false;
+                value = ConvertNonNumberToken(type, token);
+                return true;
             }
 
             var text = token.ToString();
@@ -2396,7 +2400,8 @@ namespace DevOp.Toon.Internal.Decode
             {
                 if (exact != decimal.Truncate(exact))
                 {
-                    return false;
+                    value = RoundIntoSmallInteger(type, exact, number);
+                    return true;
                 }
 
                 value = NarrowInteger(type, exact);
@@ -2407,6 +2412,49 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             throw ToonFormatException.Syntax($"Number {number.ToString("R", CultureInfo.InvariantCulture)} is outside the range of {type.FullName}");
+        }
+
+        private static object RoundIntoSmallInteger(Type type, decimal value, double number)
+        {
+            if (type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort))
+            {
+                try
+                {
+                    return Convert.ChangeType(value, type, CultureInfo.InvariantCulture);
+                }
+                catch (OverflowException)
+                {
+                }
+            }
+
+            throw ToonFormatException.Syntax($"Number {number.ToString("R", CultureInfo.InvariantCulture)} is outside the range of {type.FullName}");
+        }
+
+        private static object ConvertNonNumberToken(Type type, ReadOnlySpan<char> token)
+        {
+            if (token.SequenceEqual(Constants.NULL_LITERAL))
+            {
+                return Activator.CreateInstance(type)!;
+            }
+
+            if (token.SequenceEqual(Constants.TRUE_LITERAL) || token.SequenceEqual(Constants.FALSE_LITERAL))
+            {
+                return Convert.ChangeType(token.SequenceEqual(Constants.TRUE_LITERAL), type, CultureInfo.InvariantCulture);
+            }
+
+            var text = token.Length > 0 && token[0] == Constants.DOUBLE_QUOTE ? Parser.ParseStringLiteral(token.ToString()) : token.ToString();
+            try
+            {
+                return Convert.ChangeType(text, type, CultureInfo.InvariantCulture);
+            }
+            catch (FormatException)
+            {
+                throw ToonFormatException.Syntax($"Value {text} is not a valid {type.FullName}");
+            }
+            catch (OverflowException)
+            {
+                throw ToonFormatException.Syntax($"Number {text} is outside the range of {type.FullName}");
+            }
         }
 
         private static object? NarrowInteger(Type type, decimal value)

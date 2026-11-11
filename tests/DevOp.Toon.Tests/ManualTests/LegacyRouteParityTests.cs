@@ -250,6 +250,86 @@ public sealed class LegacyRouteParityTests
         Assert.Equal("1e400", decoded.Obj);
     }
 
+    public static TheoryData<ToonProtocolVersion, string, string, string> DirectRejectedTokenCases
+    {
+        get
+        {
+            var data = new TheoryData<ToonProtocolVersion, string, string, string>();
+            foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
+            {
+                data.Add(version, "Int", "1.5", "Number 1.5 is outside the range of System.Int32");
+                data.Add(version, "NInt", "-0.5", "Number -0.5 is outside the range of System.Int32");
+                data.Add(version, "NLng", "1.5", "Number 1.5 is outside the range of System.Int64");
+                data.Add(version, "UInt", "0.5", "Number 0.5 is outside the range of System.UInt32");
+                data.Add(version, "ULng", "2.5e0", "Number 2.5 is outside the range of System.UInt64");
+                data.Add(version, "Byt", "255.6", "Number 255.6 is outside the range of System.Byte");
+                data.Add(version, "Int", "abc", "Value abc is not a valid System.Int32");
+                data.Add(version, "Int", "\"1.5\"", "Value 1.5 is not a valid System.Int32");
+                data.Add(version, "Int", "Infinity", "Value Infinity is not a valid System.Int32");
+                data.Add(version, "Dec", "abc", "Value abc is not a valid System.Decimal");
+                data.Add(version, "Dec", "NaN", "Value NaN is not a valid System.Decimal");
+                data.Add(version, "NDec", "\"\"", "Value  is not a valid System.Decimal");
+                data.Add(version, "Dbl", "abc", "Value abc is not a valid System.Double");
+                data.Add(version, "Flt", "0x10", "Value 0x10 is not a valid System.Single");
+                data.Add(version, "Sht", "1_000", "Value 1_000 is not a valid System.Int16");
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(DirectRejectedTokenCases))]
+    public void Decode_LegacyTokenNotValidForNumericMember_ThrowsFormatException(ToonProtocolVersion version, string member, string token, string message)
+    {
+        var options = Options(version);
+
+        AssertRangeError(message, () => ToonDecoder.Decode<Numbers>($"{member}: {token}", options));
+        AssertRangeError(message, () => ToonDecoder.Decode<List<Numbers>>($"[1]{{{member}}}:\n  {token}", options));
+        AssertRangeError(message, () => ToonDecoder.Decode<List<Numbers>>($"[1]:\n  - {member}: {token}", options));
+        Assert.ThrowsAny<Exception>(() => ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V4_4)));
+    }
+
+    public static TheoryData<ToonProtocolVersion, string, string> DirectAcceptedTokenCases
+    {
+        get
+        {
+            var data = new TheoryData<ToonProtocolVersion, string, string>();
+            foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
+            {
+                data.Add(version, "Int", "\"12\"");
+                data.Add(version, "NInt", "\"-7\"");
+                data.Add(version, "Dbl", "\"1.5\"");
+                data.Add(version, "Dec", "\"0.1234567890123456789012345678\"");
+                data.Add(version, "Flt", "\"Infinity\"");
+                data.Add(version, "Int", "true");
+                data.Add(version, "Dec", "false");
+                data.Add(version, "Int", "null");
+                data.Add(version, "Dbl", "null");
+                data.Add(version, "Byt", "1.5");
+                data.Add(version, "Byt", "-0.5");
+                data.Add(version, "Sht", "2.5");
+                data.Add(version, "Sht", "-1.5e0");
+                data.Add(version, "ULng", "\"18446744073709551615\"");
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(DirectAcceptedTokenCases))]
+    public void Decode_LegacyTokenAcceptedByV4_DecodesAsV4Does(ToonProtocolVersion version, string member, string token)
+    {
+        var property = typeof(Numbers).GetProperty(member)!;
+        var expected = property.GetValue(ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V4_4)));
+        var options = Options(version);
+
+        Assert.Equal(expected, property.GetValue(ToonDecoder.Decode<Numbers>($"{member}: {token}", options)));
+        Assert.Equal(expected, property.GetValue(ToonDecoder.Decode<List<Numbers>>($"[1]{{{member}}}:\n  {token}", options)![0]));
+        Assert.Equal(expected, property.GetValue(ToonDecoder.Decode<List<Numbers>>($"[1]:\n  - {member}: {token}", options)![0]));
+    }
+
     private static void AssertRangeError(string message, Func<object?> decode)
     {
         var error = Assert.Throws<ToonFormatException>(decode);
@@ -278,7 +358,10 @@ public sealed class LegacyRouteParityTests
         public int Int { get; set; }
         public long? NLng { get; set; }
         public byte Byt { get; set; }
+        public short Sht { get; set; }
         public uint UInt { get; set; }
+        public ulong ULng { get; set; }
+        public int? NInt { get; set; }
         public object? Obj { get; set; }
     }
 
