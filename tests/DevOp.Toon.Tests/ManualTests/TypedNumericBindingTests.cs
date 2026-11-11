@@ -10,12 +10,89 @@ public sealed class TypedNumericBindingTests
         ("ulong", "18446744073709551616"), ("ulong", "-1"), ("ulong?", "-1"),
         ("decimal", "79228162514264337593543950336"), ("decimal", "1e29"), ("decimal?", "-1e29"),
         ("ByteEnum", "256"), ("ByteEnum", "-1"), ("ByteEnum?", "256"), ("IntEnum", "2147483648"), ("LongEnum", "9223372036854775808"),
-        ("int", "1.5"), ("uint", "2.5"), ("long", "0.5"), ("ulong", "1e-29"), ("IntEnum", "1.5"));
+        ("int", "1.5"), ("uint", "2.5"), ("long", "0.5"), ("ulong", "1e-29"), ("IntEnum", "1.5"),
+        ("byte", "1e3"), ("sbyte", "1e3"), ("float", "1e39"), ("float", "3.4028236e38"), ("float?", "-1e39"));
 
     [Theory]
     [MemberData(nameof(OutOfRangeCases))]
     public void Decode_NumberOutsideMember_ThrowsFormatExceptionWithTokenLineOnEveryShape(string type, string token)
         => AssertErrorOnEveryShape(type, token, Strict());
+
+    public static TheoryData<string, string> FractionCases
+    {
+        get
+        {
+            var data = new TheoryData<string, string>();
+            foreach (var type in new[] { "byte", "byte?", "sbyte", "short", "short?", "ushort", "int", "uint?", "long", "ulong", "ByteEnum", "IntEnum?" })
+            foreach (var token in new[] { "1.5", "2.5", "0.5", "-0.5", "1e-29", "1e-400", "1.00000000000000000000000000001" })
+                data.Add(type, token);
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(FractionCases))]
+    public void Decode_FractionIntoIntegerOrEnumMember_ThrowsOnEveryShape(string type, string token)
+        => AssertErrorOnEveryShape(type, token, Strict(), "is not an integer");
+
+    [Theory]
+    [InlineData("byte", "1.0e2", "100")]
+    [InlineData("sbyte", "2.0", "2")]
+    [InlineData("short", "1e3", "1000")]
+    [InlineData("ushort?", "100e-2", "1")]
+    [InlineData("int", "-0", "0")]
+    [InlineData("uint", "-0.0", "0")]
+    [InlineData("ulong", "-0.0", "0")]
+    [InlineData("ulong?", "-0", "0")]
+    [InlineData("long", "-9.223372036854775808e18", "-9223372036854775808")]
+    [InlineData("long", "9007199254740993", "9007199254740993")]
+    [InlineData("ulong", "1.8446744073709551615e19", "18446744073709551615")]
+    [InlineData("ByteEnum", "4.2e1", "C")]
+    [InlineData("float", "1.000000059604644775400625", "1.0000001")]
+    [InlineData("float", "-0", "0")]
+    [InlineData("double", "-0.0", "0")]
+    [InlineData("double?", "1e308", "1E+308")]
+    [InlineData("decimal", "-0.0", "0.0")]
+    [InlineData("decimal", "1e-29", "0.0000000000000000000000000000")]
+    [InlineData("decimal", "1.10", "1.10")]
+    [InlineData("decimal?", "9007199254740993", "9007199254740993")]
+    public void Decode_IntegralOrExactNumber_BindsSameValueOnEveryShape(string type, string token, string expected)
+    {
+        foreach (var (shape, decode, _) in ShapesFor(type, token, Strict()))
+            Assert.True(Format(decode()) == expected, $"{shape}: expected {expected}, got {Format(decode())}");
+    }
+
+    [Theory]
+    [InlineData(ToonProtocolVersion.V4_0)]
+    [InlineData(ToonProtocolVersion.V4_1)]
+    [InlineData(ToonProtocolVersion.V4_2)]
+    [InlineData(ToonProtocolVersion.V4_3)]
+    public void Decode_NonFiniteNumberWithoutStrict_ThrowsForNumericMembers(ToonProtocolVersion version)
+    {
+        var options = new ToonDecodeOptions { ProtocolVersion = version, Indent = 2, Strict = false };
+
+        AssertErrorOnEveryShape("double", "1e400", options);
+        AssertErrorOnEveryShape("int", "1e400", options);
+        Assert.Equal("1e400", ToonDecoder.Decode<Holder<string>>("V: 1e400", options)!.V);
+    }
+
+    [Fact]
+    public void Decode_CustomConstantColumnFraction_ThrowsWithRowLine()
+    {
+        var error = Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode<List<Line>>("[3]{Id,Qty=1.5}:\n  1\n  2\n  3", Strict(ToonProtocolVersion.CustomV4_4)));
+
+        Assert.Equal(2, error.LineNumber);
+        Assert.Contains("is not an integer (System.Int16)", error.Message);
+    }
+
+    [Fact]
+    public void Decode_CustomSpillFraction_ThrowsWithSpillLine()
+    {
+        var error = Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode<List<Line>>("[2]{Id}:\n  1\n    Qty: 2.5\n  2", Strict(ToonProtocolVersion.CustomV4_4)));
+
+        Assert.Equal(3, error.LineNumber);
+        Assert.Contains("is not an integer (System.Int16)", error.Message);
+    }
 
     public static TheoryData<string, string> InvalidTokenCases => Cases(
         ("int", "abc"), ("int", "\"abc\""), ("int", "\"\""), ("int?", "abc"), ("long", "\"1.5\""), ("byte", "\"300\""),
@@ -137,7 +214,7 @@ public sealed class TypedNumericBindingTests
             Assert.True(Format(decode()) == expected, $"{shape}: expected {expected}, got {Format(decode())}");
     }
 
-    private static void AssertErrorOnEveryShape(string type, string token, ToonDecodeOptions options)
+    private static void AssertErrorOnEveryShape(string type, string token, ToonDecodeOptions options, string? message = null)
     {
         var typeName = TypeName(type);
         foreach (var (shape, decode, line) in ShapesFor(type, token, options))
@@ -160,6 +237,7 @@ public sealed class TypedNumericBindingTests
             Assert.Equal(ToonErrorKind.Syntax, error!.Kind);
             Assert.True(line == error.LineNumber, $"{shape}: line {error.LineNumber?.ToString() ?? "none"} instead of {line}: {error.Message}");
             Assert.True(error.Message.Contains(typeName), $"{shape}: message '{error.Message}' does not name {typeName}");
+            if (message != null) Assert.True(error.Message.Contains(message), $"{shape}: message '{error.Message}' does not contain '{message}'");
         }
     }
 
@@ -250,6 +328,12 @@ public sealed class TypedNumericBindingTests
         public int A { get; set; }
         public byte V { get; set; }
         public int B { get; set; }
+    }
+
+    public sealed class Line
+    {
+        public int Id { get; set; }
+        public short Qty { get; set; }
     }
 
     public sealed class Aliased

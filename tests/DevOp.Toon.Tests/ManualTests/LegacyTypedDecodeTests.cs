@@ -55,14 +55,14 @@ public sealed class LegacyTypedDecodeTests
     }
 
     [Theory]
-    [InlineData("Small: 1.5")]
-    [InlineData("Large: 3000000000")]
-    public void Decode_ExpandPathsNumberOutsideIntegralRange_ThrowsFormatException(string text)
+    [InlineData("Small: 1.5", "Number 1.5 is not an integer (System.Int32)")]
+    [InlineData("Large: 3000000000", "outside the range of System.Int32")]
+    public void Decode_ExpandPathsNumberOutsideIntegralRange_ThrowsFormatException(string text, string message)
     {
         var error = Assert.Throws<ToonFormatException>(() =>
             ToonDecoder.Decode<Counters>(text + "\nUnit.Name: u", Decode(ToonProtocolVersion.V3_0, ToonPathExpansion.Safe)));
 
-        Assert.Contains("outside the range of System.Int32", error.Message);
+        Assert.Contains(message, error.Message);
     }
 
     private static ToonDecodeOptions Decode(ToonProtocolVersion version, ToonPathExpansion expandPaths = ToonPathExpansion.Off) => new()

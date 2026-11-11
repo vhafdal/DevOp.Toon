@@ -1277,8 +1277,7 @@ internal static class NativeTypedMaterializer
         var parsed = decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var exact);
         if (parsed && !NumericUtils.IsIntegralNumberText(text))
         {
-            value = NumericUtils.ConvertFractionToInteger(type, exact, text);
-            return true;
+            throw ToonFormatException.Syntax(NumericUtils.NotAnInteger(text, type));
         }
 
         if (parsed && exact >= range.Min && exact <= range.Max)
@@ -1296,7 +1295,7 @@ internal static class NativeTypedMaterializer
     }
 
     /// <summary>
-    /// Handles a number with a fractional part for an integer <paramref name="type"/> as the direct route and 4.x do. The
+    /// Rejects a number with a fractional part for an integer <paramref name="type"/>, as the direct route and 4.x do. The
     /// fraction is judged from the kept source text when there is one, because the parse can round <c>1e-29</c> to zero.
     /// </summary>
     private static bool TryConvertFraction(NativePrimitiveNode primitive, Type type, out object? value)
@@ -1315,8 +1314,7 @@ internal static class NativeTypedMaterializer
             return false;
         }
 
-        value = NumericUtils.ConvertFractionToInteger(type, amount, primitive.NumberText ?? number.ToString("R", CultureInfo.InvariantCulture));
-        return true;
+        throw ToonFormatException.Syntax(NumericUtils.NotAnInteger(primitive.NumberText ?? number.ToString("R", CultureInfo.InvariantCulture), type));
     }
 
     private static bool TryGetNumber(NativePrimitiveNode primitive, out double number, out decimal? exact)

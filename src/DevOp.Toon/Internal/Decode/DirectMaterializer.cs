@@ -2104,7 +2104,7 @@ namespace DevOp.Toon.Internal.Decode
                         throw ToonFormatException.Syntax(OutsideFiniteRange);
                     }
 
-                    value = doubleValue;
+                    value = FloatUtils.NormalizeSignedZero(doubleValue);
                     return true;
                 }
 
@@ -2124,7 +2124,7 @@ namespace DevOp.Toon.Internal.Decode
                         throw ToonFormatException.Syntax(OutsideFiniteRange);
                     }
 
-                    value = floatValue;
+                    value = FloatUtils.NormalizeSignedZero(floatValue);
                     return true;
                 }
 
@@ -2376,8 +2376,7 @@ namespace DevOp.Toon.Internal.Decode
         /// Handles a token that did not parse as the numeric <paramref name="type"/> instead of leaving the member at its
         /// default, converting what 4.x decoding converts and otherwise throwing a format error. A number the type cannot hold
         /// throws the error the native and JSON routes report; an integral number in exponent or fraction form that fits an
-        /// integer type converts; a fraction rounds into byte, sbyte, short and ushort and is outside the range of the other
-        /// integer types. Any other token converts as 4.x converts it: <c>null</c> to zero, <c>true</c> and <c>false</c> to one
+        /// integer type converts; a fraction is not an integer for any integer type. Any other token converts as 4.x converts it: <c>null</c> to zero, <c>true</c> and <c>false</c> to one
         /// and zero, and text, quoted or not, by the invariant parse of the type.
         /// </summary>
         private static bool TryConvertNumberOutsideType(Type type, ReadOnlySpan<char> token, out object? value)
@@ -2400,8 +2399,7 @@ namespace DevOp.Toon.Internal.Decode
             {
                 if (!NumericUtils.IsIntegralNumberText(text))
                 {
-                    value = NumericUtils.ConvertFractionToInteger(type, exact, text);
-                    return true;
+                    throw ToonFormatException.Syntax(NumericUtils.NotAnInteger(text, type));
                 }
 
                 value = NarrowInteger(type, exact);

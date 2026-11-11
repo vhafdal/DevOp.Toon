@@ -36,6 +36,7 @@ internal static class V4Materialization
 
     internal delegate bool PrimitiveSetter(object instance, ReadOnlySpan<char> token);
     private delegate T SpanParser<T>(ReadOnlySpan<char> token);
+    private delegate bool SpanTryParser<T>(ReadOnlySpan<char> token, out T value);
 
     internal sealed class Member
     {
@@ -161,31 +162,58 @@ internal static class V4Materialization
     {
         var nullable = Nullable.GetUnderlyingType(property.PropertyType);
         var type = nullable ?? property.PropertyType;
-        if (type == typeof(bool)) return nullable == null ? BuildSetter<bool>(property, ParseBoolean) : BuildSetter<bool?>(property, token => ParseBoolean(token));
-        if (type == typeof(byte)) return nullable == null ? BuildSetter<byte>(property, ParseByte) : BuildSetter<byte?>(property, token => ParseByte(token));
-        if (type == typeof(sbyte)) return nullable == null ? BuildSetter<sbyte>(property, ParseSByte) : BuildSetter<sbyte?>(property, token => ParseSByte(token));
-        if (type == typeof(short)) return nullable == null ? BuildSetter<short>(property, ParseInt16) : BuildSetter<short?>(property, token => ParseInt16(token));
-        if (type == typeof(ushort)) return nullable == null ? BuildSetter<ushort>(property, ParseUInt16) : BuildSetter<ushort?>(property, token => ParseUInt16(token));
-        if (type == typeof(int)) return nullable == null ? BuildSetter<int>(property, ParseInt32) : BuildSetter<int?>(property, token => ParseInt32(token));
-        if (type == typeof(uint)) return nullable == null ? BuildSetter<uint>(property, ParseUInt32) : BuildSetter<uint?>(property, token => ParseUInt32(token));
-        if (type == typeof(long)) return nullable == null ? BuildSetter<long>(property, ParseInt64) : BuildSetter<long?>(property, token => ParseInt64(token));
-        if (type == typeof(ulong)) return nullable == null ? BuildSetter<ulong>(property, ParseUInt64) : BuildSetter<ulong?>(property, token => ParseUInt64(token));
-        if (type == typeof(float)) return nullable == null ? BuildSetter<float>(property, ParseSingle) : BuildSetter<float?>(property, token => ParseSingle(token));
-        if (type == typeof(double)) return nullable == null ? BuildSetter<double>(property, ParseDouble) : BuildSetter<double?>(property, token => ParseDouble(token));
-        if (type == typeof(decimal)) return nullable == null ? BuildSetter<decimal>(property, ParseDecimal) : BuildSetter<decimal?>(property, token => ParseDecimal(token));
+        if (type == typeof(bool)) return nullable == null ? BuildTrySetter<bool>(property, TryBoolean) : BuildTrySetter(property, Lift<bool>(TryBoolean));
+        if (type == typeof(byte)) return nullable == null ? BuildTrySetter<byte>(property, TryByte) : BuildTrySetter(property, Lift<byte>(TryByte));
+        if (type == typeof(sbyte)) return nullable == null ? BuildTrySetter<sbyte>(property, TrySByte) : BuildTrySetter(property, Lift<sbyte>(TrySByte));
+        if (type == typeof(short)) return nullable == null ? BuildTrySetter<short>(property, TryInt16) : BuildTrySetter(property, Lift<short>(TryInt16));
+        if (type == typeof(ushort)) return nullable == null ? BuildTrySetter<ushort>(property, TryUInt16) : BuildTrySetter(property, Lift<ushort>(TryUInt16));
+        if (type == typeof(int)) return nullable == null ? BuildTrySetter<int>(property, TryInt32) : BuildTrySetter(property, Lift<int>(TryInt32));
+        if (type == typeof(uint)) return nullable == null ? BuildTrySetter<uint>(property, TryUInt32) : BuildTrySetter(property, Lift<uint>(TryUInt32));
+        if (type == typeof(long)) return nullable == null ? BuildTrySetter<long>(property, TryInt64) : BuildTrySetter(property, Lift<long>(TryInt64));
+        if (type == typeof(ulong)) return nullable == null ? BuildTrySetter<ulong>(property, TryUInt64) : BuildTrySetter(property, Lift<ulong>(TryUInt64));
+        if (type == typeof(float)) return nullable == null ? BuildTrySetter<float>(property, TrySingle) : BuildTrySetter(property, Lift<float>(TrySingle));
+        if (type == typeof(double)) return nullable == null ? BuildTrySetter<double>(property, TryDouble) : BuildTrySetter(property, Lift<double>(TryDouble));
+        if (type == typeof(decimal)) return nullable == null ? BuildTrySetter<decimal>(property, TryDecimal) : BuildTrySetter(property, Lift<decimal>(TryDecimal));
         return null;
     }
 
-    private static PrimitiveSetter BuildSetter<T>(PropertyInfo property, SpanParser<T> parser, bool handleNull = true)
+    private static SpanTryParser<T?> Lift<T>(SpanTryParser<T> parser) where T : struct
+        => (ReadOnlySpan<char> token, out T? value) =>
+        {
+            var parsed = parser(token, out var inner);
+            value = inner;
+            return parsed;
+        };
+
+    // A token the parser rejects falls back to the reader, which binds it again and reports why it does not fit.
+    private static PrimitiveSetter BuildTrySetter<T>(PropertyInfo property, SpanTryParser<T> parser)
+    {
+        var setter = CompileSetter<T>(property);
+        return (target, token) =>
+        {
+            T parsed;
+            if (token.SequenceEqual("null")) parsed = default!;
+            else if (!parser(token, out parsed)) return false;
+            setter(target, parsed);
+            return true;
+        };
+    }
+
+    private static Action<object, T> CompileSetter<T>(PropertyInfo property)
     {
         var instance = Expression.Parameter(typeof(object), "instance");
         var value = Expression.Parameter(typeof(T), "value");
         var declaring = property.DeclaringType!;
-        var setter = Expression.Lambda<Action<object, T>>(Expression.Call(declaring.IsValueType ? Expression.Unbox(instance, declaring) : Expression.Convert(instance, declaring), property.SetMethod!, value), instance, value).Compile();
+        return Expression.Lambda<Action<object, T>>(Expression.Call(declaring.IsValueType ? Expression.Unbox(instance, declaring) : Expression.Convert(instance, declaring), property.SetMethod!, value), instance, value).Compile();
+    }
+
+    private static PrimitiveSetter BuildSetter<T>(PropertyInfo property, SpanParser<T> parser)
+    {
+        var setter = CompileSetter<T>(property);
         return (target, token) =>
         {
             T parsed;
-            try { parsed = handleNull && token.SequenceEqual("null") ? default! : parser(token); }
+            try { parsed = parser(token); }
             catch (FormatException) { return false; }
             catch (OverflowException) { return false; }
             setter(target, parsed);
@@ -197,13 +225,13 @@ internal static class V4Materialization
     {
         var nullable = Nullable.GetUnderlyingType(property.PropertyType);
         var type = nullable ?? property.PropertyType;
-        if (type == typeof(DateTime)) return nullable == null ? BuildSetter<DateTime>(property, ParseDateTime, handleNull: false) : BuildSetter<DateTime?>(property, token => ParseDateTime(token), handleNull: false);
-        if (type == typeof(DateTimeOffset)) return nullable == null ? BuildSetter<DateTimeOffset>(property, ParseDateTimeOffset, handleNull: false) : BuildSetter<DateTimeOffset?>(property, token => ParseDateTimeOffset(token), handleNull: false);
-        if (type == typeof(Guid)) return nullable == null ? BuildSetter<Guid>(property, ParseGuid, handleNull: false) : BuildSetter<Guid?>(property, token => ParseGuid(token), handleNull: false);
-        if (type == typeof(TimeSpan)) return nullable == null ? BuildSetter<TimeSpan>(property, ParseTimeSpan, handleNull: false) : BuildSetter<TimeSpan?>(property, token => ParseTimeSpan(token), handleNull: false);
+        if (type == typeof(DateTime)) return nullable == null ? BuildSetter<DateTime>(property, ParseDateTime) : BuildSetter<DateTime?>(property, token => ParseDateTime(token));
+        if (type == typeof(DateTimeOffset)) return nullable == null ? BuildSetter<DateTimeOffset>(property, ParseDateTimeOffset) : BuildSetter<DateTimeOffset?>(property, token => ParseDateTimeOffset(token));
+        if (type == typeof(Guid)) return nullable == null ? BuildSetter<Guid>(property, ParseGuid) : BuildSetter<Guid?>(property, token => ParseGuid(token));
+        if (type == typeof(TimeSpan)) return nullable == null ? BuildSetter<TimeSpan>(property, ParseTimeSpan) : BuildSetter<TimeSpan?>(property, token => ParseTimeSpan(token));
 #if NET6_0_OR_GREATER
-        if (type == typeof(DateOnly)) return nullable == null ? BuildSetter<DateOnly>(property, ParseDateOnly, handleNull: false) : BuildSetter<DateOnly?>(property, token => ParseDateOnly(token), handleNull: false);
-        if (type == typeof(TimeOnly)) return nullable == null ? BuildSetter<TimeOnly>(property, ParseTimeOnly, handleNull: false) : BuildSetter<TimeOnly?>(property, token => ParseTimeOnly(token), handleNull: false);
+        if (type == typeof(DateOnly)) return nullable == null ? BuildSetter<DateOnly>(property, ParseDateOnly) : BuildSetter<DateOnly?>(property, token => ParseDateOnly(token));
+        if (type == typeof(TimeOnly)) return nullable == null ? BuildSetter<TimeOnly>(property, ParseTimeOnly) : BuildSetter<TimeOnly?>(property, token => ParseTimeOnly(token));
 #endif
         return null;
     }
@@ -251,124 +279,68 @@ internal static class V4Materialization
     private static TimeOnly ParseTimeOnly(ReadOnlySpan<char> token) => TimeOnly.Parse(token, CultureInfo.InvariantCulture);
 #endif
 
-    private static bool ParseBoolean(ReadOnlySpan<char> token)
+    private static bool TryBoolean(ReadOnlySpan<char> token, out bool value)
     {
-        if (token.SequenceEqual("true")) return true;
-        if (token.SequenceEqual("false")) return false;
-        throw new FormatException("Not a boolean token.");
+        value = token.SequenceEqual("true");
+        return value || token.SequenceEqual("false");
     }
 
-    private static byte ParseByte(ReadOnlySpan<char> token)
+    private static bool TryByte(ReadOnlySpan<char> token, out byte value)
     {
-#if NETSTANDARD2_0
-        var value = byte.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-#else
-        var value = byte.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
-#endif
-        return value == 0 ? default : value;
+        var bound = NumericUtils.TryBindUnsigned(token, byte.MaxValue, out var number) == NumberBinding.Bound;
+        value = (byte)number;
+        return bound;
     }
 
-    private static sbyte ParseSByte(ReadOnlySpan<char> token)
+    private static bool TrySByte(ReadOnlySpan<char> token, out sbyte value)
     {
-#if NETSTANDARD2_0
-        var value = sbyte.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-#else
-        var value = sbyte.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
-#endif
-        return value == 0 ? default : value;
+        var bound = NumericUtils.TryBindSigned(token, sbyte.MinValue, sbyte.MaxValue, out var number) == NumberBinding.Bound;
+        value = (sbyte)number;
+        return bound;
     }
 
-    private static short ParseInt16(ReadOnlySpan<char> token)
+    private static bool TryInt16(ReadOnlySpan<char> token, out short value)
     {
-#if NETSTANDARD2_0
-        var value = short.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-#else
-        var value = short.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
-#endif
-        return value == 0 ? default : value;
+        var bound = NumericUtils.TryBindSigned(token, short.MinValue, short.MaxValue, out var number) == NumberBinding.Bound;
+        value = (short)number;
+        return bound;
     }
 
-    private static ushort ParseUInt16(ReadOnlySpan<char> token)
+    private static bool TryUInt16(ReadOnlySpan<char> token, out ushort value)
     {
-#if NETSTANDARD2_0
-        var value = ushort.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-#else
-        var value = ushort.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
-#endif
-        return value == 0 ? default : value;
+        var bound = NumericUtils.TryBindUnsigned(token, ushort.MaxValue, out var number) == NumberBinding.Bound;
+        value = (ushort)number;
+        return bound;
     }
 
-    private static int ParseInt32(ReadOnlySpan<char> token)
+    private static bool TryInt32(ReadOnlySpan<char> token, out int value)
     {
-#if NETSTANDARD2_0
-        var value = int.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-#else
-        var value = int.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
-#endif
-        return value == 0 ? default : value;
+        var bound = NumericUtils.TryBindSigned(token, int.MinValue, int.MaxValue, out var number) == NumberBinding.Bound;
+        value = (int)number;
+        return bound;
     }
 
-    private static uint ParseUInt32(ReadOnlySpan<char> token)
+    private static bool TryUInt32(ReadOnlySpan<char> token, out uint value)
     {
-#if NETSTANDARD2_0
-        var value = uint.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-#else
-        var value = uint.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
-#endif
-        return value == 0 ? default : value;
+        var bound = NumericUtils.TryBindUnsigned(token, uint.MaxValue, out var number) == NumberBinding.Bound;
+        value = (uint)number;
+        return bound;
     }
 
-    private static long ParseInt64(ReadOnlySpan<char> token)
-    {
-#if NETSTANDARD2_0
-        var value = long.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-#else
-        var value = long.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
-#endif
-        return value == 0 ? default : value;
-    }
+    private static bool TryInt64(ReadOnlySpan<char> token, out long value)
+        => NumericUtils.TryBindSigned(token, long.MinValue, long.MaxValue, out value) == NumberBinding.Bound;
 
-    private static ulong ParseUInt64(ReadOnlySpan<char> token)
-    {
-#if NETSTANDARD2_0
-        var value = ulong.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-#else
-        var value = ulong.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
-#endif
-        return value == 0 ? default : value;
-    }
+    private static bool TryUInt64(ReadOnlySpan<char> token, out ulong value)
+        => NumericUtils.TryBindUnsigned(token, ulong.MaxValue, out value) == NumberBinding.Bound;
 
-    private static float ParseSingle(ReadOnlySpan<char> token)
-    {
-#if NETSTANDARD2_0
-        var value = float.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-#else
-        var value = float.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
-#endif
-        if (float.IsInfinity(value) || float.IsNaN(value)) throw new OverflowException();
-        return value == 0 ? default : value;
-    }
+    private static bool TrySingle(ReadOnlySpan<char> token, out float value)
+        => NumericUtils.TryBindSingle(token, out value) == NumberBinding.Bound;
 
-    private static double ParseDouble(ReadOnlySpan<char> token)
-    {
-#if NETSTANDARD2_0
-        var value = double.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-#else
-        var value = double.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
-#endif
-        if (double.IsInfinity(value) || double.IsNaN(value)) throw new OverflowException();
-        return value == 0 ? default : value;
-    }
+    private static bool TryDouble(ReadOnlySpan<char> token, out double value)
+        => NumericUtils.TryBindDouble(token, out value) == NumberBinding.Bound;
 
-    private static decimal ParseDecimal(ReadOnlySpan<char> token)
-    {
-#if NETSTANDARD2_0
-        var value = decimal.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-#else
-        var value = decimal.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
-#endif
-        return value == 0 ? default : value;
-    }
+    private static bool TryDecimal(ReadOnlySpan<char> token, out decimal value)
+        => NumericUtils.TryBindDecimal(token, out value) == NumberBinding.Bound;
 
     internal struct ObjectBuilder
     {
@@ -554,30 +526,26 @@ internal static class V4Materialization
         var effective = Nullable.GetUnderlyingType(type) ?? type;
         var numberType = effective.IsEnum ? Enum.GetUnderlyingType(effective) : effective;
         if (!IsNumeric(numberType)) return Scalar(parsed, type, out error);
-#if NETSTANDARD2_0
-        var numericText = token.ToString();
-#else
-        var numericText = token;
-#endif
         object value;
-        try
+        NumberBinding result;
+        if (numberType == typeof(double)) { result = NumberBinding.Bound; value = parsed; }
+        else if (numberType == typeof(int)) { result = NumericUtils.TryBindSigned(token, int.MinValue, int.MaxValue, out var number); value = (int)number; }
+        else if (numberType == typeof(long)) { result = NumericUtils.TryBindSigned(token, long.MinValue, long.MaxValue, out var number); value = number; }
+        else if (numberType == typeof(decimal)) { result = NumericUtils.TryBindDecimal(token, out var number); value = number; }
+        else if (numberType == typeof(float)) { result = NumericUtils.TryBindSingle(token, out var number); value = number; }
+        else if (numberType == typeof(short)) { result = NumericUtils.TryBindSigned(token, short.MinValue, short.MaxValue, out var number); value = (short)number; }
+        else if (numberType == typeof(byte)) { result = NumericUtils.TryBindUnsigned(token, byte.MaxValue, out var number); value = (byte)number; }
+        else if (numberType == typeof(uint)) { result = NumericUtils.TryBindUnsigned(token, uint.MaxValue, out var number); value = (uint)number; }
+        else if (numberType == typeof(ulong)) { result = NumericUtils.TryBindUnsigned(token, ulong.MaxValue, out var number); value = number; }
+        else if (numberType == typeof(ushort)) { result = NumericUtils.TryBindUnsigned(token, ushort.MaxValue, out var number); value = (ushort)number; }
+        else { result = NumericUtils.TryBindSigned(token, sbyte.MinValue, sbyte.MaxValue, out var number); value = (sbyte)number; }
+        switch (result)
         {
-            if (numberType == typeof(decimal)) value = decimal.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
-            else if (numberType == typeof(long)) value = long.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
-            else if (numberType == typeof(ulong)) value = ulong.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
-            else if (numberType == typeof(int)) value = int.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
-            else if (numberType == typeof(uint)) value = uint.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
-            else if (numberType == typeof(float))
-            {
-                var single = (float)parsed;
-                if (float.IsInfinity(single)) { error = OutsideRange(token.ToString(), effective); return null; }
-                value = single;
-            }
-            else value = System.Convert.ChangeType(parsed, numberType, CultureInfo.InvariantCulture);
+            case NumberBinding.Bound: return effective.IsEnum ? Enum.ToObject(effective, value) : value;
+            case NumberBinding.Fraction: error = NumericUtils.NotAnInteger(token.ToString(), effective); return null;
+            case NumberBinding.OutOfRange: error = NumericUtils.OutsideRange(token.ToString(), effective); return null;
+            default: error = NotValid(token.ToString(), effective); return null;
         }
-        catch (OverflowException) { error = OutsideRange(token.ToString(), effective); return null; }
-        catch (FormatException) { error = NotValid(token.ToString(), effective); return null; }
-        return effective.IsEnum ? Enum.ToObject(effective, value) : value;
     }
 
     /// <summary>
@@ -598,12 +566,12 @@ internal static class V4Materialization
         {
             var converted = Convert(value, type);
             if (converted is double number && (double.IsInfinity(number) || double.IsNaN(number)) && value is string numberText && NumericUtils.IsNumberShaped(numberText.Trim()))
-            { error = OutsideRange(numberText, type); return null; }
+            { error = NumericUtils.OutsideRange(numberText, type); return null; }
             if (converted is float single && (float.IsInfinity(single) || float.IsNaN(single)) && value is string singleText && NumericUtils.IsNumberShaped(singleText.Trim()))
-            { error = OutsideRange(singleText, type); return null; }
+            { error = NumericUtils.OutsideRange(singleText, type); return null; }
             return converted;
         }
-        catch (OverflowException) { error = OutsideRange(Text(value), type); }
+        catch (OverflowException) { error = NumericUtils.OutsideRange(Text(value), type); }
         catch (FormatException) { error = NotValid(Text(value), type); }
         catch (ArgumentException) { error = NotValid(Text(value), type); }
         return null;
@@ -640,8 +608,6 @@ internal static class V4Materialization
            || type == typeof(short) || type == typeof(byte) || type == typeof(uint) || type == typeof(ulong) || type == typeof(ushort) || type == typeof(sbyte);
 
     private static string Text(object value) => value is bool flag ? (flag ? "true" : "false") : System.Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
-
-    private static string OutsideRange(string token, Type type) => $"Number {token} is outside the range of {type.FullName}";
 
     private static string NotValid(string token, Type type) => $"Value {token} is not a valid {type.FullName}";
 }
