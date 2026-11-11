@@ -190,8 +190,9 @@ A token that does not fit throws `ToonFormatException` with `Kind` `Syntax` and 
 the token and the CLR type, for example `Number 1.5 is not an integer (System.Int16)` or
 `Number 300 is outside the range of System.Byte`. On the 4.x profiles `LineNumber` is the line of
 the token. The same applies to `bool`, `Guid`, `char`, date, time, `Uri`, `Version` and byte array
-members given a token they cannot take, such as `abc` for a `Guid` or `42` for a `DateTime`; on the
-`V3_0` and `CustomLegacy` direct route such a member no longer keeps its default. 0.4.0 let
+members given a token they cannot take, such as `abc` for a `Guid` or `42` for a `DateTime`. On the
+`V3_0` and `CustomLegacy` direct route a `bool`, `Guid`, `char`, date or time member given a token
+it cannot parse no longer keeps its default; it converts or fails as on 4.x. 0.4.0 let
 `OverflowException`, `FormatException`, `ArgumentException` or `InvalidCastException` escape on the
 4.x profiles, so code that caught those types must catch `ToonFormatException` instead. A member
 type the decoder does not support keeps its own exception. The binding rule does not depend
