@@ -627,12 +627,14 @@ internal static class V4Decoder
         private object? Primitive(ReadOnlySpan<char> token, bool allowEmptyArray, Type? targetType)
         {
             token = TrimSpan(token);
-            if (token.Length > 0 && token[0] == '"') return V4Materialization.Scalar(String(token), targetType);
-            if (allowEmptyArray && token.SequenceEqual("[]")) return new V4Materialization.ArrayBuilder(targetType).Finish();
-            if (token.SequenceEqual("null")) return V4Materialization.Scalar(null, targetType);
-            if (token.SequenceEqual("true")) return V4Materialization.Scalar(true, targetType);
-            if (token.SequenceEqual("false")) return V4Materialization.Scalar(false, targetType);
-            if (NumberGrammar(token))
+            string? error;
+            object? value;
+            if (token.Length > 0 && token[0] == '"') value = V4Materialization.Scalar(String(token), targetType, out error);
+            else if (allowEmptyArray && token.SequenceEqual("[]")) return new V4Materialization.ArrayBuilder(targetType).Finish();
+            else if (token.SequenceEqual("null")) value = V4Materialization.Scalar(null, targetType, out error);
+            else if (token.SequenceEqual("true")) value = V4Materialization.Scalar(true, targetType, out error);
+            else if (token.SequenceEqual("false")) value = V4Materialization.Scalar(false, targetType, out error);
+            else if (NumberGrammar(token))
             {
 #if NETSTANDARD2_0
                 var parsed = double.TryParse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number);
@@ -641,14 +643,22 @@ internal static class V4Decoder
 #endif
                 if (!parsed || double.IsInfinity(number) || double.IsNaN(number))
                 {
-                    if (!options.Strict && version < 404) return V4Materialization.Scalar(targetType == typeof(void) ? null : token.ToString(), targetType);
-                    throw Error("Number outside supported finite range");
+                    if (options.Strict || version >= 404) throw Error("Number outside supported finite range");
+                    value = V4Materialization.Scalar(targetType == typeof(void) ? null : token.ToString(), targetType, out error);
                 }
-                return V4Materialization.Number(token, number == 0 ? 0d : number, targetType);
+                else value = V4Materialization.Number(token, number == 0 ? 0d : number, targetType, out error);
             }
-            ValidateUnicode(token);
-            return V4Materialization.Scalar(targetType == typeof(void) ? null : token.ToString(), targetType);
+            else
+            {
+                ValidateUnicode(token);
+                value = V4Materialization.Scalar(targetType == typeof(void) ? null : token.ToString(), targetType, out error);
+            }
+            if (error != null) throw BindingError(error);
+            return value;
         }
+
+        // Every caller has consumed the token's line, so it is the previous one.
+        private ToonFormatException BindingError(string message) => ToonFormatException.Syntax(message, lines[index - 1].Number);
 
         private string String(ReadOnlySpan<char> token)
         {

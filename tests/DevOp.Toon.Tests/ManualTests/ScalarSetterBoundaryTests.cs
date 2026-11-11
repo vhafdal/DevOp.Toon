@@ -18,12 +18,13 @@ public sealed class ScalarSetterBoundaryTests
     }
 
     [Theory]
-    [InlineData("bad", typeof(FormatException))]
-    [InlineData("999999999999999999999999", typeof(OverflowException))]
-    public void Decode_ParserFailure_DoesNotCallUserSetter(string token, Type exceptionType)
+    [InlineData("bad")]
+    [InlineData("999999999999999999999999")]
+    public void Decode_ParserFailure_ThrowsFormatExceptionWithoutCallingUserSetter(string token)
     {
         CountingSetter.Calls = 0;
-        Assert.Throws(exceptionType, () => ToonDecoder.Decode<CountingSetter>("Value: " + token, Options()));
+        var error = Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode<CountingSetter>("Value: " + token, Options()));
+        Assert.Equal(1, error.LineNumber);
         Assert.Equal(0, CountingSetter.Calls);
     }
 
@@ -43,6 +44,15 @@ public sealed class ScalarSetterBoundaryTests
         var error = Assert.Throws<OverflowException>(() => ToonDecoder.Decode<OverflowSetter>("Value: 1", Options()));
         Assert.Equal("user setter", error.Message);
         Assert.Equal(1, OverflowSetter.Calls);
+    }
+
+    [Fact]
+    public void Decode_UserConstructorOverflowException_PropagatesExactlyOnce()
+    {
+        OverflowConstructor.Calls = 0;
+        var error = Assert.Throws<OverflowException>(() => ToonDecoder.Decode<List<OverflowConstructor>>("[1]{Value}:\n  1", Options()));
+        Assert.Equal("user constructor", error.Message);
+        Assert.Equal(1, OverflowConstructor.Calls);
     }
 
     private static ToonDecodeOptions Options() => new() { ProtocolVersion = ToonProtocolVersion.V4_4, Indent = 2 };
@@ -71,5 +81,18 @@ public sealed class ScalarSetterBoundaryTests
     {
         internal static int Calls;
         public int Value { set { Calls++; throw new OverflowException("user setter"); } }
+    }
+
+    public sealed class OverflowConstructor
+    {
+        internal static int Calls;
+
+        public OverflowConstructor(int value)
+        {
+            Calls++;
+            throw new OverflowException("user constructor");
+        }
+
+        public int Value { get; }
     }
 }

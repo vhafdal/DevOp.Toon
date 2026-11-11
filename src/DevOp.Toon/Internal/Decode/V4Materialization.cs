@@ -345,7 +345,7 @@ internal static class V4Materialization
 #else
         var value = float.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
 #endif
-        if (float.IsInfinity(value) || float.IsNaN(value)) throw ToonFormatException.Syntax("Number outside supported finite range");
+        if (float.IsInfinity(value) || float.IsNaN(value)) throw new OverflowException();
         return value == 0 ? default : value;
     }
 
@@ -356,7 +356,7 @@ internal static class V4Materialization
 #else
         var value = double.Parse(token, NumberStyles.Float, CultureInfo.InvariantCulture);
 #endif
-        if (double.IsInfinity(value) || double.IsNaN(value)) throw ToonFormatException.Syntax("Number outside supported finite range");
+        if (double.IsInfinity(value) || double.IsNaN(value)) throw new OverflowException();
         return value == 0 ? default : value;
     }
 
@@ -543,34 +543,74 @@ internal static class V4Materialization
         }
     }
 
-    internal static object? Number(ReadOnlySpan<char> token, double parsed, Type? type)
+    /// <summary>
+    /// Binds a number token to <paramref name="type"/>. A value the type cannot hold sets <paramref name="error"/> instead of
+    /// throwing, so that the reader reports it with the token's line.
+    /// </summary>
+    internal static object? Number(ReadOnlySpan<char> token, double parsed, Type? type, out string? error)
     {
-        if (type == null || type == typeof(void) || type == typeof(object)) return Scalar(parsed, type);
+        error = null;
+        if (type == null || type == typeof(void) || type == typeof(object)) return Scalar(parsed, type, out error);
         var effective = Nullable.GetUnderlyingType(type) ?? type;
+        var numberType = effective.IsEnum ? Enum.GetUnderlyingType(effective) : effective;
+        if (!IsNumeric(numberType)) return Scalar(parsed, type, out error);
 #if NETSTANDARD2_0
         var numericText = token.ToString();
 #else
         var numericText = token;
 #endif
-        var numberType = effective.IsEnum ? Enum.GetUnderlyingType(effective) : effective;
         object value;
-        if (numberType == typeof(decimal)) value = decimal.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
-        else if (numberType == typeof(long)) value = long.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
-        else if (numberType == typeof(ulong)) value = ulong.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
-        else if (numberType == typeof(int)) value = int.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
-        else if (numberType == typeof(uint)) value = uint.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
-        else return Scalar(parsed, type);
+        try
+        {
+            if (numberType == typeof(decimal)) value = decimal.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
+            else if (numberType == typeof(long)) value = long.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
+            else if (numberType == typeof(ulong)) value = ulong.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
+            else if (numberType == typeof(int)) value = int.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
+            else if (numberType == typeof(uint)) value = uint.Parse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture);
+            else if (numberType == typeof(float))
+            {
+                var single = (float)parsed;
+                if (float.IsInfinity(single)) { error = OutsideRange(token.ToString(), effective); return null; }
+                value = single;
+            }
+            else value = System.Convert.ChangeType(parsed, numberType, CultureInfo.InvariantCulture);
+        }
+        catch (OverflowException) { error = OutsideRange(token.ToString(), effective); return null; }
+        catch (FormatException) { error = NotValid(token.ToString(), effective); return null; }
         return effective.IsEnum ? Enum.ToObject(effective, value) : value;
     }
 
-    internal static object? Scalar(object? value, Type? type)
+    /// <summary>
+    /// Converts a decoded scalar (text, a boolean, a number or <see langword="null"/>) to <paramref name="type"/>. A value
+    /// the type cannot hold sets <paramref name="error"/> instead of throwing.
+    /// </summary>
+    internal static object? Scalar(object? value, Type? type, out string? error)
     {
+        error = null;
         if (type == null) return new NativePrimitiveNode(value);
         if (type == typeof(void)) return null;
         var nullable = Nullable.GetUnderlyingType(type);
         if (value == null) return nullable != null || !type.IsValueType ? null : Activator.CreateInstance(type);
         type = nullable ?? type;
         if (type.IsInstanceOfType(value)) return value;
+        if (!type.IsEnum && !IsNumeric(type)) return Convert(value, type);
+        try
+        {
+            var converted = Convert(value, type);
+            if (converted is double number && (double.IsInfinity(number) || double.IsNaN(number)) && value is string numberText && NumericUtils.IsNumberShaped(numberText.Trim()))
+            { error = OutsideRange(numberText, type); return null; }
+            if (converted is float single && (float.IsInfinity(single) || float.IsNaN(single)) && value is string singleText && NumericUtils.IsNumberShaped(singleText.Trim()))
+            { error = OutsideRange(singleText, type); return null; }
+            return converted;
+        }
+        catch (OverflowException) { error = OutsideRange(Text(value), type); }
+        catch (FormatException) { error = NotValid(Text(value), type); }
+        catch (ArgumentException) { error = NotValid(Text(value), type); }
+        return null;
+    }
+
+    private static object? Convert(object value, Type type)
+    {
         if (type.IsEnum) return value is string text ? Enum.Parse(type, text, false) : Enum.ToObject(type, System.Convert.ChangeType(value, Enum.GetUnderlyingType(type), CultureInfo.InvariantCulture)!);
         if (value is string str)
         {
@@ -594,4 +634,14 @@ internal static class V4Materialization
         }
         return System.Convert.ChangeType(value, type, CultureInfo.InvariantCulture);
     }
+
+    private static bool IsNumeric(Type type)
+        => type == typeof(int) || type == typeof(long) || type == typeof(double) || type == typeof(decimal) || type == typeof(float)
+           || type == typeof(short) || type == typeof(byte) || type == typeof(uint) || type == typeof(ulong) || type == typeof(ushort) || type == typeof(sbyte);
+
+    private static string Text(object value) => value is bool flag ? (flag ? "true" : "false") : System.Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+
+    private static string OutsideRange(string token, Type type) => $"Number {token} is outside the range of {type.FullName}";
+
+    private static string NotValid(string token, Type type) => $"Value {token} is not a valid {type.FullName}";
 }
