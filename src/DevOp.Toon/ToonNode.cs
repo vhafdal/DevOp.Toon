@@ -379,7 +379,16 @@ public abstract class ToonNode
 
             if (long.TryParse(token, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var integer))
                 return new ToonValue(integer);
-            var parsedNumber = FloatUtils.NormalizeSignedZero(double.Parse(token, CultureInfo.InvariantCulture));
+            // .NET Framework fails the parse of a number beyond the double range where .NET gives an infinity, which
+            // ToonService then rejects; give the .NET result on every runtime.
+            if (!double.TryParse(token, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var number))
+            {
+                if (!NumericUtils.IsNumberShaped(token)) number = double.Parse(token, CultureInfo.InvariantCulture);
+                else if (NumericUtils.IsAtLeastOne(token)) number = token[0] == '-' ? double.NegativeInfinity : double.PositiveInfinity;
+                else number = 0d;
+            }
+
+            var parsedNumber = FloatUtils.NormalizeSignedZero(number);
 
             return keepNumberText ? new ToonValue(parsedNumber, token) : new ToonValue(parsedNumber);
         }

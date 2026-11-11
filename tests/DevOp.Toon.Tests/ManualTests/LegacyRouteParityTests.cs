@@ -197,7 +197,7 @@ public sealed class LegacyRouteParityTests
         Assert.Equal(long.MinValue, decoded.NLng);
         Assert.Equal(1e30, decoded.Dbl);
         Assert.Equal((short)-2, decoded.Sht);
-        AssertRangeError("Number 1.5 is outside the range of System.Int32", () => new ToonService().Deserialize<Numbers>("{\"Int\":1.5}", "application/json"));
+        AssertRangeError("Number 1.5 is not an integer (System.Int32)", () => new ToonService().Deserialize<Numbers>("{\"Int\":1.5}", "application/json"));
     }
 
     public static TheoryData<ToonProtocolVersion, string, string, string> DirectOutOfRangeCases
@@ -281,12 +281,16 @@ public sealed class LegacyRouteParityTests
             var data = new TheoryData<ToonProtocolVersion, string, string, string>();
             foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
             {
-                data.Add(version, "Int", "1.5", "Number 1.5 is outside the range of System.Int32");
-                data.Add(version, "NInt", "-0.5", "Number -0.5 is outside the range of System.Int32");
-                data.Add(version, "NLng", "1.5", "Number 1.5 is outside the range of System.Int64");
-                data.Add(version, "UInt", "0.5", "Number 0.5 is outside the range of System.UInt32");
-                data.Add(version, "ULng", "2.5e0", "Number 2.5e0 is outside the range of System.UInt64");
-                data.Add(version, "Byt", "255.6", "Number 255.6 is outside the range of System.Byte");
+                data.Add(version, "Int", "1.5", "Number 1.5 is not an integer (System.Int32)");
+                data.Add(version, "NInt", "-0.5", "Number -0.5 is not an integer (System.Int32)");
+                data.Add(version, "NLng", "1.5", "Number 1.5 is not an integer (System.Int64)");
+                data.Add(version, "UInt", "0.5", "Number 0.5 is not an integer (System.UInt32)");
+                data.Add(version, "ULng", "2.5e0", "Number 2.5e0 is not an integer (System.UInt64)");
+                data.Add(version, "Byt", "255.6", "Number 255.6 is not an integer (System.Byte)");
+                data.Add(version, "Byt", "1.5", "Number 1.5 is not an integer (System.Byte)");
+                data.Add(version, "Byt", "-0.5", "Number -0.5 is not an integer (System.Byte)");
+                data.Add(version, "Sht", "2.5", "Number 2.5 is not an integer (System.Int16)");
+                data.Add(version, "Sht", "-1.5e0", "Number -1.5e0 is not an integer (System.Int16)");
                 data.Add(version, "Int", "abc", "Value abc is not a valid System.Int32");
                 data.Add(version, "Int", "\"1.5\"", "Value 1.5 is not a valid System.Int32");
                 data.Add(version, "Int", "Infinity", "Value Infinity is not a valid System.Int32");
@@ -296,6 +300,11 @@ public sealed class LegacyRouteParityTests
                 data.Add(version, "Dbl", "abc", "Value abc is not a valid System.Double");
                 data.Add(version, "Flt", "0x10", "Value 0x10 is not a valid System.Single");
                 data.Add(version, "Sht", "1_000", "Value 1_000 is not a valid System.Int16");
+                data.Add(version, "Flt", "\"Infinity\"", "Value Infinity is not a valid System.Single");
+                data.Add(version, "Dbl", "Infinity", "Value Infinity is not a valid System.Double");
+                data.Add(version, "NDbl", "-Infinity", "Value -Infinity is not a valid System.Double");
+                data.Add(version, "Dbl", "NaN", "Value NaN is not a valid System.Double");
+                data.Add(version, "Flt", "\"NaN\"", "Value NaN is not a valid System.Single");
             }
 
             return data;
@@ -325,15 +334,10 @@ public sealed class LegacyRouteParityTests
                 data.Add(version, "NInt", "\"-7\"");
                 data.Add(version, "Dbl", "\"1.5\"");
                 data.Add(version, "Dec", "\"0.1234567890123456789012345678\"");
-                data.Add(version, "Flt", "\"Infinity\"");
                 data.Add(version, "Int", "true");
                 data.Add(version, "Dec", "false");
                 data.Add(version, "Int", "null");
                 data.Add(version, "Dbl", "null");
-                data.Add(version, "Byt", "1.5");
-                data.Add(version, "Byt", "-0.5");
-                data.Add(version, "Sht", "2.5");
-                data.Add(version, "Sht", "-1.5e0");
                 data.Add(version, "ULng", "\"18446744073709551615\"");
             }
 
@@ -403,7 +407,7 @@ public sealed class LegacyRouteParityTests
         Assert.Equal(-5, decoded.Int);
         Assert.Equal(300ul, decoded.ULng);
         Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<PointerHolder>("Ptr: 1e30\nz.q: 1", options));
-        AssertRangeError("Number 1.5 is outside the range of System.Int32", () => ToonDecoder.Decode<Numbers>("Int: 1.5\nz.q: 1", options));
+        AssertRangeError("Number 1.5 is not an integer (System.Int32)", () => ToonDecoder.Decode<Numbers>("Int: 1.5\nz.q: 1", options));
     }
 
     public static TheoryData<string, string> TinyFractionCases
@@ -420,29 +424,19 @@ public sealed class LegacyRouteParityTests
 
     [Theory]
     [MemberData(nameof(TinyFractionCases))]
-    public void Decode_FractionForIntegerMember_RejectedOrRoundedAsV4OnEveryRoute(string member, string token)
+    public void Decode_FractionForIntegerMember_RejectedAsV4OnEveryRoute(string member, string token)
     {
-        var property = typeof(Numbers).GetProperty(member)!;
-        var smallInteger = member is "Byt" or "Sht";
         var native = new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V3_0, Indent = 2, ExpandPaths = ToonPathExpansion.Safe };
         var routes = new Func<Numbers?>[]
         {
+            () => ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V4_4)),
             () => ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V3_0)),
             () => ToonDecoder.Decode<List<Numbers>>($"[1]{{{member}}}:\n  {token}", Options(ToonProtocolVersion.CustomLegacy))![0],
             () => ToonDecoder.Decode<Numbers>($"{member}: {token}\nz.q: 1", native),
             () => new ToonService().Deserialize<Numbers>($"{{\"{member}\":{token}}}", "application/json")
         };
 
-        if (smallInteger)
-        {
-            var expected = property.GetValue(ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V4_4)));
-            foreach (var route in routes) Assert.Equal(expected, property.GetValue(route()));
-        }
-        else
-        {
-            Assert.ThrowsAny<Exception>(() => ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V4_4)));
-            foreach (var route in routes) AssertRangeError("is outside the range of System.", () => route());
-        }
+        foreach (var route in routes) AssertRangeError("is not an integer (System.", () => route());
     }
 
     [Theory]

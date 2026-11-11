@@ -128,7 +128,12 @@ namespace DevOp.Toon.Internal.Shared
         /// Returns whether text has the shape of a decimal number (<c>-12</c>, <c>0e-2</c>, <c>007</c>, <c>1e400</c>), whatever
         /// its magnitude or leading zeros.
         /// </summary>
-        public static bool IsNumberShaped(string text)
+        public static bool IsNumberShaped(string text) => IsNumberShaped(text.AsSpan());
+
+        /// <summary>
+        /// Returns whether text has the shape of a decimal number; see <see cref="IsNumberShaped(string)"/>.
+        /// </summary>
+        public static bool IsNumberShaped(ReadOnlySpan<char> text)
         {
             var i = text.Length > 0 && text[0] == '-' ? 1 : 0;
             if (SkipDigits(text, ref i) == 0)
@@ -162,7 +167,7 @@ namespace DevOp.Toon.Internal.Shared
             return i == text.Length;
         }
 
-        private static int SkipDigits(string text, ref int index)
+        private static int SkipDigits(ReadOnlySpan<char> text, ref int index)
         {
             var start = index;
             while (index < text.Length && text[index] >= '0' && text[index] <= '9')
@@ -178,7 +183,12 @@ namespace DevOp.Toon.Internal.Shared
         /// judged from its digits: parsing first can round a fraction such as <c>1e-29</c> or
         /// <c>1.00000000000000000000000000001</c> to an integer.
         /// </summary>
-        public static bool IsIntegralNumberText(string text)
+        public static bool IsIntegralNumberText(string text) => IsIntegralNumberText(text.AsSpan());
+
+        /// <summary>
+        /// Returns whether a decimal number literal denotes an integer; see <see cref="IsIntegralNumberText(string)"/>.
+        /// </summary>
+        public static bool IsIntegralNumberText(ReadOnlySpan<char> text)
         {
             var i = text.Length > 0 && (text[0] == '-' || text[0] == '+') ? 1 : 0;
             var integerDigits = 0;
@@ -237,24 +247,275 @@ namespace DevOp.Toon.Internal.Shared
         }
 
         /// <summary>
-        /// Converts a number with a fractional part to an integer type the way 4.x decoding does: it rounds to even into
-        /// <see cref="byte"/>, <see cref="sbyte"/>, <see cref="short"/> and <see cref="ushort"/>, and is outside the range of
-        /// every other integer type.
+        /// Returns whether text is a number in the official TOON 4.x grammar: an optional minus, no leading zeros, an optional
+        /// fraction and exponent. <c>007</c>, <c>+1</c> and <c>.5</c> are text.
         /// </summary>
-        public static object ConvertFractionToInteger(Type type, decimal value, string numberText)
+        public static bool IsNumberGrammar(ReadOnlySpan<char> text)
         {
-            if (type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort))
+            var p = 0;
+            if (p < text.Length && text[p] == '-') p++;
+            if (p == text.Length) return false;
+            if (text[p] == '0') p++;
+            else
             {
-                try
+                if (text[p] < '1' || text[p] > '9') return false;
+                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
+            }
+            if (p < text.Length && text[p] == '.')
+            {
+                var start = ++p;
+                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
+                if (p == start) return false;
+            }
+            if (p < text.Length && (text[p] == 'e' || text[p] == 'E'))
+            {
+                p++; if (p < text.Length && (text[p] == '+' || text[p] == '-')) p++;
+                var start = p;
+                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
+                if (p == start) return false;
+            }
+            return p == text.Length;
+        }
+
+        /// <summary>
+        /// Returns whether number-shaped text such as <c>1e400</c> or <c>-12.5</c> has a magnitude of at least one, judged
+        /// from its digits so that it holds beyond the range of every numeric type.
+        /// </summary>
+        public static bool IsAtLeastOne(ReadOnlySpan<char> text)
+        {
+            var i = text.Length > 0 && text[0] == '-' ? 1 : 0;
+            long leading = long.MinValue;
+            long position = 0;
+            for (; i < text.Length && text[i] >= '0' && text[i] <= '9'; i++)
+            {
+                if (leading == long.MinValue && text[i] != '0') leading = 0;
+                else if (leading != long.MinValue) leading++;
+            }
+
+            if (i < text.Length && text[i] == '.')
+            {
+                for (i++; i < text.Length && text[i] >= '0' && text[i] <= '9'; i++)
                 {
-                    return Convert.ChangeType(value, type, System.Globalization.CultureInfo.InvariantCulture);
-                }
-                catch (OverflowException)
-                {
+                    position--;
+                    if (leading == long.MinValue && text[i] != '0') leading = position;
                 }
             }
 
-            throw ToonFormatException.Syntax($"Number {numberText} is outside the range of {type.FullName}");
+            if (leading == long.MinValue) return false;
+            long exponent = 0;
+            if (i < text.Length && (text[i] == 'e' || text[i] == 'E'))
+            {
+                i++;
+                var negative = i < text.Length && text[i] == '-';
+                if (i < text.Length && (text[i] == '-' || text[i] == '+')) i++;
+                for (; i < text.Length && text[i] >= '0' && text[i] <= '9'; i++)
+                    exponent = Math.Min(exponent * 10 + (text[i] - '0'), 1_000_000_000L);
+                if (negative) exponent = -exponent;
+            }
+
+            return leading + exponent >= 0;
         }
+
+        /// <summary>
+        /// The message for a number with a fractional part bound to an integer or enum type.
+        /// </summary>
+        public static string NotAnInteger(string numberText, Type type) => $"Number {numberText} is not an integer ({type.FullName})";
+
+        /// <summary>
+        /// The message for a number outside the range of the type it is bound to.
+        /// </summary>
+        public static string OutsideRange(string numberText, Type type) => $"Number {numberText} is outside the range of {type.FullName}";
+
+        /// <summary>
+        /// Binds number text to an enum member by the integer rule of its underlying type, throwing a format error for a
+        /// fraction or a number outside that type's range.
+        /// </summary>
+        public static object BindEnumNumber(Type enumType, ReadOnlySpan<char> text)
+        {
+            var underlying = Enum.GetUnderlyingType(enumType);
+            NumberBinding result;
+            object number;
+            if (underlying == typeof(ulong) || underlying == typeof(uint) || underlying == typeof(ushort) || underlying == typeof(byte))
+            {
+                var max = underlying == typeof(byte) ? byte.MaxValue : underlying == typeof(ushort) ? ushort.MaxValue : underlying == typeof(uint) ? uint.MaxValue : ulong.MaxValue;
+                result = TryBindUnsigned(text, max, out var unsignedValue);
+                number = unsignedValue;
+            }
+            else
+            {
+                var (min, max) = underlying == typeof(sbyte) ? ((long)sbyte.MinValue, (long)sbyte.MaxValue)
+                    : underlying == typeof(short) ? (short.MinValue, short.MaxValue)
+                    : underlying == typeof(int) ? (int.MinValue, int.MaxValue)
+                    : (long.MinValue, long.MaxValue);
+                result = TryBindSigned(text, min, max, out var signedValue);
+                number = signedValue;
+            }
+
+            return result switch
+            {
+                NumberBinding.Bound => Enum.ToObject(enumType, number),
+                NumberBinding.Fraction => throw ToonFormatException.Syntax(NotAnInteger(text.ToString(), enumType)),
+                NumberBinding.OutOfRange => throw ToonFormatException.Syntax(OutsideRange(text.ToString(), enumType)),
+                _ => throw ToonFormatException.Syntax($"Value {text.ToString()} is not a valid {enumType.FullName}")
+            };
+        }
+
+        /// <summary>
+        /// Binds number text to a signed integer type with range <paramref name="min"/> to <paramref name="max"/>: any literal
+        /// whose value is an integer in range binds (<c>1e3</c>, <c>2.0</c>, <c>-0.0</c>); a fraction never rounds.
+        /// </summary>
+        public static NumberBinding TryBindSigned(ReadOnlySpan<char> text, long min, long max, out long value)
+        {
+            value = 0;
+            var result = ReadInteger(text, out var negative, out var magnitude);
+            if (result != NumberBinding.Bound) return result;
+            if (negative)
+            {
+                if (magnitude > unchecked((ulong)-(min + 1)) + 1) return NumberBinding.OutOfRange;
+                value = unchecked(-(long)magnitude);
+            }
+            else
+            {
+                if (magnitude > (ulong)max) return NumberBinding.OutOfRange;
+                value = (long)magnitude;
+            }
+
+            return NumberBinding.Bound;
+        }
+
+        /// <summary>
+        /// Binds number text to an unsigned integer type with maximum <paramref name="max"/>; see
+        /// <see cref="TryBindSigned"/>. <c>-0</c> and <c>-0.0</c> bind as zero.
+        /// </summary>
+        public static NumberBinding TryBindUnsigned(ReadOnlySpan<char> text, ulong max, out ulong value)
+        {
+            value = 0;
+            var result = ReadInteger(text, out var negative, out var magnitude);
+            if (result != NumberBinding.Bound) return result;
+            if (negative || magnitude > max) return NumberBinding.OutOfRange;
+            value = magnitude;
+            return NumberBinding.Bound;
+        }
+
+        /// <summary>
+        /// Binds number text to <see cref="double"/>, parsing the text once; a result outside the finite range never binds and
+        /// negative zero binds as zero. Like the other floating-point binders it expects text already matched as a number: it
+        /// checks the shape only to tell a failure apart.
+        /// </summary>
+        public static NumberBinding TryBindDouble(ReadOnlySpan<char> text, out double value)
+        {
+#if NETSTANDARD2_0
+            var parsed = double.TryParse(text.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
+#else
+            var parsed = double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
+#endif
+            // .NET Framework fails the parse on overflow where .NET returns an infinity.
+            if (!parsed || !IsFinite(value)) return IsNumberShaped(text) ? NumberBinding.OutOfRange : NumberBinding.Invalid;
+            if (value == 0) value = 0d;
+            return NumberBinding.Bound;
+        }
+
+        /// <summary>
+        /// Binds number text to <see cref="float"/>, rounding the text once rather than through a double; see
+        /// <see cref="TryBindDouble"/>.
+        /// </summary>
+        public static NumberBinding TryBindSingle(ReadOnlySpan<char> text, out float value)
+        {
+#if NETSTANDARD2_0
+            var parsed = float.TryParse(text.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
+#else
+            var parsed = float.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
+#endif
+            if (!parsed || !IsFinite(value)) return IsNumberShaped(text) ? NumberBinding.OutOfRange : NumberBinding.Invalid;
+            if (value == 0) value = 0f;
+            return NumberBinding.Bound;
+        }
+
+        /// <summary>
+        /// Binds number text to <see cref="decimal"/> with the scale the text gives (<c>1.10</c>, <c>0.0</c>).
+        /// </summary>
+        public static NumberBinding TryBindDecimal(ReadOnlySpan<char> text, out decimal value)
+        {
+#if NETSTANDARD2_0
+            var parsed = decimal.TryParse(text.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
+#else
+            var parsed = decimal.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
+#endif
+            return parsed ? NumberBinding.Bound : IsNumberShaped(text) ? NumberBinding.OutOfRange : NumberBinding.Invalid;
+        }
+
+        /// <summary>
+        /// Reads number text as an exact integer magnitude and sign. Plain digits take a loop without parsing or allocation;
+        /// other forms are judged from their digits before an exact decimal parse.
+        /// </summary>
+        private static NumberBinding ReadInteger(ReadOnlySpan<char> text, out bool negative, out ulong magnitude)
+        {
+            negative = text.Length > 0 && text[0] == '-';
+            magnitude = 0;
+            var i = negative ? 1 : 0;
+            var start = i;
+            var overflow = false;
+            for (; i < text.Length; i++)
+            {
+                var digit = (uint)(text[i] - '0');
+                if (digit > 9) break;
+                if (magnitude > (ulong.MaxValue - digit) / 10) overflow = true;
+                else magnitude = magnitude * 10 + digit;
+            }
+
+            if (i == text.Length && i > start)
+            {
+                if (overflow) return NumberBinding.OutOfRange;
+                if (magnitude == 0) negative = false;
+                return NumberBinding.Bound;
+            }
+
+            magnitude = 0;
+            negative = false;
+            if (!IsNumberShaped(text)) return NumberBinding.Invalid;
+            if (!IsIntegralNumberText(text)) return NumberBinding.Fraction;
+            if (IsZeroNumberText(text)) return NumberBinding.Bound;
+#if NETSTANDARD2_0
+            var parsed = decimal.TryParse(text.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var exact);
+#else
+            var parsed = decimal.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var exact);
+#endif
+            if (!parsed) return NumberBinding.OutOfRange;
+            var absolute = Math.Abs(exact);
+            if (absolute > ulong.MaxValue) return NumberBinding.OutOfRange;
+            negative = exact < 0;
+            magnitude = (ulong)absolute;
+            return NumberBinding.Bound;
+        }
+
+        private static bool IsZeroNumberText(ReadOnlySpan<char> text)
+        {
+            for (var i = 0; i < text.Length; i++)
+            {
+                var c = text[i];
+                if (c == 'e' || c == 'E') return true;
+                if (c >= '1' && c <= '9') return false;
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The outcome of binding number text to a numeric type.
+    /// </summary>
+    internal enum NumberBinding : byte
+    {
+        /// <summary>The value fits the type.</summary>
+        Bound,
+
+        /// <summary>The text is not a number.</summary>
+        Invalid,
+
+        /// <summary>The number has a fractional part and the type is an integer type.</summary>
+        Fraction,
+
+        /// <summary>The number is outside the range, or the finite range, of the type.</summary>
+        OutOfRange
     }
 }

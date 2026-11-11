@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Text;
 using DevOp.Toon.Core;
 using DevOp.Toon.Internal.Encode;
+using DevOp.Toon.Internal.Shared;
 using Line = DevOp.Toon.Internal.Decode.V4SourceLine;
 
 namespace DevOp.Toon.Internal.Decode;
@@ -627,12 +628,14 @@ internal static class V4Decoder
         private object? Primitive(ReadOnlySpan<char> token, bool allowEmptyArray, Type? targetType)
         {
             token = TrimSpan(token);
-            if (token.Length > 0 && token[0] == '"') return V4Materialization.Scalar(String(token), targetType);
-            if (allowEmptyArray && token.SequenceEqual("[]")) return new V4Materialization.ArrayBuilder(targetType).Finish();
-            if (token.SequenceEqual("null")) return V4Materialization.Scalar(null, targetType);
-            if (token.SequenceEqual("true")) return V4Materialization.Scalar(true, targetType);
-            if (token.SequenceEqual("false")) return V4Materialization.Scalar(false, targetType);
-            if (NumberGrammar(token))
+            string? error;
+            object? value;
+            if (token.Length > 0 && token[0] == '"') value = V4Materialization.Scalar(String(token), targetType, out error);
+            else if (allowEmptyArray && token.SequenceEqual("[]")) return new V4Materialization.ArrayBuilder(targetType).Finish();
+            else if (token.SequenceEqual("null")) value = V4Materialization.Scalar(null, targetType, out error);
+            else if (token.SequenceEqual("true")) value = V4Materialization.Scalar(true, targetType, out error);
+            else if (token.SequenceEqual("false")) value = V4Materialization.Scalar(false, targetType, out error);
+            else if (NumberGrammar(token))
             {
 #if NETSTANDARD2_0
                 var parsed = double.TryParse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number);
@@ -641,14 +644,22 @@ internal static class V4Decoder
 #endif
                 if (!parsed || double.IsInfinity(number) || double.IsNaN(number))
                 {
-                    if (!options.Strict && version < 404) return V4Materialization.Scalar(targetType == typeof(void) ? null : token.ToString(), targetType);
-                    throw Error("Number outside supported finite range");
+                    if (options.Strict || version >= 404) throw Error("Number outside supported finite range");
+                    value = V4Materialization.OutOfRangeNumber(token, targetType, out error);
                 }
-                return V4Materialization.Number(token, number == 0 ? 0d : number, targetType);
+                else value = V4Materialization.Number(token, number == 0 ? 0d : number, targetType, out error);
             }
-            ValidateUnicode(token);
-            return V4Materialization.Scalar(targetType == typeof(void) ? null : token.ToString(), targetType);
+            else
+            {
+                ValidateUnicode(token);
+                value = V4Materialization.Scalar(targetType == typeof(void) ? null : token.ToString(), targetType, out error);
+            }
+            if (error != null) throw BindingError(error);
+            return value;
         }
+
+        // Every caller has consumed the token's line, so it is the previous one.
+        private ToonFormatException BindingError(string message) => ToonFormatException.Syntax(message, lines[index - 1].Number);
 
         private string String(ReadOnlySpan<char> token)
         {
@@ -704,32 +715,7 @@ internal static class V4Decoder
             }
         }
 
-        internal static bool NumberGrammar(ReadOnlySpan<char> text)
-        {
-            var p = 0;
-            if (p < text.Length && text[p] == '-') p++;
-            if (p == text.Length) return false;
-            if (text[p] == '0') p++;
-            else
-            {
-                if (text[p] < '1' || text[p] > '9') return false;
-                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
-            }
-            if (p < text.Length && text[p] == '.')
-            {
-                var start = ++p;
-                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
-                if (p == start) return false;
-            }
-            if (p < text.Length && (text[p] == 'e' || text[p] == 'E'))
-            {
-                p++; if (p < text.Length && (text[p] == '+' || text[p] == '-')) p++;
-                var start = p;
-                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
-                if (p == start) return false;
-            }
-            return p == text.Length;
-        }
+        internal static bool NumberGrammar(ReadOnlySpan<char> text) => NumericUtils.IsNumberGrammar(text);
 
         private List<string> Split(string text, char delimiter)
         {

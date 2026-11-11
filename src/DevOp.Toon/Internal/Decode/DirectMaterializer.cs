@@ -1920,6 +1920,54 @@ namespace DevOp.Toon.Internal.Decode
         private static bool TryConvertPrimitive(Type type, string source, int start, int endExclusive, out object? value, bool alreadyTrimmed = false)
         {
             NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
+            if (TryConvertPrimitiveCore(type, source, start, endExclusive, out value))
+            {
+                return true;
+            }
+
+            if (start >= endExclusive || !IsTextScalarOrBoolean(type))
+            {
+                return false;
+            }
+
+            value = ConvertScalarAsV4(type, source, start, endExclusive);
+            return true;
+        }
+
+        private static bool IsTextScalarOrBoolean(Type type)
+            => type == typeof(bool) || type == typeof(Guid) || type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(TimeSpan) || type == typeof(char)
+#if NET6_0_OR_GREATER
+               || type == typeof(DateOnly) || type == typeof(TimeOnly)
+#endif
+            ;
+
+        /// <summary>
+        /// Converts a token the legacy parsers rejected for a boolean, date, time, <see cref="Guid"/> or <see cref="char"/>
+        /// member as 4.x decoding converts it, instead of leaving the member at its default: <c>null</c> to the default, text
+        /// by the invariant parse of the type, a number in the 4.x grammar to a boolean as nonzero; anything else throws a
+        /// format error.
+        /// </summary>
+        private static object? ConvertScalarAsV4(Type type, string source, int start, int endExclusive)
+        {
+            var token = source.AsSpan(start, endExclusive - start);
+            object? decoded;
+            if (token.SequenceEqual(Constants.NULL_LITERAL)) decoded = null;
+            else if (token.SequenceEqual(Constants.TRUE_LITERAL)) decoded = true;
+            else if (token.SequenceEqual(Constants.FALSE_LITERAL)) decoded = false;
+            else if (token[0] == Constants.DOUBLE_QUOTE) decoded = Parser.ParseStringLiteral(source, start, endExclusive);
+            else if (NumericUtils.IsNumberGrammar(token) && double.TryParse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && NumericUtils.IsFinite(number)) decoded = number;
+            else decoded = token.ToString();
+            var value = V4Materialization.Scalar(decoded, type, out var error);
+            if (error != null)
+            {
+                throw ToonFormatException.Syntax(decoded is double ? $"Value {token.ToString()} is not a valid {type.FullName}" : error);
+            }
+
+            return value;
+        }
+
+        private static bool TryConvertPrimitiveCore(Type type, string source, int start, int endExclusive, out object? value)
+        {
             if (start >= endExclusive)
             {
                 if (type == typeof(string))
@@ -2099,12 +2147,12 @@ namespace DevOp.Toon.Internal.Decode
                 if (double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var doubleValue))
 #endif
                 {
-                    if (double.IsInfinity(doubleValue) && IsNumberToken(token))
+                    if (!NumericUtils.IsFinite(doubleValue))
                     {
-                        throw ToonFormatException.Syntax(OutsideFiniteRange);
+                        throw ToonFormatException.Syntax(IsNumberToken(token) ? OutsideFiniteRange : $"Value {token.ToString()} is not a valid {type.FullName}");
                     }
 
-                    value = doubleValue;
+                    value = FloatUtils.NormalizeSignedZero(doubleValue);
                     return true;
                 }
 
@@ -2119,12 +2167,12 @@ namespace DevOp.Toon.Internal.Decode
                 if (float.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var floatValue))
 #endif
                 {
-                    if (float.IsInfinity(floatValue) && IsNumberToken(token))
+                    if (!NumericUtils.IsFinite(floatValue))
                     {
-                        throw ToonFormatException.Syntax(OutsideFiniteRange);
+                        throw ToonFormatException.Syntax(IsNumberToken(token) ? OutsideFiniteRange : $"Value {token.ToString()} is not a valid {type.FullName}");
                     }
 
-                    value = floatValue;
+                    value = FloatUtils.NormalizeSignedZero(floatValue);
                     return true;
                 }
 
@@ -2299,72 +2347,7 @@ namespace DevOp.Toon.Internal.Decode
 
             if (type.IsEnum)
             {
-                if (TryConvertEnum(type, source, start, endExclusive, out value, alreadyTrimmed: true))
-                {
-                    return true;
-                }
-
-                value = null;
-                return false;
-            }
-
-            value = null;
-            return false;
-        }
-
-        private static bool TryConvertEnum(Type enumType, string source, int start, int endExclusive, out object? value, bool alreadyTrimmed = false)
-        {
-            NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
-            if (start >= endExclusive)
-            {
-                value = null;
-                return false;
-            }
-
-            if (source[start] == Constants.DOUBLE_QUOTE)
-            {
-                var parsed = Parser.ParseStringLiteral(source, start, endExclusive);
-                if (Enum.IsDefined(enumType, parsed))
-                {
-                    value = Enum.Parse(enumType, parsed, false);
-                    return true;
-                }
-
-                value = null;
-                return false;
-            }
-
-            var token = source.AsSpan(start, endExclusive - start);
-            var underlyingType = Enum.GetUnderlyingType(enumType);
-            if (underlyingType == typeof(ulong) || underlyingType == typeof(uint) || underlyingType == typeof(ushort) || underlyingType == typeof(byte))
-            {
-#if NETSTANDARD2_0
-                if (ulong.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var unsignedValue))
-#else
-                if (ulong.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var unsignedValue))
-#endif
-                {
-                    value = Enum.ToObject(enumType, unsignedValue);
-                    return true;
-                }
-            }
-            else
-            {
-#if NETSTANDARD2_0
-                if (long.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var signedValue))
-#else
-                if (long.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var signedValue))
-#endif
-                {
-                    value = Enum.ToObject(enumType, signedValue);
-                    return true;
-                }
-            }
-
-            var enumName = token.ToString();
-            if (Enum.IsDefined(enumType, enumName))
-            {
-                value = Enum.Parse(enumType, enumName, false);
+                value = ConvertEnum(type, source, start, endExclusive);
                 return true;
             }
 
@@ -2373,11 +2356,48 @@ namespace DevOp.Toon.Internal.Decode
         }
 
         /// <summary>
+        /// Converts a token to an enum member as 4.x decoding does: a number by the integer rule of the underlying type, a
+        /// name, a list of flag names or a number in text by <see cref="Enum.Parse(Type, string, bool)"/>, <c>true</c> and
+        /// <c>false</c> as one and zero, and <c>null</c> to the default. Any other token throws a format error instead of leaving the member at its default.
+        /// </summary>
+        private static object ConvertEnum(Type enumType, string source, int start, int endExclusive)
+        {
+            var token = source.AsSpan(start, endExclusive - start);
+            if (token.SequenceEqual(Constants.NULL_LITERAL))
+            {
+                return Activator.CreateInstance(enumType)!;
+            }
+
+            if (token.SequenceEqual(Constants.TRUE_LITERAL) || token.SequenceEqual(Constants.FALSE_LITERAL))
+            {
+                return Enum.ToObject(enumType, token.SequenceEqual(Constants.TRUE_LITERAL) ? 1 : 0);
+            }
+
+            if (IsNumberToken(token))
+            {
+                return NumericUtils.BindEnumNumber(enumType, token);
+            }
+
+            var text = token.Length > 0 && token[0] == Constants.DOUBLE_QUOTE ? Parser.ParseStringLiteral(source, start, endExclusive) : token.ToString();
+            try
+            {
+                return Enum.Parse(enumType, text, false);
+            }
+            catch (OverflowException)
+            {
+                throw ToonFormatException.Syntax(NumericUtils.OutsideRange(text, enumType));
+            }
+            catch (ArgumentException)
+            {
+                throw ToonFormatException.Syntax($"Value {text} is not a valid {enumType.FullName}");
+            }
+        }
+
+        /// <summary>
         /// Handles a token that did not parse as the numeric <paramref name="type"/> instead of leaving the member at its
         /// default, converting what 4.x decoding converts and otherwise throwing a format error. A number the type cannot hold
         /// throws the error the native and JSON routes report; an integral number in exponent or fraction form that fits an
-        /// integer type converts; a fraction rounds into byte, sbyte, short and ushort and is outside the range of the other
-        /// integer types. Any other token converts as 4.x converts it: <c>null</c> to zero, <c>true</c> and <c>false</c> to one
+        /// integer type converts; a fraction is not an integer for any integer type. Any other token converts as 4.x converts it: <c>null</c> to zero, <c>true</c> and <c>false</c> to one
         /// and zero, and text, quoted or not, by the invariant parse of the type.
         /// </summary>
         private static bool TryConvertNumberOutsideType(Type type, ReadOnlySpan<char> token, out object? value)
@@ -2400,8 +2420,7 @@ namespace DevOp.Toon.Internal.Decode
             {
                 if (!NumericUtils.IsIntegralNumberText(text))
                 {
-                    value = NumericUtils.ConvertFractionToInteger(type, exact, text);
-                    return true;
+                    throw ToonFormatException.Syntax(NumericUtils.NotAnInteger(text, type));
                 }
 
                 value = NarrowInteger(type, exact);
@@ -2429,7 +2448,13 @@ namespace DevOp.Toon.Internal.Decode
             var text = token.Length > 0 && token[0] == Constants.DOUBLE_QUOTE ? Parser.ParseStringLiteral(token.ToString()) : token.ToString();
             try
             {
-                return Convert.ChangeType(text, type, CultureInfo.InvariantCulture);
+                var converted = Convert.ChangeType(text, type, CultureInfo.InvariantCulture);
+                if ((converted is double number && !NumericUtils.IsFinite(number)) || (converted is float single && !NumericUtils.IsFinite(single)))
+                {
+                    throw ToonFormatException.Syntax(NumericUtils.IsNumberShaped(text.Trim()) ? NumericUtils.OutsideRange(text, type) : $"Value {text} is not a valid {type.FullName}");
+                }
+
+                return converted;
             }
             catch (FormatException)
             {
@@ -3773,12 +3798,12 @@ namespace DevOp.Toon.Internal.Decode
         {
             NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
 #if NETSTANDARD2_0
-            if (double.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !double.IsInfinity(value))
+            if (double.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && NumericUtils.IsFinite(value))
 #else
-            if (double.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !double.IsInfinity(value))
+            if (double.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && NumericUtils.IsFinite(value))
 #endif
             {
-                setter(instance, value);
+                setter(instance, FloatUtils.NormalizeSignedZero(value));
                 return true;
             }
 
@@ -3795,12 +3820,12 @@ namespace DevOp.Toon.Internal.Decode
             }
 
 #if NETSTANDARD2_0
-            if (double.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !double.IsInfinity(value))
+            if (double.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && NumericUtils.IsFinite(value))
 #else
-            if (double.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !double.IsInfinity(value))
+            if (double.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && NumericUtils.IsFinite(value))
 #endif
             {
-                setter(instance, value);
+                setter(instance, FloatUtils.NormalizeSignedZero(value));
                 return true;
             }
 
@@ -3811,12 +3836,12 @@ namespace DevOp.Toon.Internal.Decode
         {
             NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
 #if NETSTANDARD2_0
-            if (float.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !float.IsInfinity(value))
+            if (float.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && NumericUtils.IsFinite(value))
 #else
-            if (float.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !float.IsInfinity(value))
+            if (float.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && NumericUtils.IsFinite(value))
 #endif
             {
-                setter(instance, value);
+                setter(instance, FloatUtils.NormalizeSignedZero(value));
                 return true;
             }
 
@@ -3833,12 +3858,12 @@ namespace DevOp.Toon.Internal.Decode
             }
 
 #if NETSTANDARD2_0
-            if (float.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !float.IsInfinity(value))
+            if (float.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && NumericUtils.IsFinite(value))
 #else
-            if (float.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !float.IsInfinity(value))
+            if (float.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && NumericUtils.IsFinite(value))
 #endif
             {
-                setter(instance, value);
+                setter(instance, FloatUtils.NormalizeSignedZero(value));
                 return true;
             }
 
