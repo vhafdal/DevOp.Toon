@@ -185,6 +185,8 @@ public sealed class TypedNumericBindingTests
 
         AssertErrorOnEveryShape("double", "1e400", options);
         AssertErrorOnEveryShape("int", "1e400", options);
+        AssertErrorOnEveryShape("byte[]", new string('9', 312), options);
+        AssertErrorOnEveryShape("Guid", "1e400", options);
         Assert.Equal("1e400", ToonDecoder.Decode<Holder<string>>("V: 1e400", options)!.V);
     }
 

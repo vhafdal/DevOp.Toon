@@ -558,6 +558,17 @@ internal static class V4Materialization
     }
 
     /// <summary>
+    /// Binds a number token beyond the double range, which non-strict decoding below 4.4 keeps as text. It stays a number for
+    /// a text scalar target, so it never binds as a <see cref="Guid"/> or base64 bytes.
+    /// </summary>
+    internal static object? OutOfRangeNumber(ReadOnlySpan<char> token, Type? type, out string? error)
+    {
+        var effective = type == null ? null : Nullable.GetUnderlyingType(type) ?? type;
+        if (effective != null && IsTextScalar(effective)) { error = NotValid(token.ToString(), effective); return null; }
+        return Scalar(type == typeof(void) ? null : token.ToString(), type, out error);
+    }
+
+    /// <summary>
     /// Converts a decoded scalar (text, a boolean, a number or <see langword="null"/>) to <paramref name="type"/>. A value
     /// the type cannot hold sets <paramref name="error"/> instead of throwing.
     /// </summary>

@@ -645,7 +645,7 @@ internal static class V4Decoder
                 if (!parsed || double.IsInfinity(number) || double.IsNaN(number))
                 {
                     if (options.Strict || version >= 404) throw Error("Number outside supported finite range");
-                    value = V4Materialization.Scalar(targetType == typeof(void) ? null : token.ToString(), targetType, out error);
+                    value = V4Materialization.OutOfRangeNumber(token, targetType, out error);
                 }
                 else value = V4Materialization.Number(token, number == 0 ? 0d : number, targetType, out error);
             }
