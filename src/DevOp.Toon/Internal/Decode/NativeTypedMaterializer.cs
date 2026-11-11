@@ -552,7 +552,8 @@ internal static class NativeTypedMaterializer
             case PlanKind.Nullable:
                 return TryConvert(node, plan.UnderlyingPlan!, out value);
             case PlanKind.Primitive:
-                if (node is NativePrimitiveNode number && IntegerRange(plan.Type) != null && TryConvertFraction(number, plan.Type, out value))
+                if (node is NativePrimitiveNode number && IntegerRange(plan.Type) is { } integerRange &&
+                    (TryConvertIntegerFromText(number, plan.Type, integerRange, out value) || TryConvertFraction(number, plan.Type, out value)))
                 {
                     return true;
                 }
@@ -1022,16 +1023,17 @@ internal static class NativeTypedMaterializer
 
         if (targetType == typeof(decimal))
         {
-            if (primitiveValue is decimal decimalValue)
-            {
-                value = decimalValue;
-                return true;
-            }
-
+            // The parsed value may have been rounded through a double; the kept text is the exact number.
             if (primitive.NumberText is { } numberText &&
                 decimal.TryParse(numberText, NumberStyles.Float, CultureInfo.InvariantCulture, out var exactDecimal))
             {
                 value = exactDecimal;
+                return true;
+            }
+
+            if (primitiveValue is decimal decimalValue)
+            {
+                value = decimalValue;
                 return true;
             }
 
@@ -1230,6 +1232,40 @@ internal static class NativeTypedMaterializer
     }
 
     /// <summary>
+    /// Reads an integer <paramref name="type"/> from a number's kept source text, before any conversion of the parsed value,
+    /// which a double may have rounded (9007199254740993.0 parses as 9007199254740992). A whole number converts exactly or
+    /// is outside the type's range; a fraction follows <see cref="TryConvertFraction"/>.
+    /// </summary>
+    private static bool TryConvertIntegerFromText(NativePrimitiveNode primitive, Type type, (decimal Min, decimal Max) range, out object? value)
+    {
+        value = null;
+        if (primitive.NumberText is not { } text)
+        {
+            return false;
+        }
+
+        var parsed = decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var exact);
+        if (parsed && !NumericUtils.IsIntegralNumberText(text))
+        {
+            value = NumericUtils.ConvertFractionToInteger(type, exact, text);
+            return true;
+        }
+
+        if (parsed && exact >= range.Min && exact <= range.Max)
+        {
+            value = Convert.ChangeType(exact, type, CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) || double.IsInfinity(number))
+        {
+            throw ToonFormatException.Syntax(OutsideFiniteRange);
+        }
+
+        throw ToonFormatException.Syntax($"Number {number.ToString("R", CultureInfo.InvariantCulture)} is outside the range of {type.FullName}");
+    }
+
+    /// <summary>
     /// Handles a number with a fractional part for an integer <paramref name="type"/> as the direct route and 4.x do. The
     /// fraction is judged from the kept source text when there is one, because the parse can round <c>1e-29</c> to zero.
     /// </summary>
@@ -1297,7 +1333,7 @@ internal static class NativeTypedMaterializer
         }
     }
 
-    private static bool IsExactNumber(NativePrimitiveNode primitive) => primitive.NumberText != null || primitive.Value switch
+    private static bool IsExactNumber(NativePrimitiveNode primitive) => primitive.Value switch
     {
         int or long or ulong => true,
         decimal decimalValue => Math.Abs(decimalValue) < MaxExactParsedDecimalInteger,

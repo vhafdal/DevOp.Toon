@@ -461,6 +461,32 @@ public sealed class LegacyRouteParityTests
         Assert.Equal(expected, new ToonService().Deserialize<Numbers>($"{{\"Int\":{token}}}", "application/json")!.Int);
     }
 
+    [Theory]
+    [InlineData("NLng", "9007199254740993.0", "9007199254740993")]
+    [InlineData("NLng", "9007199254740993", "9007199254740993")]
+    [InlineData("NLng", "-9007199254740993e0", "-9007199254740993")]
+    [InlineData("ULng", "18446744073709551615.0", "18446744073709551615")]
+    [InlineData("Dec", "79228162514264337593543950335.0", "79228162514264337593543950335")]
+    [InlineData("Dec", "1234567.123456789012345678", "1234567.123456789012345678")]
+    public void Decode_NumberBeyondDoublePrecision_ExactOnEveryRoute(string member, string token, string expected)
+    {
+        var property = typeof(Numbers).GetProperty(member)!;
+        var native = new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V3_0, Indent = 2, ExpandPaths = ToonPathExpansion.Safe };
+        var routes = new Func<Numbers?>[]
+        {
+            () => ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V3_0)),
+            () => ToonDecoder.Decode<List<Numbers>>($"[1]{{{member}}}:\n  {token}", Options(ToonProtocolVersion.CustomLegacy))![0],
+            () => ToonDecoder.Decode<Numbers>($"{member}: {token}\nz.q: 1", native),
+            () => ToonDecoder.Decode<List<Numbers>>($"[1]:\n  - {member}: {token}\n    z.q: 1", native)![0],
+            () => new ToonService().Deserialize<Numbers>($"{{\"{member}\":{token}}}", "application/json")
+        };
+
+        foreach (var route in routes)
+        {
+            Assert.Equal(expected, Convert.ToString(property.GetValue(route()), System.Globalization.CultureInfo.InvariantCulture));
+        }
+    }
+
     private static void AssertRangeError(string message, Func<object?> decode)
     {
         var error = Assert.Throws<ToonFormatException>(decode);

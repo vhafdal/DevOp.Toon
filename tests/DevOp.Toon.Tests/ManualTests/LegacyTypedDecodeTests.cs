@@ -44,12 +44,14 @@ public sealed class LegacyTypedDecodeTests
     }
 
     [Theory]
-    [InlineData("Wide: 1000000000000001")]
-    [InlineData("Wide: 9007199254740994")]
-    public void Decode_ExpandPathsNumberNotExactForIntegralMember_Throws(string text)
+    [InlineData("1000000000000001", 1000000000000001L)]
+    [InlineData("9007199254740993", 9007199254740993L)]
+    [InlineData("9007199254740994", 9007199254740994L)]
+    public void Decode_ExpandPathsIntegerBeyondDoublePrecision_DecodesExactly(string text, long expected)
     {
-        Assert.Throws<NotSupportedException>(() =>
-            ToonDecoder.Decode<Counters>(text + "\nUnit.Name: u", Decode(ToonProtocolVersion.V3_0, ToonPathExpansion.Safe)));
+        var decoded = ToonDecoder.Decode<Counters>($"Wide: {text}\nUnit.Name: u", Decode(ToonProtocolVersion.V3_0, ToonPathExpansion.Safe))!;
+
+        Assert.Equal(expected, decoded.Wide);
     }
 
     [Theory]

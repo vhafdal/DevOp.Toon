@@ -484,8 +484,9 @@ namespace DevOp.Toon.Internal.Decode
             {
                 var parsedNumber = double.Parse(trimmed, CultureInfo.InvariantCulture);
                 parsedNumber = FloatUtils.NormalizeSignedZero(parsedNumber);
-                // A fraction or exponent can round in the parse; typed decoding judges and reads such a number from its text.
-                var numberText = trimmed.IndexOfAny(FractionOrExponent) >= 0 ? trimmed : null;
+                // A fraction, an exponent or more digits than a double holds exactly can round in the parse; typed decoding
+                // judges and reads such a number from its text.
+                var numberText = trimmed.Length > 15 || trimmed.IndexOfAny(FractionOrExponent) >= 0 ? trimmed : null;
                 if (parsedNumber < 1e-6 || parsedNumber > 1e6)
                 {
                     if (NumericUtils.TryEmitCanonicalDecimalForm(parsedNumber, out var decimalValue))
