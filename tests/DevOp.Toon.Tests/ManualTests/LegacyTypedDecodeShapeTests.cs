@@ -168,36 +168,62 @@ public sealed class LegacyTypedDecodeShapeTests
 
     [Theory]
     [MemberData(nameof(AllVersions))]
-    public void Decode_ReportedThingList_RoundTripsThroughService(ToonProtocolVersion version)
+    public void Decode_ReportedThingList_RoundTripsWithPinnedAndDetectedDecodeVersion(ToonProtocolVersion version)
     {
-        IToonService service = new ToonService(new ToonServiceOptions { ProtocolVersion = version });
         var source = new List<Thing>
         {
             new("Alpha", ["x", "y"], new() { ["k"] = "v" })
         };
+        IToonService detecting = new ToonService(new ToonServiceOptions { ProtocolVersion = version });
 
-        var toon = service.Encode(source);
-        var decoded = service.Decode<List<Thing>>(toon);
+        var pinned = RoundTripService(source, version);
+        var detected = detecting.Decode<List<Thing>>(detecting.Encode(source));
 
-        AssertStructurallyEqual(source, decoded);
-        AssertStructurallyEqual(source, RoundTripService(source, version));
+        AssertStructurallyEqual(source, pinned);
+        AssertStructurallyEqual(source, detected);
     }
 
-    private static T RoundTripDirect<T>(T source, ToonProtocolVersion version)
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_EmptyAndNullCollectionMembers_KeepEmptyDistinctFromNullOnEveryRoute(ToonProtocolVersion version)
     {
-        var toon = ToonEncoder.Encode(source, EncodeOptions(version));
+        var source = new OptionalShapes([], [], new Dictionary<string, string>(), null, null);
+
+        var direct = RoundTripDirect(source, version, keepEmpty: true);
+        var expanded = RoundTripExpanded(source, version, keepEmpty: true);
+        var viaService = RoundTripService(source, version, keepEmpty: true);
+
+        foreach (var decoded in new[] { direct, expanded, viaService })
+        {
+            Assert.NotNull(decoded.Tags);
+            Assert.Empty(decoded.Tags);
+            Assert.NotNull(decoded.Numbers);
+            Assert.Empty(decoded.Numbers);
+            Assert.NotNull(decoded.Meta);
+            Assert.Empty(decoded.Meta);
+            Assert.Null(decoded.Addresses);
+            Assert.Null(decoded.Lookup);
+            AssertStructurallyEqual(source, decoded);
+        }
+    }
+
+    private static T RoundTripDirect<T>(T source, ToonProtocolVersion version, bool keepEmpty = false)
+    {
+        var toon = ToonEncoder.Encode(source, EncodeOptions(version, keepEmpty));
+        var decodeOptions = DecodeOptions(version);
         var beforeMisses = GetDirectMaterializerMisses(typeof(T));
 
-        var decoded = ToonDecoder.Decode<T>(toon, DecodeOptions(version));
+        var decoded = ToonDecoder.Decode<T>(toon, decodeOptions);
 
         Assert.Equal(beforeMisses, GetDirectMaterializerMisses(typeof(T)));
         Assert.NotNull(decoded);
+        AssertStructurallyEqual(decoded!, DecodeWithDirectMaterializer<T>(toon, decodeOptions));
         return decoded!;
     }
 
-    private static T RoundTripExpanded<T>(T source, ToonProtocolVersion version)
+    private static T RoundTripExpanded<T>(T source, ToonProtocolVersion version, bool keepEmpty = false)
     {
-        var encodeOptions = EncodeOptions(version);
+        var encodeOptions = EncodeOptions(version, keepEmpty);
         encodeOptions.KeyFolding = ToonKeyFolding.Safe;
         var toon = ToonEncoder.Encode(new FoldedEnvelope<T>(new FoldedBox<T>(source)), encodeOptions);
         Assert.StartsWith("Box.Value", toon, StringComparison.Ordinal);
@@ -210,9 +236,9 @@ public sealed class LegacyTypedDecodeShapeTests
         return decoded.Box.Value;
     }
 
-    private static T RoundTripService<T>(T source, ToonProtocolVersion version)
+    private static T RoundTripService<T>(T source, ToonProtocolVersion version, bool keepEmpty = false)
     {
-        IToonService service = CreateService(version);
+        IToonService service = CreateService(version, keepEmpty);
 
         var decoded = service.Decode<T>(service.Encode(source));
 
@@ -220,10 +246,16 @@ public sealed class LegacyTypedDecodeShapeTests
         return decoded!;
     }
 
-    private static ToonService CreateService(ToonProtocolVersion version)
+    private static ToonService CreateService(ToonProtocolVersion version, bool keepEmpty = false)
     {
         var options = new ToonServiceOptions { Indent = 2 };
         options.Encode.ProtocolVersion = version;
+        if (keepEmpty)
+        {
+            options.Encode.IgnoreNullOrEmpty = false;
+            options.Encode.ExcludeEmptyArrays = false;
+        }
+
         options.Decode.ProtocolVersion = version;
         return new ToonService(options);
     }
@@ -233,10 +265,40 @@ public sealed class LegacyTypedDecodeShapeTests
         Assert.Equal(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(actual));
     }
 
-    private static ToonEncodeOptions EncodeOptions(ToonProtocolVersion version) => new() { ProtocolVersion = version, Indent = 2 };
+    private static ToonEncodeOptions EncodeOptions(ToonProtocolVersion version, bool keepEmpty = false)
+    {
+        var options = new ToonEncodeOptions { ProtocolVersion = version, Indent = 2 };
+        if (keepEmpty)
+        {
+            options.IgnoreNullOrEmpty = false;
+            options.ExcludeEmptyArrays = false;
+        }
+
+        return options;
+    }
 
     private static ToonDecodeOptions DecodeOptions(ToonProtocolVersion version, ToonPathExpansion expandPaths = ToonPathExpansion.Off) =>
         new() { ProtocolVersion = version, Indent = 2, ExpandPaths = expandPaths };
+
+    private static T DecodeWithDirectMaterializer<T>(string toon, ToonDecodeOptions options)
+    {
+        var assembly = typeof(ToonDecoder).Assembly;
+        var resolved = typeof(ToonDecodeOptions).GetMethod("GetResolvedOptions", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(options, null)!;
+        var scanResult = assembly.GetType("DevOp.Toon.Internal.Decode.Scanner")!
+            .GetMethod("ToParsedLines", BindingFlags.Static | BindingFlags.Public, null, [typeof(string), typeof(int), typeof(bool)], null)!
+            .Invoke(null, [toon, options.Indent, options.Strict])!;
+        var lines = scanResult.GetType().GetProperty("Lines")!.GetValue(scanResult);
+        var blankLines = scanResult.GetType().GetProperty("BlankLines")!.GetValue(scanResult);
+        var cursor = Activator.CreateInstance(assembly.GetType("DevOp.Toon.Internal.Decode.LineCursor")!, lines, blankLines)!;
+        var tryDecode = assembly.GetType("DevOp.Toon.Internal.Decode.DirectMaterializer")!
+            .GetMethod("TryDecode", BindingFlags.Static | BindingFlags.Public)!
+            .MakeGenericMethod(typeof(T));
+
+        object?[] args = [cursor, resolved, null];
+        Assert.True((bool)tryDecode.Invoke(null, args)!, $"The direct materializer did not decode {typeof(T)}.");
+        Assert.NotNull(args[2]);
+        return (T)args[2]!;
+    }
 
     private static int GetDirectMaterializerMisses(Type targetType)
     {
@@ -290,6 +352,13 @@ public sealed class LegacyTypedDecodeShapeTests
         Dictionary<string, string> DefaultDimensions);
 
     private sealed record AddressDto(string City, string Country);
+
+    private sealed record OptionalShapes(
+        IReadOnlyList<string> Tags,
+        int[] Numbers,
+        Dictionary<string, string> Meta,
+        IReadOnlyList<AddressDto>? Addresses,
+        IReadOnlyDictionary<string, AddressDto>? Lookup);
 
     private sealed record CollectionShapes(
         AddressDto[] Array,
