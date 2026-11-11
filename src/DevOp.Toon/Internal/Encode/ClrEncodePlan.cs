@@ -109,7 +109,7 @@ internal static class ClrEncodePlanCache
             return ClrPropertyKind.Primitive;
         }
 
-        if (typeof(IDictionary).IsAssignableFrom(property.Info.PropertyType))
+        if (DictionaryEntries.IsDictionaryType(property.Info.PropertyType))
         {
             return ClrPropertyKind.Dictionary;
         }
@@ -283,7 +283,7 @@ internal enum ClrPropertyKind
 {
     /// <summary>The property can be encoded as a scalar TOON primitive.</summary>
     Primitive,
-    /// <summary>The property implements <see cref="IDictionary"/> and is handled by fallback object normalization.</summary>
+    /// <summary>The property type is a dictionary (see <c>DictionaryEntries.IsDictionaryType</c>) and is handled by fallback object normalization.</summary>
     Dictionary,
     /// <summary>The property is an enumerable that cannot use a typed object-array row plan.</summary>
     Enumerable,

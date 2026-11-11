@@ -254,7 +254,8 @@ internal static class ClrObjectArrayFastEncoder
         properties = Array.Empty<NativeNormalize.PropertyMetadata>();
         elementType = null;
 
-        if (data is null or string || data is not IEnumerable enumerable)
+        // A dictionary is an object, not a table of its KeyValuePair entries.
+        if (data is null or string || data is not IEnumerable enumerable || DictionaryEntries.IsDictionaryType(data.GetType()))
         {
             rows = new List<object>();
             return false;
@@ -361,7 +362,7 @@ internal static class ClrObjectArrayFastEncoder
             return;
         }
 
-        if (rawValue is IDictionary dictionary)
+        if (DictionaryEntries.Get(rawValue) is { } dictionary)
         {
             EncodeDictionary(key, dictionary, writer, depth, options);
             return;
@@ -406,7 +407,7 @@ internal static class ClrObjectArrayFastEncoder
             return;
         }
 
-        if (rawValue is IDictionary dictionary)
+        if (DictionaryEntries.Get(rawValue) is { } dictionary)
         {
             EncodeDictionary(property.EncodedName, property.Name, dictionary, writer, depth, options);
             return;
@@ -453,7 +454,7 @@ internal static class ClrObjectArrayFastEncoder
             return;
         }
 
-        if (rawValue is IDictionary dictionary)
+        if (DictionaryEntries.Get(rawValue) is { } dictionary)
         {
             EncodeDictionary(key, dictionary, writer, depth, options);
             return;
@@ -495,7 +496,7 @@ internal static class ClrObjectArrayFastEncoder
             return;
         }
 
-        if (rawValue is IDictionary dictionary)
+        if (DictionaryEntries.Get(rawValue) is { } dictionary)
         {
             EncodeDictionary(property.EncodedName, property.Name, dictionary, writer, depth, options);
             return;
@@ -598,12 +599,12 @@ internal static class ClrObjectArrayFastEncoder
         }
 
         // Dictionary
-        if (typeof(IDictionary).IsAssignableFrom(property.Info.PropertyType))
+        if (DictionaryEntries.IsDictionaryType(property.Info.PropertyType))
         {
             return (instance, writer, depth, options) =>
             {
                 var rawValue = property.Getter(instance);
-                if (rawValue is IDictionary dictionary)
+                if (DictionaryEntries.Get(rawValue) is { } dictionary)
                 {
                     EncodeDictionary(property.EncodedName, property.Name, dictionary, writer, depth, options);
                     return;
@@ -668,33 +669,33 @@ internal static class ClrObjectArrayFastEncoder
         }
     }
 
-    private static void EncodeDictionary(string key, IDictionary dictionary, LineWriter writer, int depth, ResolvedEncodeOptions options)
+    private static void EncodeDictionary(string key, IEnumerable<DictionaryEntry> dictionary, LineWriter writer, int depth, ResolvedEncodeOptions options)
     {
         EncodeDictionary(NativePrimitives.EncodeKey(key), key, dictionary, writer, depth, options);
     }
 
-    private static void EncodeDictionary(string encodedKey, string key, IDictionary dictionary, LineWriter writer, int depth, ResolvedEncodeOptions options)
+    private static void EncodeDictionary(string encodedKey, string key, IEnumerable<DictionaryEntry> dictionary, LineWriter writer, int depth, ResolvedEncodeOptions options)
     {
         var sb = writer.BeginLine(depth);
         sb.Append(encodedKey);
         sb.Append(Constants.COLON);
-        foreach (DictionaryEntry entry in dictionary)
+        foreach (var entry in dictionary)
         {
             EncodeClrNamedValue(entry.Key?.ToString() ?? string.Empty, entry.Value, writer, depth + 1, options);
         }
     }
 
-    private static void EncodeDictionary(string key, IDictionary dictionary, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
+    private static void EncodeDictionary(string key, IEnumerable<DictionaryEntry> dictionary, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
     {
         EncodeDictionary(NativePrimitives.EncodeKey(key), key, dictionary, writer, depth, options);
     }
 
-    private static void EncodeDictionary(string encodedKey, string key, IDictionary dictionary, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
+    private static void EncodeDictionary(string encodedKey, string key, IEnumerable<DictionaryEntry> dictionary, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
     {
         writer.StartLine(depth);
         writer.Append(encodedKey);
         writer.Append(Constants.COLON);
-        foreach (DictionaryEntry entry in dictionary)
+        foreach (var entry in dictionary)
         {
             EncodeClrNamedValue(entry.Key?.ToString() ?? string.Empty, entry.Value, writer, depth + 1, options);
         }
@@ -705,6 +706,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static bool TryEncodeClrEnumerable(NativeNormalize.PropertyMetadata property, IEnumerable enumerable, LineWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (DictionaryEntries.IsDictionaryType(enumerable.GetType()))
+        {
+            return false;
+        }
+
         if (TryWriteEmptyEnumerableHeader(property, enumerable, writer, depth, options))
         {
             return true;
@@ -718,6 +724,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static bool TryEncodeClrEnumerable(string? encodedKey, string? key, Type? declaredElementType, IEnumerable enumerable, LineWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (DictionaryEntries.IsDictionaryType(enumerable.GetType()))
+        {
+            return false;
+        }
+
         if (TryWriteEmptyEnumerableHeader(enumerable, encodedKey, key, writer, depth, options))
         {
             return true;
@@ -763,6 +774,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static bool TryEncodeClrEnumerable(NativeNormalize.PropertyMetadata property, IEnumerable enumerable, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (DictionaryEntries.IsDictionaryType(enumerable.GetType()))
+        {
+            return false;
+        }
+
         if (TryWriteEmptyEnumerableHeader(property, enumerable, writer, depth, options))
         {
             return true;
@@ -776,6 +792,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static bool TryEncodeClrEnumerable(string? encodedKey, string? key, Type? declaredElementType, IEnumerable enumerable, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (DictionaryEntries.IsDictionaryType(enumerable.GetType()))
+        {
+            return false;
+        }
+
         if (TryWriteEmptyEnumerableHeader(enumerable, encodedKey, key, writer, depth, options))
         {
             return true;
@@ -1320,12 +1341,12 @@ internal static class ClrObjectArrayFastEncoder
 
     private static LineWriterPropertyEmitter BuildLineWriterNonHeaderEmitter(NativeNormalize.PropertyMetadata property)
     {
-        if (typeof(IDictionary).IsAssignableFrom(property.Info.PropertyType))
+        if (DictionaryEntries.IsDictionaryType(property.Info.PropertyType))
         {
             return (instance, writer, depth, options) =>
             {
                 var rawValue = property.Getter(instance);
-                if (rawValue is IDictionary dictionary)
+                if (DictionaryEntries.Get(rawValue) is { } dictionary)
                 {
                     EncodeDictionary(property.EncodedName, property.Name, dictionary, writer, depth, options);
                     return;
@@ -1369,12 +1390,12 @@ internal static class ClrObjectArrayFastEncoder
 
     private static CompactWriterPropertyEmitter BuildCompactNonHeaderEmitter(NativeNormalize.PropertyMetadata property)
     {
-        if (typeof(IDictionary).IsAssignableFrom(property.Info.PropertyType))
+        if (DictionaryEntries.IsDictionaryType(property.Info.PropertyType))
         {
             return (instance, writer, depth, options) =>
             {
                 var rawValue = property.Getter(instance);
-                if (rawValue is IDictionary dictionary)
+                if (DictionaryEntries.Get(rawValue) is { } dictionary)
                 {
                     EncodeDictionary(property.EncodedName, property.Name, dictionary, writer, depth, options);
                     return;
