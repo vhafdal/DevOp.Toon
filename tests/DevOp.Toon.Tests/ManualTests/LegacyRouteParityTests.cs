@@ -150,6 +150,32 @@ public sealed class LegacyRouteParityTests
         Assert.Equal(0.5m, decoded.Map!["a"]);
     }
 
+    [Fact]
+    public void Deserialize_JsonTwoArgumentDecimalTargets_KeepExactValue()
+    {
+        const string exact = "0.1234567890123456789012345678";
+        var service = new ToonService();
+
+        var amounts = service.Deserialize<Amounts>(
+            $"{{\"M\":79228162514264337593543950000,\"D\":{exact},\"O\":{exact},\"Map\":{{\"a\":{exact},\"b\":-79228162514264337593543950335}}}}",
+            "application/json")!;
+        var line = service.Deserialize<AnnotatedLedgerLine>($"{{\"Name\":\"Cash\",\"Balance\":{exact},\"Extra\":{exact}}}", "application/json")!;
+        var record = service.Deserialize<LedgerLineRecord>($"{{\"Name\":\"Cash\",\"Balance\":79228162514264337593543950335}}", "application/json")!;
+        var values = service.Deserialize<List<decimal?>>($"[{exact},null,1.10]", "application/json")!;
+
+        Assert.Equal(79228162514264337593543950000m, amounts.M);
+        Assert.Equal(0.12345678901234568, amounts.D);
+        Assert.Equal(0.12345678901234568, Assert.IsType<double>(amounts.O));
+        Assert.Equal(0.1234567890123456789012345678m, amounts.Map!["a"]);
+        Assert.Equal(decimal.MinValue, amounts.Map["b"]);
+        Assert.Equal(0.1234567890123456789012345678m, line.Balance);
+        Assert.Equal(0.12345678901234568, Assert.IsType<double>(line.Annotations!["Extra"]));
+        Assert.Equal(decimal.MaxValue, record.Balance);
+        Assert.Equal([0.1234567890123456789012345678m, null, 1.10m], values);
+        Assert.Equal("1.10", values[2]!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.IsType<double>(ToonNode.Parse(exact)!.AsValue().Value);
+    }
+
     public static TheoryData<ToonProtocolVersion, string, string, string> DirectOutOfRangeCases
     {
         get

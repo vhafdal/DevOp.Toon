@@ -53,6 +53,8 @@ internal static class ToonNodeConverter
         {
             case null:
                 return new NativePrimitiveNode(null);
+            case ToonValue { NumberText: { } numberText, Value: double number }:
+                return new NativePrimitiveNode(number, numberText);
             case ToonValue value:
                 return new NativePrimitiveNode(value.Value);
             case ToonArray array:

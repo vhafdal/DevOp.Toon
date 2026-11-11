@@ -28,9 +28,26 @@ internal sealed class NativePrimitiveNode : NativeNode
     }
 
     /// <summary>
+    /// Initializes a scalar node for a JSON number read as a <see cref="double"/>, keeping its source text.
+    /// </summary>
+    /// <param name="value">The parsed number.</param>
+    /// <param name="numberText">The number's JSON source text.</param>
+    public NativePrimitiveNode(double value, string numberText)
+    {
+        Value = value;
+        NumberText = numberText;
+    }
+
+    /// <summary>
     /// Gets the raw scalar value carried by the node.
     /// </summary>
     public object? Value { get; }
+
+    /// <summary>
+    /// Gets the JSON source text of a number whose <see cref="Value"/> is a <see cref="double"/>, when it was kept: typed
+    /// materialization reads a decimal target from it exactly, while every other target uses <see cref="Value"/>.
+    /// </summary>
+    public string? NumberText { get; }
 }
 
 /// <summary>

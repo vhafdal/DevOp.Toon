@@ -1012,6 +1012,13 @@ internal static class NativeTypedMaterializer
                 return true;
             }
 
+            if (primitive.NumberText is { } numberText &&
+                decimal.TryParse(numberText, NumberStyles.Float, CultureInfo.InvariantCulture, out var exactDecimal))
+            {
+                value = exactDecimal;
+                return true;
+            }
+
             if (primitiveValue is double decimalDouble)
             {
                 if (double.IsNaN(decimalDouble) || Math.Abs(decimalDouble) >= MaxDecimalAsDouble)
