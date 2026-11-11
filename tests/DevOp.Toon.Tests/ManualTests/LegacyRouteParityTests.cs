@@ -176,6 +176,30 @@ public sealed class LegacyRouteParityTests
         Assert.IsType<double>(ToonNode.Parse(exact)!.AsValue().Value);
     }
 
+    [Theory]
+    [InlineData("{\"Int\":1e30}", "Number 1E+30 is outside the range of System.Int32")]
+    [InlineData("{\"NInt\":3000000000}", "Number 3000000000 is outside the range of System.Int32")]
+    [InlineData("{\"NLng\":9223372036854775808}", "Number 9.223372036854776E+18 is outside the range of System.Int64")]
+    [InlineData("{\"Byt\":300}", "Number 300 is outside the range of System.Byte")]
+    [InlineData("{\"UInt\":-1}", "Number -1 is outside the range of System.UInt32")]
+    [InlineData("{\"Flt\":1e39}", "Number outside supported finite range")]
+    public void Deserialize_JsonTwoArgumentNumberBeyondIntegerOrFloatRange_ThrowsFormatException(string json, string message)
+    {
+        AssertRangeError(message, () => new ToonService().Deserialize<Numbers>(json, "application/json"));
+    }
+
+    [Fact]
+    public void Deserialize_JsonTwoArgumentIntegersInRange_ConvertExactly()
+    {
+        var decoded = new ToonService().Deserialize<Numbers>("{\"ULng\":18446744073709551615,\"NLng\":-9223372036854775808,\"Dbl\":1e30,\"Sht\":-2}", "application/json")!;
+
+        Assert.Equal(ulong.MaxValue, decoded.ULng);
+        Assert.Equal(long.MinValue, decoded.NLng);
+        Assert.Equal(1e30, decoded.Dbl);
+        Assert.Equal((short)-2, decoded.Sht);
+        Assert.Throws<NotSupportedException>(() => new ToonService().Deserialize<Numbers>("{\"Int\":1.5}", "application/json"));
+    }
+
     public static TheoryData<ToonProtocolVersion, string, string, string> DirectOutOfRangeCases
     {
         get
