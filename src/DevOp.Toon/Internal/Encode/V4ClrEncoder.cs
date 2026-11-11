@@ -26,7 +26,7 @@ internal static class V4ClrEncoder
     internal static bool TryEncodeToBuffer(object? value, ResolvedEncodeOptions options, out CompactBufferWriter writer)
     {
         writer = null!;
-        if (value == null || NativeNormalize.IsPrimitiveOrNull(value) || value is not IList && !NativeNormalize.IsPlainObjectType(value.GetType()) || value is IList { Count: 0 } || options.ByteArrayFormat == ToonByteArrayFormat.Base64String && value is IEnumerable<byte>) return false;
+        if (value == null || NativeNormalize.IsPrimitiveOrNull(value) || DictionaryEntries.IsDictionaryType(value.GetType()) || value is not IList && !NativeNormalize.IsPlainObjectType(value.GetType()) || value is IList { Count: 0 } || options.ByteArrayFormat == ToonByteArrayFormat.Base64String && value is IEnumerable<byte>) return false;
         writer = new CompactBufferWriter(options.Indent, newLine: "\n");
         try
         {
@@ -42,6 +42,7 @@ internal static class V4ClrEncoder
     {
         if (NativeNormalize.IsPrimitiveOrNull(value)) return false;
         if (options.ByteArrayFormat == ToonByteArrayFormat.Base64String && value is IEnumerable<byte>) return false;
+        if (value != null && DictionaryEntries.IsDictionaryType(value.GetType())) return false;
         if (value != null && value is not IList && NativeNormalize.IsPlainObjectType(value.GetType()))
         {
             var objectPlan = Plans.GetOrAdd(value.GetType(), static t => new Plan(t));

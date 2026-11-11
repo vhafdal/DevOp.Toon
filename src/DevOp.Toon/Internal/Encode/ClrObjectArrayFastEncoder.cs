@@ -706,6 +706,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static bool TryEncodeClrEnumerable(NativeNormalize.PropertyMetadata property, IEnumerable enumerable, LineWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (DictionaryEntries.IsDictionaryType(enumerable.GetType()))
+        {
+            return false;
+        }
+
         if (TryWriteEmptyEnumerableHeader(property, enumerable, writer, depth, options))
         {
             return true;
@@ -719,6 +724,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static bool TryEncodeClrEnumerable(string? encodedKey, string? key, Type? declaredElementType, IEnumerable enumerable, LineWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (DictionaryEntries.IsDictionaryType(enumerable.GetType()))
+        {
+            return false;
+        }
+
         if (TryWriteEmptyEnumerableHeader(enumerable, encodedKey, key, writer, depth, options))
         {
             return true;
@@ -764,6 +774,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static bool TryEncodeClrEnumerable(NativeNormalize.PropertyMetadata property, IEnumerable enumerable, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (DictionaryEntries.IsDictionaryType(enumerable.GetType()))
+        {
+            return false;
+        }
+
         if (TryWriteEmptyEnumerableHeader(property, enumerable, writer, depth, options))
         {
             return true;
@@ -777,6 +792,11 @@ internal static class ClrObjectArrayFastEncoder
 
     private static bool TryEncodeClrEnumerable(string? encodedKey, string? key, Type? declaredElementType, IEnumerable enumerable, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (DictionaryEntries.IsDictionaryType(enumerable.GetType()))
+        {
+            return false;
+        }
+
         if (TryWriteEmptyEnumerableHeader(enumerable, encodedKey, key, writer, depth, options))
         {
             return true;

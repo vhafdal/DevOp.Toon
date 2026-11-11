@@ -196,6 +196,65 @@ public class DictionaryEncodingTests
         Assert.Equal("y", decoded[1]["b"]);
     }
 
+    [Theory]
+    [MemberData(nameof(AllProfiles))]
+    public void Encode_EnumerableTypedPropertyHoldingDictionary_EmitsObject(ToonProtocolVersion version)
+    {
+        var populated = new EnumerableHolder { Pairs = new ReadOnlyOnlyMap(("k", "v")) };
+        var empty = new EnumerableHolder { Pairs = new ReadOnlyOnlyMap() };
+        var options = Encode(version);
+        options.ExcludeEmptyArrays = true;
+
+        Assert.Equal("Pairs:\n  k: v", ToonEncoder.Encode(populated, Encode(version)));
+        Assert.DoesNotContain("[0]", ToonEncoder.Encode(empty, options));
+        Assert.DoesNotContain("Key", ToonEncoder.Encode(new List<EnumerableHolder> { populated, populated }, Encode(version)));
+    }
+
+    [Theory]
+    [MemberData(nameof(AllProfiles))]
+    public void Encode_TypeThatIsListAndDictionary_EmitsObject(ToonProtocolVersion version)
+    {
+        var data = new ListAndMap(("k", "v"), ("other", "w"));
+
+        Assert.Equal("k: v\nother: w", ToonEncoder.Encode(data, Encode(version)));
+        Assert.Equal("Pairs:\n  k: v\n  other: w", ToonEncoder.Encode(new EnumerableHolder { Pairs = data }, Encode(version)));
+    }
+
+    public sealed class EnumerableHolder
+    {
+        public IEnumerable<KeyValuePair<string, string>>? Pairs { get; set; }
+    }
+
+    /// <summary>Implements both <see cref="IList"/> and <see cref="IReadOnlyDictionary{TKey,TValue}"/>.</summary>
+    public sealed class ListAndMap : List<KeyValuePair<string, string>>, IReadOnlyDictionary<string, string>
+    {
+        public ListAndMap(params (string Key, string Value)[] pairs)
+        {
+            foreach (var (key, value) in pairs)
+                Add(new KeyValuePair<string, string>(key, value));
+        }
+
+        public string this[string key] => TryGetValue(key, out var value) ? value : throw new KeyNotFoundException(key);
+        public IEnumerable<string> Keys => ConvertAll(e => e.Key);
+        public IEnumerable<string> Values => ConvertAll(e => e.Value);
+        public bool ContainsKey(string key) => TryGetValue(key, out _);
+
+        public bool TryGetValue(string key, out string value)
+        {
+            foreach (var entry in this)
+            {
+                if (entry.Key == key)
+                {
+                    value = entry.Value;
+                    return true;
+                }
+            }
+
+            value = string.Empty;
+            return false;
+        }
+    }
+
     public sealed class MapHolder
     {
         public int Id { get; set; }
