@@ -193,17 +193,21 @@ Name: Other Expenses
   @collection: Accounts
 ```
 
-- It applies to the 4.x profiles only (official 4.0 to 4.4 and custom 4.4). `V3_0` and
-  `CustomLegacy` ignore the attribute: they write the dictionary as a nested object and
-  capture nothing.
+- In 0.4.0 it applies to the 4.x profiles only (official 4.0 to 4.4 and custom 4.4); `V3_0` and
+  `CustomLegacy` write the dictionary as a nested object and capture nothing. After 0.4.0 the
+  legacy profiles flatten and capture too. A 0.4.0 legacy document's nested dictionary now decodes
+  as a single entry named after the property; see
+  [extension data in the protocol guide](ProtocolVersions.md#extension-data).
 - A member wins: an entry whose key equals a member's TOON name or CLR name is not written.
   For constructor-bound types such as positional records the match ignores case, as decoding does.
 - Captured objects become `Dictionary<string, object?>`, arrays `List<object?>`, and numbers
   `double`.
 - Entries take part in tables like members do: uniform entries become columns, and other
   entries spill under their row in custom 4.4 (official 4.4 falls back to list items).
-- `ToonService.Deserialize<T>(body, "application/json")` does not capture keys yet; that
-  JSON path uses the legacy materializer.
+- A key naming a declared member that decoding cannot bind, such as a computed getter-only
+  property, is skipped rather than captured (0.4.0 captured it).
+- `ToonService.Deserialize<T>(body, "application/json")` does not capture keys in 0.4.0; after
+  0.4.0 it does, with numbers as `double`.
 
 ## Use custom 4.4 without omitting data
 

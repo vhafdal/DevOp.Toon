@@ -133,6 +133,21 @@ internal static class NativeDecoders
         return new KeyValueDecodeResult { Key = keyResult.Key, Value = primitiveValue, FollowDepth = baseDepth + 1, WasQuoted = keyResult.WasQuoted };
     }
 
+    /// <summary>
+    /// Decodes the value of one object field whose line the cursor has already consumed, applying the same structural and
+    /// strict-mode checks as a full native decode.
+    /// </summary>
+    /// <param name="content">The field text, starting at its key; for a list item's first field, the text after the hyphen.</param>
+    /// <param name="cursor">The cursor positioned after the field line.</param>
+    /// <param name="baseDepth">The depth of the field line; the list item's depth for its first field.</param>
+    /// <param name="options">Resolved decode options.</param>
+    /// <param name="isListItemFirstField">Whether the field is the first field of a list item.</param>
+    /// <returns>The decoded value node.</returns>
+    internal static NativeNode? DecodeFieldValue(string content, LineCursor cursor, int baseDepth, ResolvedDecodeOptions options, bool isListItemFirstField)
+    {
+        return DecodeKeyValue(content, cursor, baseDepth, options, isListItemFirstField).Value;
+    }
+
     private static (string key, NativeNode? value, bool wasQuoted) DecodeKeyValuePair(ParsedLine line, LineCursor cursor, int baseDepth, ResolvedDecodeOptions options)
     {
         cursor.Advance();

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
+using DevOp.Toon.Internal.Encode;
 using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Decode
@@ -45,6 +46,20 @@ namespace DevOp.Toon.Internal.Decode
 
             value = (T?)boxed;
             return true;
+        }
+
+        /// <summary>
+        /// Returns whether typed legacy decoding of <paramref name="type"/> binds <paramref name="key"/> to a declared member or
+        /// constructor parameter; <see langword="false"/> when the direct path cannot decode the type.
+        /// </summary>
+        internal static bool BindsMember(Type type, string key)
+        {
+            TypePlan plan;
+            try { plan = GetPlan(type); }
+            catch (NotSupportedException) { return false; }
+
+            return plan.Kind == PlanKind.Object &&
+                   (plan.Properties?.ContainsKey(key) == true || plan.ConstructorParameterLookup?.ContainsKey(key) == true);
         }
 
         private static TypePlan GetPlan(Type type)
@@ -130,13 +145,25 @@ namespace DevOp.Toon.Internal.Decode
             var ctor = type.GetConstructor(Type.EmptyTypes);
             if (ctor != null)
             {
+                var extension = ExtensionDataAccessor.Find(type);
                 var writableProperties = new Dictionary<string, PropertyPlan>(StringComparer.Ordinal);
                 var aliases = new List<PropertyAlias>(16);
+                HashSet<string>? unboundMembers = null;
                 for (int i = 0; i < properties.Length; i++)
                 {
                     var property = properties[i];
-                    if (!property.CanWrite || property.GetIndexParameters().Length != 0)
+                    if (property.GetIndexParameters().Length != 0 || extension?.IsExtension(property) == true)
                     {
+                        continue;
+                    }
+
+                    if (!property.CanWrite)
+                    {
+                        if (extension != null)
+                        {
+                            AddMemberNames(unboundMembers ??= new HashSet<string>(StringComparer.Ordinal), property);
+                        }
+
                         continue;
                     }
 
@@ -161,7 +188,8 @@ namespace DevOp.Toon.Internal.Decode
                 }
 
                 var propertyAliases = aliases.ToArray();
-                return TypePlan.Object(type, CreateFactory(ctor), writableProperties, propertyAliases, BuildAliasBuckets(propertyAliases));
+                return TypePlan.Object(type, CreateFactory(ctor), writableProperties, propertyAliases, BuildAliasBuckets(propertyAliases))
+                    .WithExtension(extension, -1, unboundMembers);
             }
 
             if (IsFrameworkObjectType(type))
@@ -225,12 +253,38 @@ namespace DevOp.Toon.Internal.Decode
                 return false;
             }
 
+            var extension = ExtensionDataAccessor.Find(type);
+            var extensionArgument = -1;
+            HashSet<string>? unboundMembers = null;
+            if (extension != null)
+            {
+                extensionArgument = extension.FindConstructorArgument(bestConstructor.GetParameters());
+                foreach (var property in properties)
+                {
+                    if (property.GetIndexParameters().Length == 0 && !extension.IsExtension(property) &&
+                        !bestLookup.ContainsKey(property.Name))
+                    {
+                        AddMemberNames(unboundMembers ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase), property);
+                    }
+                }
+            }
+
             plan = TypePlan.Object(
                 type,
                 CreateConstructorFactory(bestConstructor),
                 bestParameters,
-                bestLookup);
+                bestLookup).WithExtension(extension, extensionArgument, unboundMembers);
             return true;
+        }
+
+        private static void AddMemberNames(HashSet<string> names, PropertyInfo property)
+        {
+            names.Add(property.Name);
+            var toonName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
+            if (toonName is { Length: > 0 })
+            {
+                names.Add(toonName);
+            }
         }
 
         private static bool TryBuildConstructorParameters(
@@ -243,6 +297,7 @@ namespace DevOp.Toon.Internal.Decode
             var parameters = constructor.GetParameters();
             parameterPlans = new ConstructorParameterPlan[parameters.Length];
             lookup = new Dictionary<string, ConstructorParameterPlan>(StringComparer.OrdinalIgnoreCase);
+            var extensionArgument = ExtensionDataAccessor.Find(constructor.DeclaringType!)?.FindConstructorArgument(parameters) ?? -1;
 
             for (int i = 0; i < parameters.Length; i++)
             {
@@ -264,6 +319,11 @@ namespace DevOp.Toon.Internal.Decode
                     parameterPlan,
                     GetParameterDefaultValue(parameter));
                 parameterPlans[i] = parameterEntry;
+                if (i == extensionArgument)
+                {
+                    continue;
+                }
+
                 AddConstructorAlias(lookup, parameter.Name!, parameterEntry);
 
                 var property = FindPropertyForParameter(properties, parameter.Name!);
@@ -502,6 +562,7 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             var instance = plan.Factory();
+            Dictionary<string, object?>? extensionEntries = null;
             int? computedDepth = null;
 
             while (!cursor.AtEnd())
@@ -523,7 +584,12 @@ namespace DevOp.Toon.Internal.Decode
                 }
 
                 cursor.Advance();
-                ReadObjectField(instance, cursor, line.Content, computedDepth.Value, plan, options);
+                ReadObjectField(instance, cursor, line.Content, computedDepth.Value, plan, ref extensionEntries, options);
+            }
+
+            if (extensionEntries != null)
+            {
+                plan.Extension!.Populate(instance, extensionEntries);
             }
 
             value = instance;
@@ -587,7 +653,11 @@ namespace DevOp.Toon.Internal.Decode
                 var key = GetArrayHeaderKey(content, field.ArrayHeader);
                 if (!TryGetConstructorParameter(plan, key, out var parameter))
                 {
-                    SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                    if (plan.Extension == null || !TryCaptureConstructorExtensionField(plan, arguments, key, cursor, content, contentStart, baseDepth, options))
+                    {
+                        SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                    }
+
                     return true;
                 }
 
@@ -608,6 +678,11 @@ namespace DevOp.Toon.Internal.Decode
             var fieldKey = GetFieldKey(content, field);
             if (!TryGetConstructorParameter(plan, fieldKey, out var parameterPlan))
             {
+                if (plan.Extension != null && TryCaptureConstructorExtensionField(plan, arguments, fieldKey, cursor, content, contentStart, baseDepth, options))
+                {
+                    return true;
+                }
+
                 if (field.ValueStart >= content.Length)
                 {
                     SkipValue(cursor, field.ValueStart, baseDepth, options);
@@ -929,6 +1004,7 @@ namespace DevOp.Toon.Internal.Decode
             string content,
             int baseDepth,
             TypePlan plan,
+            ref Dictionary<string, object?>? extensionEntries,
             ResolvedDecodeOptions options,
             ParsedFieldInfo? parsedField = null,
             int contentStart = 0)
@@ -938,7 +1014,12 @@ namespace DevOp.Toon.Internal.Decode
             {
                 if (!TryGetProperty(plan, content, field.ArrayHeader, out var property))
                 {
-                    SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                    if (plan.Extension == null ||
+                        !TryCaptureExtensionField(plan, ref extensionEntries, GetArrayHeaderKey(content, field.ArrayHeader), cursor, content, contentStart, baseDepth, options))
+                    {
+                        SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                    }
+
                     return;
                 }
 
@@ -954,6 +1035,12 @@ namespace DevOp.Toon.Internal.Decode
 
             if (!TryGetProperty(plan, content, field, out var propertyPlan))
             {
+                if (plan.Extension != null &&
+                    TryCaptureExtensionField(plan, ref extensionEntries, GetFieldKey(content, field), cursor, content, contentStart, baseDepth, options))
+                {
+                    return;
+                }
+
                 if (field.ValueStart >= content.Length)
                 {
                     SkipValue(cursor, field.ValueStart, baseDepth, options);
@@ -1156,11 +1243,17 @@ namespace DevOp.Toon.Internal.Decode
                 }
 
                 var instance = elementPlan.Factory();
+                Dictionary<string, object?>? extensionEntries = null;
                 for (int i = 0; i < columnPlans.Length; i++)
                 {
                     var property = columnPlans[i];
                     if (property == null)
                     {
+                        if (elementPlan.Extension != null)
+                        {
+                            CaptureExtensionCell(elementPlan, ref extensionEntries, header.Fields[i], line.SourceString, contentOffset + tokenRanges[i].Start, contentOffset + tokenRanges[i].EndExclusive);
+                        }
+
                         continue;
                     }
 
@@ -1192,11 +1285,16 @@ namespace DevOp.Toon.Internal.Decode
                     if (continuation.Depth == followDepth && !IsListItemLine(continuation.Content))
                     {
                         cursor.Advance();
-                        ReadObjectField(instance, cursor, continuation.Content, followDepth, elementPlan, options);
+                        ReadObjectField(instance, cursor, continuation.Content, followDepth, elementPlan, ref extensionEntries, options);
                         continue;
                     }
 
                     break;
+                }
+
+                if (extensionEntries != null)
+                {
+                    elementPlan.Extension!.Populate(instance, extensionEntries);
                 }
 
                 items.Add(instance);
@@ -1250,6 +1348,14 @@ namespace DevOp.Toon.Internal.Decode
                     var parameter = columnPlans[i];
                     if (parameter == null)
                     {
+                        if (elementPlan.Extension != null)
+                        {
+                            var slot = elementPlan.ConstructorParameters.Length;
+                            var extensionEntries = arguments[slot] as Dictionary<string, object?>;
+                            CaptureExtensionCell(elementPlan, ref extensionEntries, header.Fields[i], line.SourceString, contentOffset + tokenRanges[i].Start, contentOffset + tokenRanges[i].EndExclusive);
+                            arguments[slot] = extensionEntries;
+                        }
+
                         continue;
                     }
 
@@ -1447,7 +1553,8 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             var instance = plan.Factory();
-            ReadObjectField(instance, cursor, firstLine.Content, baseDepth, plan, options, firstField, firstFieldStart);
+            Dictionary<string, object?>? extensionEntries = null;
+            ReadObjectField(instance, cursor, firstLine.Content, baseDepth, plan, ref extensionEntries, options, firstField, firstFieldStart);
 
             var followDepth = baseDepth + 1;
             while (!cursor.AtEnd())
@@ -1461,11 +1568,16 @@ namespace DevOp.Toon.Internal.Decode
                 if (line.Depth == followDepth && !IsListItemLine(line.Content))
                 {
                     cursor.Advance();
-                    ReadObjectField(instance, cursor, line.Content, followDepth, plan, options);
+                    ReadObjectField(instance, cursor, line.Content, followDepth, plan, ref extensionEntries, options);
                     continue;
                 }
 
                 break;
+            }
+
+            if (extensionEntries != null)
+            {
+                plan.Extension!.Populate(instance, extensionEntries);
             }
 
             value = instance;
@@ -2290,7 +2402,7 @@ namespace DevOp.Toon.Internal.Decode
             var field = parsedField ?? ParseFieldContent(content, contentStart);
             if (field.ArrayHeader != null)
             {
-                obj[field.ArrayHeader.Header.Key!] = ReadUntypedArray(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                obj[GetArrayHeaderKey(content, field.ArrayHeader)] = ReadUntypedArray(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
                 return;
             }
 
@@ -2300,18 +2412,18 @@ namespace DevOp.Toon.Internal.Decode
                 if (!nextLine.IsNone && nextLine.Depth > baseDepth)
                 {
                     TryReadUntypedObject(cursor, baseDepth + 1, options, out var nested);
-                    obj[field.Key!] = nested;
+                    obj[GetFieldKey(content, field)] = nested;
                 }
                 else
                 {
-                    obj[field.Key!] = new Dictionary<string, object?>(StringComparer.Ordinal);
+                    obj[GetFieldKey(content, field)] = new Dictionary<string, object?>(StringComparer.Ordinal);
                 }
 
                 return;
             }
 
             TryConvertUntypedPrimitive(content, field.ValueStart, content.Length, out var primitive);
-            obj[field.Key!] = primitive;
+            obj[GetFieldKey(content, field)] = primitive;
         }
 
         private static bool TryReadUntypedObjectFromListItem(
@@ -2635,6 +2747,63 @@ namespace DevOp.Toon.Internal.Decode
             return parsed;
         }
 
+        private static bool TryCaptureExtensionField(
+            TypePlan plan,
+            ref Dictionary<string, object?>? entries,
+            string key,
+            LineCursor cursor,
+            string content,
+            int contentStart,
+            int baseDepth,
+            ResolvedDecodeOptions options)
+        {
+            if (plan.UnboundMembers?.Contains(key) == true)
+            {
+                return false;
+            }
+
+            var fieldContent = contentStart == 0 ? content : content.Substring(contentStart);
+            var node = NativeDecoders.DecodeFieldValue(fieldContent, cursor, baseDepth, options, isListItemFirstField: contentStart > 0);
+            CaptureExtension(key, node, ref entries);
+            return true;
+        }
+
+        private static bool TryCaptureConstructorExtensionField(
+            TypePlan plan,
+            object?[] arguments,
+            string key,
+            LineCursor cursor,
+            string content,
+            int contentStart,
+            int baseDepth,
+            ResolvedDecodeOptions options)
+        {
+            var slot = plan.ConstructorParameters!.Length;
+            var entries = arguments[slot] as Dictionary<string, object?>;
+            if (!TryCaptureExtensionField(plan, ref entries, key, cursor, content, contentStart, baseDepth, options))
+            {
+                return false;
+            }
+
+            arguments[slot] = entries;
+            return true;
+        }
+
+        private static void CaptureExtensionCell(TypePlan plan, ref Dictionary<string, object?>? entries, string key, string source, int start, int endExclusive)
+        {
+            if (plan.UnboundMembers?.Contains(key) == true)
+            {
+                return;
+            }
+
+            CaptureExtension(key, Parser.ParsePrimitiveNativeToken(source.Substring(start, endExclusive - start)), ref entries);
+        }
+
+        private static void CaptureExtension(string key, NativeNode? node, ref Dictionary<string, object?>? entries)
+        {
+            (entries ??= new Dictionary<string, object?>(StringComparer.Ordinal))[key] = ExtensionDataAccessor.ToValue(node);
+        }
+
         private static string GetFieldKey(string content, ParsedFieldInfo field)
         {
             if (field.HasKeyRange)
@@ -2690,7 +2859,8 @@ namespace DevOp.Toon.Internal.Decode
                 return false;
             }
 
-            arguments = new object?[plan.ConstructorParameters.Length];
+            // An extension-data type keeps its collected entries in one slot past the constructor arguments.
+            arguments = new object?[plan.ConstructorParameters.Length + (plan.Extension != null ? 1 : 0)];
             assigned = new bool[plan.ConstructorParameters.Length];
             return true;
         }
@@ -2726,7 +2896,19 @@ namespace DevOp.Toon.Internal.Decode
                 }
             }
 
-            return plan.ConstructorFactory!(arguments);
+            var extensionEntries = plan.Extension != null ? arguments[parameters.Length] as Dictionary<string, object?> : null;
+            if (extensionEntries != null && plan.ExtensionArgument >= 0)
+            {
+                arguments[plan.ExtensionArgument] = extensionEntries;
+            }
+
+            var value = plan.ConstructorFactory!(arguments);
+            if (extensionEntries != null && plan.ExtensionArgument < 0)
+            {
+                plan.Extension!.Populate(value, extensionEntries);
+            }
+
+            return value;
         }
 
         private static bool TryGetProperty(TypePlan plan, string key, out PropertyPlan property)
@@ -3944,6 +4126,17 @@ namespace DevOp.Toon.Internal.Decode
             public Func<IDictionary>? CreateDictionary { get; private set; }
             public ConcurrentDictionary<IReadOnlyList<string>, PropertyPlan?[]>? ColumnPlanCache { get; private set; }
             public ConcurrentDictionary<IReadOnlyList<string>, ConstructorParameterPlan?[]>? ConstructorColumnPlanCache { get; private set; }
+            public ExtensionDataAccessor? Extension { get; private set; }
+            public int ExtensionArgument { get; private set; } = -1;
+            public HashSet<string>? UnboundMembers { get; private set; }
+
+            public TypePlan WithExtension(ExtensionDataAccessor? extension, int argument, HashSet<string>? unboundMembers)
+            {
+                Extension = extension;
+                ExtensionArgument = argument;
+                UnboundMembers = unboundMembers;
+                return this;
+            }
 
             public static TypePlan Unsupported(Type type) => new TypePlan(type, PlanKind.Unsupported);
             public static TypePlan Primitive(Type type) => new TypePlan(type, PlanKind.Primitive);

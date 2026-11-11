@@ -148,6 +148,25 @@ internal static class NativeEncoders
         EncodeKeyValuePair(key, NativeNormalize.Normalize(rawValue), writer, depth, options);
     }
 
+    /// <summary>
+    /// Encodes a value that holds or contains extension data, normalizing it with <paramref name="options"/> so entries are
+    /// flattened and byte sequences follow <see cref="ResolvedEncodeOptions.ByteArrayFormat"/> as on the slow path.
+    /// </summary>
+    internal static string EncodeExtensionDataValue(string key, object rawValue, int depth, ResolvedEncodeOptions options)
+    {
+        var writer = new LineWriter(options.Indent);
+        EncodeExtensionDataValue(key, rawValue, writer, depth, options);
+        return writer.ToString();
+    }
+
+    /// <summary>
+    /// Writes a value that holds or contains extension data to <paramref name="writer"/>; see <see cref="EncodeExtensionDataValue(string, object, int, ResolvedEncodeOptions)"/>.
+    /// </summary>
+    internal static void EncodeExtensionDataValue(string key, object rawValue, LineWriter writer, int depth, ResolvedEncodeOptions options)
+    {
+        EncodeKeyValuePair(key, NativeNormalize.Normalize(rawValue, options), writer, depth, options);
+    }
+
     internal static string EncodeNamedValue(string key, object? rawValue, int depth, ResolvedEncodeOptions options)
     {
         var writer = new LineWriter(options.Indent);

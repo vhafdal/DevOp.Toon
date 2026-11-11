@@ -30,7 +30,7 @@ internal static class ClrObjectArrayFastEncoder
     private delegate void CompactWriterPropertyEmitter(object instance, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options);
 
     private static readonly ConcurrentDictionary<Type, RowLayoutMetadata> RowLayoutCache = new();
-    private static readonly ConcurrentDictionary<Type, CompactWriterPropertyEmitter[]> PlainObjectEmitterCache = new();
+    private static readonly ConcurrentDictionary<Type, ObjectEmitters> PlainObjectEmitterCache = new();
 
     /// <summary>
     /// Attempts to encode a supported CLR object or homogeneous CLR object array directly to a string.
@@ -80,12 +80,12 @@ internal static class ClrObjectArrayFastEncoder
 
         var rowLayout = GetRowLayout(elementType!, properties);
         var headerProperties = rowLayout.HeaderProperties;
-        if (headerProperties.Length == 0)
+        if (headerProperties.Length == 0 || rowLayout.HasExtensionEntries(rows))
         {
             return false;
         }
 
-        var isFullyTabular = headerProperties.Length == properties.Count;
+        var isFullyTabular = headerProperties.Length == rowLayout.MemberCount;
         if (!isFullyTabular && options.ObjectArrayLayout != ToonObjectArrayLayout.Columnar)
         {
             return false;
@@ -207,7 +207,14 @@ internal static class ClrObjectArrayFastEncoder
             return false;
         }
 
-        if (options.KeyFolding != ToonKeyFolding.Off && HasKeyFoldableProperty(properties))
+        if (options.KeyFolding != ToonKeyFolding.Off && HasKeyFoldableProperty(properties, data))
+        {
+            compactWriter = null!;
+            return false;
+        }
+
+        var objectEmitters = GetPlainObjectEmitters(data.GetType());
+        if (objectEmitters.HasExtensionEntries(data))
         {
             compactWriter = null!;
             return false;
@@ -216,7 +223,7 @@ internal static class ClrObjectArrayFastEncoder
         var writer = new CompactBufferWriter(options.Indent);
         try
         {
-            var emitters = GetPlainObjectEmitters(data.GetType());
+            var emitters = objectEmitters.Emitters;
             for (int i = 0; i < emitters.Length; i++)
             {
                 emitters[i](data, writer, 0, options);
@@ -234,13 +241,22 @@ internal static class ClrObjectArrayFastEncoder
 
     /// <summary>
     /// Returns true if any property is a plain object with exactly one child property,
-    /// meaning key folding could collapse it into a dotted key path (e.g. a.b.c: v).
+    /// meaning key folding could collapse it into a dotted key path (e.g. a.b.c: v),
+    /// or holds extension data entries that could fold.
     /// </summary>
-    private static bool HasKeyFoldableProperty(IReadOnlyList<NativeNormalize.PropertyMetadata> properties)
+    private static bool HasKeyFoldableProperty(IReadOnlyList<NativeNormalize.PropertyMetadata> properties, object data)
     {
         for (int i = 0; i < properties.Count; i++)
         {
-            if (properties[i].NestedObjectProperties is { Length: 1 })
+            var property = properties[i];
+            if (property.NestedObjectProperties is { Length: 1 })
+            {
+                return true;
+            }
+
+            if (property.ValueDeclaresExtensionData &&
+                property.Getter(data) is { } value &&
+                GetPlainObjectEmitters(value.GetType()).HasExtensionEntries(value))
             {
                 return true;
             }
@@ -528,6 +544,12 @@ internal static class ClrObjectArrayFastEncoder
 
     private static void EncodeClrObject(string encodedKey, string key, object value, LineWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        if (GetPlainObjectEmitters(value.GetType()).ExtensionGetter != null)
+        {
+            NativeEncoders.EncodeExtensionDataValue(key, value, writer, depth, options);
+            return;
+        }
+
         var properties = NativeNormalize.GetCachedProperties(value.GetType());
         EncodeClrObject(encodedKey, properties, value, writer, depth, options);
     }
@@ -551,20 +573,29 @@ internal static class ClrObjectArrayFastEncoder
     private static void EncodeClrObject(string encodedKey, string key, object value, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
     {
         var properties = NativeNormalize.GetCachedProperties(value.GetType());
-        EncodeClrObject(encodedKey, properties, value, writer, depth, options);
+        EncodeClrObject(encodedKey, key, properties, value, writer, depth, options);
     }
 
-    private static CompactWriterPropertyEmitter[] GetPlainObjectEmitters(Type type)
-        => PlainObjectEmitterCache.GetOrAdd(type, static t => BuildPlainObjectEmitters(NativeNormalize.GetCachedProperties(t)));
+    private static ObjectEmitters GetPlainObjectEmitters(Type type)
+        => PlainObjectEmitterCache.GetOrAdd(type, static t => BuildPlainObjectEmitters(t));
 
-    private static CompactWriterPropertyEmitter[] BuildPlainObjectEmitters(IReadOnlyList<NativeNormalize.PropertyMetadata> properties)
+    private static ObjectEmitters BuildPlainObjectEmitters(Type type)
     {
-        var emitters = new CompactWriterPropertyEmitter[properties.Count];
+        var extension = ExtensionDataMetadata.Find(type);
+        var properties = NativeNormalize.GetCachedProperties(type);
+        var emitters = new List<CompactWriterPropertyEmitter>(properties.Count);
+        Func<object, object?>? extensionGetter = null;
         for (int i = 0; i < properties.Count; i++)
         {
-            emitters[i] = BuildPlainObjectPropertyEmitter(properties[i]);
+            if (extension != null && ExtensionDataMetadata.IsExtension(properties[i].Info, extension))
+            {
+                extensionGetter = properties[i].Getter;
+                continue;
+            }
+
+            emitters.Add(BuildPlainObjectPropertyEmitter(properties[i]));
         }
-        return emitters;
+        return new ObjectEmitters(emitters.ToArray(), extensionGetter);
     }
 
     private static CompactWriterPropertyEmitter BuildPlainObjectPropertyEmitter(NativeNormalize.PropertyMetadata property)
@@ -630,10 +661,10 @@ internal static class ClrObjectArrayFastEncoder
 
         // Nested plain object with cached properties — pre-bake emitters and encoded key to skip
         // GetType() + ConcurrentDictionary lookup on every encode call.
-        if (property.NestedObjectProperties is not null)
+        if (property.NestedObjectProperties is not null && !property.ValueDeclaresExtensionData)
         {
             var nestedType = property.Info.PropertyType;
-            var prebuiltEmitters = GetPlainObjectEmitters(nestedType);
+            var prebuiltEmitters = GetPlainObjectEmitters(nestedType).Emitters;
             var encodedName = property.EncodedName;
             return (instance, writer, depth, options) =>
             {
@@ -657,12 +688,19 @@ internal static class ClrObjectArrayFastEncoder
         return (instance, writer, depth, options) => EncodeClrPropertyValue(property, property.Getter(instance), writer, depth, options);
     }
 
-    private static void EncodeClrObject(string encodedKey, IReadOnlyList<NativeNormalize.PropertyMetadata> properties, object value, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
+    private static void EncodeClrObject(string encodedKey, string key, IReadOnlyList<NativeNormalize.PropertyMetadata> properties, object value, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
     {
+        var objectEmitters = GetPlainObjectEmitters(value.GetType());
+        if (objectEmitters.HasExtensionEntries(value))
+        {
+            writer.PushRawBlock(NativeEncoders.EncodeExtensionDataValue(key, value, depth, options));
+            return;
+        }
+
         writer.StartLine(depth);
         writer.Append(encodedKey);
         writer.Append(Constants.COLON);
-        var emitters = GetPlainObjectEmitters(value.GetType());
+        var emitters = objectEmitters.Emitters;
         for (int i = 0; i < emitters.Length; i++)
         {
             emitters[i](value, writer, depth + 1, options);
@@ -752,8 +790,19 @@ internal static class ClrObjectArrayFastEncoder
         if (TryCollectRows(enumerable, items, declaredElementType, out var properties, out var elementType))
         {
             var rowLayout = GetRowLayout(elementType!, properties);
+            if (rowLayout.HasExtensionEntries(items))
+            {
+                if (key is null)
+                {
+                    return false;
+                }
+
+                NativeEncoders.EncodeExtensionDataValue(key, enumerable, writer, depth, options);
+                return true;
+            }
+
             var headerProperties = rowLayout.HeaderProperties;
-            if (headerProperties.Length == properties.Count)
+            if (headerProperties.Length == rowLayout.MemberCount)
             {
                 WriteClrObjectRows(encodedKey, key, items, rowLayout, writer, depth, options, columnar: false);
                 return true;
@@ -821,8 +870,19 @@ internal static class ClrObjectArrayFastEncoder
         if (TryCollectRows(enumerable, items, declaredElementType, out var properties, out var elementType))
         {
             var rowLayout = GetRowLayout(elementType!, properties);
+            if (rowLayout.HasExtensionEntries(items))
+            {
+                if (key is null)
+                {
+                    return false;
+                }
+
+                writer.PushRawBlock(NativeEncoders.EncodeExtensionDataValue(key, enumerable, depth, options));
+                return true;
+            }
+
             var headerProperties = rowLayout.HeaderProperties;
-            if (headerProperties.Length == properties.Count)
+            if (headerProperties.Length == rowLayout.MemberCount)
             {
                 WriteClrObjectRows(encodedKey, key, items, rowLayout, writer, depth, options, columnar: false);
                 return true;
@@ -1208,11 +1268,29 @@ internal static class ClrObjectArrayFastEncoder
 
     private static RowLayoutMetadata GetRowLayout(Type elementType, IReadOnlyList<NativeNormalize.PropertyMetadata> properties)
     {
-        return RowLayoutCache.GetOrAdd(elementType, _ => BuildRowLayout(properties));
+        return RowLayoutCache.GetOrAdd(elementType, type => BuildRowLayout(properties, ExtensionDataMetadata.Find(type)));
     }
 
-    private static RowLayoutMetadata BuildRowLayout(IReadOnlyList<NativeNormalize.PropertyMetadata> properties)
+    private static RowLayoutMetadata BuildRowLayout(IReadOnlyList<NativeNormalize.PropertyMetadata> properties, PropertyInfo? extension)
     {
+        Func<object, object?>? extensionGetter = null;
+        if (extension != null)
+        {
+            var members = new List<NativeNormalize.PropertyMetadata>(properties.Count);
+            for (int i = 0; i < properties.Count; i++)
+            {
+                if (ExtensionDataMetadata.IsExtension(properties[i].Info, extension))
+                {
+                    extensionGetter = properties[i].Getter;
+                    continue;
+                }
+
+                members.Add(properties[i]);
+            }
+
+            properties = members;
+        }
+
         var header = new List<NativeNormalize.PropertyMetadata>(properties.Count);
         for (int i = 0; i < properties.Count; i++)
         {
@@ -1244,7 +1322,9 @@ internal static class ClrObjectArrayFastEncoder
             compactFieldWriters,
             nonHeaderProperties,
             BuildLineWriterNonHeaderEmitters(nonHeaderProperties),
-            BuildCompactNonHeaderEmitters(nonHeaderProperties));
+            BuildCompactNonHeaderEmitters(nonHeaderProperties),
+            properties.Count,
+            extensionGetter);
     }
 
     private static void WriteBufferedRows(
@@ -1255,7 +1335,7 @@ internal static class ClrObjectArrayFastEncoder
         ResolvedEncodeOptions options,
         bool isFullyTabular)
     {
-        var rowLayout = BuildRowLayout(properties);
+        var rowLayout = BuildRowLayout(properties, extension: null);
         writer.StartLine(0);
         NativePrimitives.AppendHeader(writer, rows.Count, null, rowLayout.HeaderNames, options.Delimiter);
         var nonHeaderEmitters = isFullyTabular
@@ -1420,10 +1500,10 @@ internal static class ClrObjectArrayFastEncoder
             };
         }
 
-        if (property.NestedObjectProperties is not null)
+        if (property.NestedObjectProperties is not null && !property.ValueDeclaresExtensionData)
         {
             var nestedType = property.Info.PropertyType;
-            var prebuiltEmitters = GetPlainObjectEmitters(nestedType);
+            var prebuiltEmitters = GetPlainObjectEmitters(nestedType).Emitters;
             var encodedName = property.EncodedName;
             return (instance, writer, depth, options) =>
             {
@@ -1790,7 +1870,7 @@ internal static class ClrObjectArrayFastEncoder
     private static bool TryEncodeCachedClrObject(NativeNormalize.PropertyMetadata property, object value, LineWriter writer, int depth, ResolvedEncodeOptions options)
     {
         var cachedProperties = property.NestedObjectProperties;
-        if (cachedProperties is null || value.GetType() != property.Info.PropertyType)
+        if (cachedProperties is null || value.GetType() != property.Info.PropertyType || property.ValueDeclaresExtensionData)
         {
             return false;
         }
@@ -1807,7 +1887,7 @@ internal static class ClrObjectArrayFastEncoder
             return false;
         }
 
-        EncodeClrObject(property.EncodedName, cachedProperties, value, writer, depth, options);
+        EncodeClrObject(property.EncodedName, property.Name, cachedProperties, value, writer, depth, options);
         return true;
     }
 
@@ -1854,6 +1934,35 @@ internal static class ClrObjectArrayFastEncoder
     /// <summary>
     /// Cached row layout and compiled field writers for one CLR object-array element type.
     /// </summary>
+    /// <summary>
+    /// Cached compact-writer emitters for a plain object type, without its extension data property.
+    /// </summary>
+    private sealed class ObjectEmitters
+    {
+        /// <summary>
+        /// Initializes the emitters of a plain object type.
+        /// </summary>
+        /// <param name="emitters">Member emitters in declaration order.</param>
+        /// <param name="extensionGetter">The getter of the type's extension data property, when it declares one.</param>
+        public ObjectEmitters(CompactWriterPropertyEmitter[] emitters, Func<object, object?>? extensionGetter)
+        {
+            Emitters = emitters;
+            ExtensionGetter = extensionGetter;
+        }
+
+        /// <summary>Gets the member emitters in declaration order.</summary>
+        public CompactWriterPropertyEmitter[] Emitters { get; }
+
+        /// <summary>Gets the getter of the type's extension data property, when it declares one.</summary>
+        public Func<object, object?>? ExtensionGetter { get; }
+
+        /// <summary>
+        /// Returns whether <paramref name="value"/> carries extension data entries, which the member emitters do not write.
+        /// </summary>
+        public bool HasExtensionEntries(object value)
+            => ExtensionGetter != null && ExtensionGetter(value) is IDictionary<string, object?> { Count: > 0 };
+    }
+
     private readonly struct RowLayoutMetadata
     {
         /// <summary>
@@ -1867,6 +1976,8 @@ internal static class ClrObjectArrayFastEncoder
         /// <param name="nonHeaderProperties">Properties emitted as nested spill fields.</param>
         /// <param name="lineWriterNonHeaderEmitters">Compiled spill emitters for line writer output.</param>
         /// <param name="compactNonHeaderEmitters">Compiled spill emitters for compact writer output.</param>
+        /// <param name="memberCount">The number of encoded member properties, excluding an extension data property.</param>
+        /// <param name="extensionGetter">The getter of the row type's extension data property, when it declares one.</param>
         public RowLayoutMetadata(
             NativeNormalize.PropertyMetadata[] headerProperties,
             string[] headerNames,
@@ -1875,7 +1986,9 @@ internal static class ClrObjectArrayFastEncoder
             CompactFieldWriter[] compactFieldWriters,
             NativeNormalize.PropertyMetadata[] nonHeaderProperties,
             LineWriterPropertyEmitter[] lineWriterNonHeaderEmitters,
-            CompactWriterPropertyEmitter[] compactNonHeaderEmitters)
+            CompactWriterPropertyEmitter[] compactNonHeaderEmitters,
+            int memberCount,
+            Func<object, object?>? extensionGetter)
         {
             HeaderProperties = headerProperties;
             HeaderNames = headerNames;
@@ -1885,6 +1998,36 @@ internal static class ClrObjectArrayFastEncoder
             NonHeaderProperties = nonHeaderProperties;
             LineWriterNonHeaderEmitters = lineWriterNonHeaderEmitters;
             CompactNonHeaderEmitters = compactNonHeaderEmitters;
+            MemberCount = memberCount;
+            ExtensionGetter = extensionGetter;
+        }
+
+        /// <summary>Gets the number of encoded member properties, excluding an extension data property.</summary>
+        public int MemberCount { get; }
+
+        /// <summary>Gets the getter of the row type's extension data property, when it declares one.</summary>
+        public Func<object, object?>? ExtensionGetter { get; }
+
+        /// <summary>
+        /// Returns whether any row carries extension data entries, which the fast path does not write: such rows are encoded
+        /// through normalization so the entries become sibling keys.
+        /// </summary>
+        public bool HasExtensionEntries(IList rows)
+        {
+            if (ExtensionGetter == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i] is { } row && ExtensionGetter(row) is IDictionary<string, object?> { Count: > 0 })
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>Gets scalar properties written into the row header.</summary>

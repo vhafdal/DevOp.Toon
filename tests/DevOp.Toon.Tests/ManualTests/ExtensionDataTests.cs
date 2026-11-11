@@ -444,24 +444,22 @@ public sealed class ExtensionDataTests
     [Theory]
     [InlineData(ToonProtocolVersion.V3_0)]
     [InlineData(ToonProtocolVersion.CustomLegacy)]
-    public void Encode_LegacyProfiles_IgnoreAttribute(ToonProtocolVersion version)
+    public void Encode_LegacyProfiles_FlattenEntries(ToonProtocolVersion version)
     {
         var text = ToonEncoder.Encode(SampleAccount(), Encode(version));
 
-        Assert.StartsWith("Name: Other Expenses\nAnnotations", text);
-        Assert.DoesNotContain("\n@id", text);
-        Assert.DoesNotContain("\n\"@id\"", text);
+        Assert.Equal(OfficialAccount, text);
     }
 
     [Theory]
     [InlineData(ToonProtocolVersion.V3_0)]
     [InlineData(ToonProtocolVersion.CustomLegacy)]
-    public void Decode_LegacyProfiles_DoNotCapture(ToonProtocolVersion version)
+    public void Decode_LegacyProfiles_Capture(ToonProtocolVersion version)
     {
         var decoded = ToonDecoder.Decode<Account>("Name: Cash\nExtra: 1", Decode(version))!;
 
         Assert.Equal("Cash", decoded.Name);
-        Assert.Null(decoded.Annotations);
+        Assert.Equal(1d, decoded.Annotations!["Extra"]);
     }
 
     [Theory]

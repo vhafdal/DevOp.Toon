@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 using DevOp.Toon.Internal.Encode;
+using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Decode;
 
@@ -16,6 +17,8 @@ internal static class NativeTypedMaterializer
 {
     private static readonly object SyncRoot = new object();
     private static readonly Dictionary<Type, TypePlan> PlanCache = new Dictionary<Type, TypePlan>();
+    private const double MaxExactDoubleInteger = 9007199254740992d;
+    private const decimal MaxExactParsedDecimalInteger = 1000000000000000m;
 
     /// <summary>
     /// Attempts to convert a native node into the requested CLR type.
@@ -47,6 +50,20 @@ internal static class NativeTypedMaterializer
     {
         var plan = GetPlan(type);
         return TryConvert(node, plan, out value);
+    }
+
+    /// <summary>
+    /// Returns whether typed decoding of <paramref name="type"/> on the native route binds <paramref name="key"/> to a declared
+    /// member or constructor parameter; <see langword="false"/> when the type cannot be decoded.
+    /// </summary>
+    internal static bool BindsMember(Type type, string key)
+    {
+        TypePlan plan;
+        try { plan = GetPlan(type); }
+        catch (NotSupportedException) { return false; }
+
+        return plan.Kind == PlanKind.Object &&
+               (plan.Properties?.ContainsKey(key) == true || plan.ConstructorParameterLookup?.ContainsKey(key) == true);
     }
 
     private static TypePlan GetPlan(Type type)
@@ -142,11 +159,23 @@ internal static class NativeTypedMaterializer
                 factory = CreateFactory(ctor);
             }
 
+            var extension = ExtensionDataAccessor.Find(type);
             var propertyPlans = new Dictionary<string, PropertyPlan>(StringComparer.Ordinal);
+            HashSet<string>? unboundMembers = null;
             foreach (var property in publicProperties)
             {
-                if (!property.CanWrite || property.GetIndexParameters().Length != 0)
+                if (property.GetIndexParameters().Length != 0 || extension?.IsExtension(property) == true)
                 {
+                    continue;
+                }
+
+                if (!property.CanWrite)
+                {
+                    if (extension != null)
+                    {
+                        AddMemberNames(unboundMembers ??= new HashSet<string>(StringComparer.Ordinal), property);
+                    }
+
                     continue;
                 }
 
@@ -166,7 +195,7 @@ internal static class NativeTypedMaterializer
                 }
             }
 
-            return TypePlan.Object(type, factory, propertyPlans);
+            return TypePlan.Object(type, factory, propertyPlans).WithExtension(extension, -1, unboundMembers);
         }
         finally
         {
@@ -225,12 +254,38 @@ internal static class NativeTypedMaterializer
             return false;
         }
 
+        var extension = ExtensionDataAccessor.Find(type);
+        var extensionArgument = -1;
+        HashSet<string>? unboundMembers = null;
+        if (extension != null)
+        {
+            extensionArgument = extension.FindConstructorArgument(bestConstructor.GetParameters());
+            foreach (var property in properties)
+            {
+                if (property.GetIndexParameters().Length == 0 && !extension.IsExtension(property) &&
+                    !bestLookup.ContainsKey(property.Name))
+                {
+                    AddMemberNames(unboundMembers ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase), property);
+                }
+            }
+        }
+
         plan = TypePlan.Object(
             type,
             CreateConstructorFactory(bestConstructor),
             bestParameters,
-            bestLookup);
+            bestLookup).WithExtension(extension, extensionArgument, unboundMembers);
         return true;
+    }
+
+    private static void AddMemberNames(HashSet<string> names, PropertyInfo property)
+    {
+        names.Add(property.Name);
+        var toonName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
+        if (toonName is { Length: > 0 })
+        {
+            names.Add(toonName);
+        }
     }
 
     private static bool TryBuildConstructorParameters(
@@ -243,6 +298,7 @@ internal static class NativeTypedMaterializer
         var parameters = constructor.GetParameters();
         parameterPlans = new ConstructorParameterPlan[parameters.Length];
         lookup = new Dictionary<string, ConstructorParameterPlan>(StringComparer.OrdinalIgnoreCase);
+        var extensionArgument = ExtensionDataAccessor.Find(constructor.DeclaringType!)?.FindConstructorArgument(parameters) ?? -1;
 
         for (int i = 0; i < parameters.Length; i++)
         {
@@ -264,6 +320,11 @@ internal static class NativeTypedMaterializer
                 parameterPlan,
                 GetParameterDefaultValue(parameter));
             parameterPlans[i] = parameterEntry;
+            if (i == extensionArgument)
+            {
+                continue;
+            }
+
             AddConstructorAlias(lookup, parameter.Name!, parameterEntry);
 
             var property = FindPropertyForParameter(properties, parameter.Name!);
@@ -475,10 +536,16 @@ internal static class NativeTypedMaterializer
         }
 
         var instance = plan.Factory();
+        Dictionary<string, object?>? extensionEntries = null;
         foreach (var kvp in objectNode)
         {
             if (!plan.Properties.TryGetValue(kvp.Key, out var property))
             {
+                if (plan.Extension != null)
+                {
+                    CaptureExtension(plan, kvp.Key, kvp.Value, ref extensionEntries);
+                }
+
                 continue;
             }
 
@@ -491,8 +558,23 @@ internal static class NativeTypedMaterializer
             property.Setter(instance, propertyValue);
         }
 
+        if (extensionEntries != null)
+        {
+            plan.Extension!.Populate(instance, extensionEntries);
+        }
+
         value = instance;
         return true;
+    }
+
+    private static void CaptureExtension(TypePlan plan, string key, NativeNode? node, ref Dictionary<string, object?>? entries)
+    {
+        if (plan.UnboundMembers?.Contains(key) == true)
+        {
+            return;
+        }
+
+        (entries ??= new Dictionary<string, object?>(StringComparer.Ordinal))[key] = ExtensionDataAccessor.ToValue(node);
     }
 
     private static bool TryConvertConstructorObject(NativeObjectNode objectNode, TypePlan plan, out object? value)
@@ -505,10 +587,16 @@ internal static class NativeTypedMaterializer
 
         var arguments = new object?[plan.ConstructorParameters.Length];
         var assigned = new bool[plan.ConstructorParameters.Length];
+        Dictionary<string, object?>? extensionEntries = null;
         foreach (var kvp in objectNode)
         {
             if (!plan.ConstructorParameterLookup.TryGetValue(kvp.Key, out var parameter))
             {
+                if (plan.Extension != null)
+                {
+                    CaptureExtension(plan, kvp.Key, kvp.Value, ref extensionEntries);
+                }
+
                 continue;
             }
 
@@ -530,7 +618,17 @@ internal static class NativeTypedMaterializer
             }
         }
 
+        if (extensionEntries != null && plan.ExtensionArgument >= 0)
+        {
+            arguments[plan.ExtensionArgument] = extensionEntries;
+        }
+
         value = plan.ConstructorFactory(arguments);
+        if (extensionEntries != null && plan.ExtensionArgument < 0)
+        {
+            plan.Extension!.Populate(value, extensionEntries);
+        }
+
         return true;
     }
 
@@ -727,14 +825,7 @@ internal static class NativeTypedMaterializer
                 return true;
             }
 
-            if (primitiveValue is long longValue && longValue >= int.MinValue && longValue <= int.MaxValue)
-            {
-                value = (int)longValue;
-                return true;
-            }
-
-            value = null;
-            return false;
+            return TryConvertIntegerPrimitive(primitiveValue, int.MinValue, int.MaxValue, static candidate => (int)candidate, out value);
         }
 
         if (targetType == typeof(uint))
@@ -753,6 +844,23 @@ internal static class NativeTypedMaterializer
             if (primitiveValue is int intPrimitive)
             {
                 value = (long)intPrimitive;
+                return true;
+            }
+
+            // Text numbers arrive as double, or as a decimal of at most 15 significant digits; past those limits the value is no longer exact.
+            if (primitiveValue is double doubleLong &&
+                Math.Abs(doubleLong) <= MaxExactDoubleInteger &&
+                Math.Abs(doubleLong % 1d) < double.Epsilon)
+            {
+                value = (long)doubleLong;
+                return true;
+            }
+
+            if (primitiveValue is decimal decimalLong &&
+                Math.Abs(decimalLong) < MaxExactParsedDecimalInteger &&
+                decimal.Truncate(decimalLong) == decimalLong)
+            {
+                value = (long)decimalLong;
                 return true;
             }
 
@@ -1270,7 +1378,10 @@ internal static class NativeTypedMaterializer
     {
         var target = Expression.Parameter(typeof(object), "target");
         var value = Expression.Parameter(typeof(object), "value");
-        var convertedTarget = Expression.Convert(target, property.DeclaringType!);
+        var declaringType = property.DeclaringType!;
+        Expression convertedTarget = declaringType.IsValueType
+            ? Expression.Unbox(target, declaringType)
+            : Expression.Convert(target, declaringType);
         var convertedValue = Expression.Convert(value, property.PropertyType);
         var body = Expression.Assign(Expression.Property(convertedTarget, property), convertedValue);
         return Expression.Lambda<Action<object, object?>>(body, target, value).Compile();
@@ -1364,6 +1475,23 @@ internal static class NativeTypedMaterializer
 
         /// <summary>Gets the factory used to create dictionary instances.</summary>
         public Func<IDictionary>? CreateDictionary { get; private set; }
+
+        /// <summary>Gets the accessor of the object's extension data property, when it declares one.</summary>
+        public ExtensionDataAccessor? Extension { get; private set; }
+
+        /// <summary>Gets the constructor argument index that receives extension data, or -1.</summary>
+        public int ExtensionArgument { get; private set; } = -1;
+
+        /// <summary>Gets the names of declared members the object cannot bind, which are never captured as extension data.</summary>
+        public HashSet<string>? UnboundMembers { get; private set; }
+
+        public TypePlan WithExtension(ExtensionDataAccessor? extension, int argument, HashSet<string>? unboundMembers)
+        {
+            Extension = extension;
+            ExtensionArgument = argument;
+            UnboundMembers = unboundMembers;
+            return this;
+        }
 
         public static TypePlan Unsupported(Type type) => new TypePlan(type, PlanKind.Unsupported);
 
