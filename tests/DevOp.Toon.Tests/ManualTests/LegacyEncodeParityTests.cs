@@ -78,6 +78,52 @@ public sealed class LegacyEncodeParityTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(OmissionCases))]
+    public void Encode_ScalarsInObjectTypedRowMembers_FastPathMatchesSlowPath(
+        ToonProtocolVersion version, bool ignoreNullOrEmpty, bool excludeEmptyArrays, ToonByteArrayFormat format)
+    {
+        var options = new ToonEncodeOptions
+        {
+            ProtocolVersion = version,
+            Indent = 2,
+            IgnoreNullOrEmpty = ignoreNullOrEmpty,
+            ExcludeEmptyArrays = excludeEmptyArrays,
+            ByteArrayFormat = format
+        };
+        List<LooseRow>[] shapes =
+        [
+            new List<LooseRow> { new() { Name = "a", Extra = new byte[] { 1, 2 } }, new() { Name = "b", Extra = new byte[] { 3 } } },
+            new List<LooseRow> { new() { Name = "a", Extra = new List<byte> { 1, 2 } }, new() { Name = "b", Extra = new byte[0] } },
+            new List<LooseRow> { new() { Name = "a", Extra = 5 }, new() { Name = "b", Extra = "x" } },
+            new List<LooseRow> { new() { Name = "a", Extra = 5 }, new() { Name = "b" } },
+            new List<LooseRow> { new() { Name = "a" }, new() { Name = "b" } },
+            new List<LooseRow> { new() { Name = "a", Extra = new byte[] { 1 }, Leaf = new Leaf { Name = "n" } }, new() { Name = "b", Extra = 2 } },
+            new List<LooseRow> { new() { Name = "a", Extra = new byte[] { 1 } }, new() { Name = "b", Extra = new Leaf { Name = "n" } } }
+        ];
+
+        foreach (var rows in shapes)
+        {
+            AssertParity(rows, options);
+            AssertParity(new LooseHolder { Id = 1, Rows = rows }, options);
+        }
+    }
+
+    [Fact]
+    public void Encode_ByteArrayInObjectTypedRowMember_WrittenAsColumn()
+    {
+        var rows = new List<LooseRow> { new() { Name = "a", Extra = new byte[] { 1, 2 } }, new() { Name = "b", Extra = new byte[] { 3 } } };
+
+        var base64 = ToonEncoder.Encode(rows, new ToonEncodeOptions { ProtocolVersion = ToonProtocolVersion.CustomLegacy, Indent = 2 });
+        var numeric = ToonEncoder.Encode(rows, new ToonEncodeOptions
+        {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy, Indent = 2, ByteArrayFormat = ToonByteArrayFormat.NumericArray
+        });
+
+        Assert.Equal("[2]{Name,Extra}:\n  a,AQI=\n  b,Aw==", base64);
+        Assert.Equal("[2]{Name}:\n  a\n    Extra[2]: 1,2\n  b\n    Extra[1]: 3", numeric);
+    }
+
     [Fact]
     public void Encode_ByteArraysInRowsBase64_WrittenAsColumns()
     {
@@ -241,6 +287,19 @@ public sealed class LegacyEncodeParityTests
         public int Id { get; set; }
         public SparseRow? Primary { get; set; }
         public List<SparseRow>? Rows { get; set; }
+    }
+
+    public sealed class LooseRow
+    {
+        public string? Name { get; set; }
+        public object? Extra { get; set; }
+        public Leaf? Leaf { get; set; }
+    }
+
+    public sealed class LooseHolder
+    {
+        public int Id { get; set; }
+        public List<LooseRow>? Rows { get; set; }
     }
 
     public sealed class Leaf

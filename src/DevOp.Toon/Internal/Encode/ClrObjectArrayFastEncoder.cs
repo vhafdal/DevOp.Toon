@@ -97,7 +97,7 @@ internal static class ClrObjectArrayFastEncoder
         }
 
         var isFullyTabular = headerProperties.Length == rowLayout.MemberCount;
-        if (!isFullyTabular && options.ObjectArrayLayout != ToonObjectArrayLayout.Columnar)
+        if (!isFullyTabular && (options.ObjectArrayLayout != ToonObjectArrayLayout.Columnar || rowLayout.HasScalarColumnMember(rows, options)))
         {
             return false;
         }
@@ -939,7 +939,8 @@ internal static class ClrObjectArrayFastEncoder
                 return true;
             }
 
-            if (headerProperties.Length > 0 && options.ObjectArrayLayout == ToonObjectArrayLayout.Columnar)
+            if (headerProperties.Length > 0 && options.ObjectArrayLayout == ToonObjectArrayLayout.Columnar &&
+                !rowLayout.HasScalarColumnMember(items, options))
             {
                 WriteClrObjectRows(encodedKey, key, items, rowLayout, writer, depth, options, columnar: true);
                 return true;
@@ -1024,7 +1025,8 @@ internal static class ClrObjectArrayFastEncoder
                 return true;
             }
 
-            if (headerProperties.Length > 0 && options.ObjectArrayLayout == ToonObjectArrayLayout.Columnar)
+            if (headerProperties.Length > 0 && options.ObjectArrayLayout == ToonObjectArrayLayout.Columnar &&
+                !rowLayout.HasScalarColumnMember(items, options))
             {
                 WriteClrObjectRows(encodedKey, key, items, rowLayout, writer, depth, options, columnar: true);
                 return true;
@@ -2179,14 +2181,70 @@ internal static class ClrObjectArrayFastEncoder
             CompactNonHeaderEmitters = compactNonHeaderEmitters;
             MemberCount = memberCount;
             ExtensionGetter = extensionGetter;
+            polymorphicMembers = new bool[nonHeaderProperties.Length];
             for (int i = 0; i < nonHeaderProperties.Length; i++)
             {
                 if (nonHeaderProperties[i].EnumerableElementType == typeof(byte))
                 {
                     HasByteSequenceMember = true;
-                    break;
+                }
+
+                var type = nonHeaderProperties[i].Info.PropertyType;
+                polymorphicMembers[i] = type == typeof(object) || type.IsInterface || type.IsAbstract;
+            }
+        }
+
+        // Non-header members whose declared type can hold a scalar or a byte sequence at runtime.
+        private readonly bool[] polymorphicMembers;
+
+        /// <summary>
+        /// Returns whether some non-header member holds a scalar (null included, and a byte sequence written as base64) in
+        /// every row. The slow path makes such a member a table column, which these cached layouts cannot, so the rows must be
+        /// normalized instead. A member of a concrete object or collection type can only be null, which matters only when
+        /// <see cref="ResolvedEncodeOptions.IgnoreNullOrEmpty"/> does not drop both forms.
+        /// </summary>
+        public bool HasScalarColumnMember(IList rows, ResolvedEncodeOptions options)
+        {
+            for (int m = 0; m < NonHeaderProperties.Length; m++)
+            {
+                if (!polymorphicMembers[m] && options.IgnoreNullOrEmpty)
+                {
+                    continue;
+                }
+
+                var getter = NonHeaderProperties[m].Getter;
+                var scalarInEveryRow = true;
+                for (int r = 0; r < rows.Count; r++)
+                {
+                    if (IsStructuredValue(getter(rows[r]!), options))
+                    {
+                        scalarInEveryRow = false;
+                        break;
+                    }
+                }
+
+                if (scalarInEveryRow)
+                {
+                    return true;
                 }
             }
+
+            return false;
+        }
+
+        private static bool IsStructuredValue(object? value, ResolvedEncodeOptions options)
+        {
+            if (NativeNormalize.IsPrimitiveOrNull(value))
+            {
+                return false;
+            }
+
+            if (value is IEnumerable<byte>)
+            {
+                return options.ByteArrayFormat != ToonByteArrayFormat.Base64String;
+            }
+
+            return value is IEnumerable || NativeNormalize.IsPlainObjectType(value!.GetType());
         }
 
         /// <summary>Gets whether a non-header member is a byte sequence, which base64 output turns into a scalar column.</summary>
