@@ -321,7 +321,7 @@ public sealed class ConstantColumnTests
 
         Assert.Equal("[3]{A,B=x}:\n  1\n  1\n  1", ToonEncoder.Encode(flat, Encode()));
         Assert.Equal("[3]{G{X,Y=2},Z=3}:\n  1\n  1\n  1", ToonEncoder.Encode(nested, Encode()));
-        Assert.Equal(3, ToonDecoder.Toon2Json(ToonEncoder.Encode(nested, Encode()), Custom()).Split("\"Z\":3").Length - 1);
+        Assert.Equal(3, ToonDecoder.Toon2Json(ToonEncoder.Encode(nested, Encode()), Custom()).Split(new[] { "\"Z\":3" }, StringSplitOptions.None).Length - 1);
     }
 
     [Fact]
