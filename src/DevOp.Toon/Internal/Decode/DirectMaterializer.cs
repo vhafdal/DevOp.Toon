@@ -2325,33 +2325,9 @@ namespace DevOp.Toon.Internal.Decode
                 return Enum.ToObject(enumType, token.SequenceEqual(Constants.TRUE_LITERAL) ? 1 : 0);
             }
 
-            var underlying = Enum.GetUnderlyingType(enumType);
             if (IsNumberToken(token))
             {
-                NumberBinding result;
-                object number;
-                if (underlying == typeof(ulong) || underlying == typeof(uint) || underlying == typeof(ushort) || underlying == typeof(byte))
-                {
-                    var max = underlying == typeof(byte) ? byte.MaxValue : underlying == typeof(ushort) ? ushort.MaxValue : underlying == typeof(uint) ? uint.MaxValue : ulong.MaxValue;
-                    result = NumericUtils.TryBindUnsigned(token, max, out var unsignedValue);
-                    number = unsignedValue;
-                }
-                else
-                {
-                    var (min, max) = underlying == typeof(sbyte) ? ((long)sbyte.MinValue, (long)sbyte.MaxValue)
-                        : underlying == typeof(short) ? (short.MinValue, short.MaxValue)
-                        : underlying == typeof(int) ? (int.MinValue, int.MaxValue)
-                        : (long.MinValue, long.MaxValue);
-                    result = NumericUtils.TryBindSigned(token, min, max, out var signedValue);
-                    number = signedValue;
-                }
-
-                return result switch
-                {
-                    NumberBinding.Bound => Enum.ToObject(enumType, number),
-                    NumberBinding.Fraction => throw ToonFormatException.Syntax(NumericUtils.NotAnInteger(token.ToString(), enumType)),
-                    _ => throw ToonFormatException.Syntax(NumericUtils.OutsideRange(token.ToString(), enumType))
-                };
+                return NumericUtils.BindEnumNumber(enumType, token);
             }
 
             var text = token.Length > 0 && token[0] == Constants.DOUBLE_QUOTE ? Parser.ParseStringLiteral(source, start, endExclusive) : token.ToString();

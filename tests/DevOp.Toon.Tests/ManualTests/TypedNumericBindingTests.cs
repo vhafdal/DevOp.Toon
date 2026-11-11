@@ -119,6 +119,33 @@ public sealed class TypedNumericBindingTests
     }
 
     [Theory]
+    [InlineData("1.5", null)]
+    [InlineData("0.5", null)]
+    [InlineData("1e-29", null)]
+    [InlineData("1e-400", null)]
+    [InlineData("256", null)]
+    [InlineData("-1", null)]
+    [InlineData("42", "C")]
+    [InlineData("4.2e1", "C")]
+    [InlineData("-0.0", "A")]
+    public void Decode_EnumNumberOnPathExpansionAndJsonRoutes_BindsAsV4(string token, string? expected)
+    {
+        var expand = new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V3_0, Indent = 2, ExpandPaths = ToonPathExpansion.Safe };
+        var routes = new Func<object?>[]
+        {
+            () => ToonDecoder.Decode<Holder<ByteEnum>>($"V: {token}", Strict())!.V,
+            () => ToonDecoder.Decode<Dotted>($"V: {token}\nz.q: 1", expand)!.V,
+            () => new ToonService().Deserialize<Holder<ByteEnum>>($"{{\"V\":{token}}}", "application/json")!.V
+        };
+
+        foreach (var route in routes)
+        {
+            if (expected == null) Assert.Throws<ToonFormatException>(() => route());
+            else Assert.Equal(expected, Format(route()));
+        }
+    }
+
+    [Theory]
     [InlineData(ToonProtocolVersion.V3_0)]
     [InlineData(ToonProtocolVersion.CustomLegacy)]
     public void Decode_LegacyNegativeZeroIntoFloatingMember_BindsPositiveZeroAsV4(ToonProtocolVersion version)
@@ -417,6 +444,12 @@ public sealed class TypedNumericBindingTests
         public int A { get; set; }
         public byte V { get; set; }
         public int B { get; set; }
+    }
+
+    public sealed class Dotted
+    {
+        public ByteEnum V { get; set; }
+        public Dictionary<string, object?>? Z { get; set; }
     }
 
     public sealed class Line

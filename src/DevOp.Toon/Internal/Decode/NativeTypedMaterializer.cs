@@ -1175,14 +1175,16 @@ internal static class NativeTypedMaterializer
 
         if (targetType.IsEnum)
         {
-            if (primitiveValue is string enumName && Enum.IsDefined(targetType, enumName))
+            if (primitiveValue is int or long or ulong or double or decimal)
             {
-                value = Enum.Parse(targetType, enumName, false);
+                var numberText = primitive.NumberText ?? (primitiveValue is double number ? number.ToString("R", CultureInfo.InvariantCulture) : Convert.ToString(primitiveValue, CultureInfo.InvariantCulture)!);
+                value = NumericUtils.BindEnumNumber(targetType, numberText.AsSpan());
                 return true;
             }
 
-            if (TryConvertEnumFromNumeric(primitiveValue, targetType, out value))
+            if (primitiveValue is string enumName && Enum.IsDefined(targetType, enumName))
             {
+                value = Enum.Parse(targetType, enumName, false);
                 return true;
             }
 
@@ -1456,83 +1458,6 @@ internal static class NativeTypedMaterializer
         {
             value = converter((ulong)decimalValue);
             return true;
-        }
-
-        value = null;
-        return false;
-    }
-
-    private static bool TryConvertEnumFromNumeric(object? primitiveValue, Type enumType, out object? value)
-    {
-        var underlyingType = Enum.GetUnderlyingType(enumType);
-        if (underlyingType == typeof(byte) && TryConvertIntegerPrimitive(primitiveValue, byte.MinValue, byte.MaxValue, static candidate => (byte)candidate, out var byteValue))
-        {
-            value = Enum.ToObject(enumType, (byte)byteValue!);
-            return true;
-        }
-
-        if (underlyingType == typeof(sbyte) && TryConvertIntegerPrimitive(primitiveValue, sbyte.MinValue, sbyte.MaxValue, static candidate => (sbyte)candidate, out var sbyteValue))
-        {
-            value = Enum.ToObject(enumType, (sbyte)sbyteValue!);
-            return true;
-        }
-
-        if (underlyingType == typeof(short) && TryConvertIntegerPrimitive(primitiveValue, short.MinValue, short.MaxValue, static candidate => (short)candidate, out var shortValue))
-        {
-            value = Enum.ToObject(enumType, (short)shortValue!);
-            return true;
-        }
-
-        if (underlyingType == typeof(ushort) && TryConvertUnsignedIntegerPrimitive(primitiveValue, ushort.MaxValue, static candidate => (ushort)candidate, out var ushortValue))
-        {
-            value = Enum.ToObject(enumType, (ushort)ushortValue!);
-            return true;
-        }
-
-        if (underlyingType == typeof(int) && TryConvertIntegerPrimitive(primitiveValue, int.MinValue, int.MaxValue, static candidate => (int)candidate, out var intValue))
-        {
-            value = Enum.ToObject(enumType, (int)intValue!);
-            return true;
-        }
-
-        if (underlyingType == typeof(uint) && TryConvertUnsignedIntegerPrimitive(primitiveValue, uint.MaxValue, static candidate => (uint)candidate, out var uintValue))
-        {
-            value = Enum.ToObject(enumType, (uint)uintValue!);
-            return true;
-        }
-
-        if (underlyingType == typeof(long) && primitiveValue is long longValue)
-        {
-            value = Enum.ToObject(enumType, longValue);
-            return true;
-        }
-
-        if (underlyingType == typeof(long) &&
-            TryConvertIntegerPrimitive(primitiveValue, long.MinValue, long.MaxValue, static candidate => candidate, out var parsedLong))
-        {
-            value = Enum.ToObject(enumType, (long)parsedLong!);
-            return true;
-        }
-
-        if (underlyingType == typeof(ulong))
-        {
-            if (primitiveValue is ulong ulongValue)
-            {
-                value = Enum.ToObject(enumType, ulongValue);
-                return true;
-            }
-
-            if (primitiveValue is long signedLongValue && signedLongValue >= 0)
-            {
-                value = Enum.ToObject(enumType, (ulong)signedLongValue);
-                return true;
-            }
-
-            if (TryConvertUnsignedIntegerPrimitive(primitiveValue, ulong.MaxValue, static candidate => candidate, out var parsedUlong))
-            {
-                value = Enum.ToObject(enumType, (ulong)parsedUlong!);
-                return true;
-            }
         }
 
         value = null;

@@ -296,6 +296,40 @@ namespace DevOp.Toon.Internal.Shared
         public static string OutsideRange(string numberText, Type type) => $"Number {numberText} is outside the range of {type.FullName}";
 
         /// <summary>
+        /// Binds number text to an enum member by the integer rule of its underlying type, throwing a format error for a
+        /// fraction or a number outside that type's range.
+        /// </summary>
+        public static object BindEnumNumber(Type enumType, ReadOnlySpan<char> text)
+        {
+            var underlying = Enum.GetUnderlyingType(enumType);
+            NumberBinding result;
+            object number;
+            if (underlying == typeof(ulong) || underlying == typeof(uint) || underlying == typeof(ushort) || underlying == typeof(byte))
+            {
+                var max = underlying == typeof(byte) ? byte.MaxValue : underlying == typeof(ushort) ? ushort.MaxValue : underlying == typeof(uint) ? uint.MaxValue : ulong.MaxValue;
+                result = TryBindUnsigned(text, max, out var unsignedValue);
+                number = unsignedValue;
+            }
+            else
+            {
+                var (min, max) = underlying == typeof(sbyte) ? ((long)sbyte.MinValue, (long)sbyte.MaxValue)
+                    : underlying == typeof(short) ? (short.MinValue, short.MaxValue)
+                    : underlying == typeof(int) ? (int.MinValue, int.MaxValue)
+                    : (long.MinValue, long.MaxValue);
+                result = TryBindSigned(text, min, max, out var signedValue);
+                number = signedValue;
+            }
+
+            return result switch
+            {
+                NumberBinding.Bound => Enum.ToObject(enumType, number),
+                NumberBinding.Fraction => throw ToonFormatException.Syntax(NotAnInteger(text.ToString(), enumType)),
+                NumberBinding.OutOfRange => throw ToonFormatException.Syntax(OutsideRange(text.ToString(), enumType)),
+                _ => throw ToonFormatException.Syntax($"Value {text.ToString()} is not a valid {enumType.FullName}")
+            };
+        }
+
+        /// <summary>
         /// Binds number text to a signed integer type with range <paramref name="min"/> to <paramref name="max"/>: any literal
         /// whose value is an integer in range binds (<c>1e3</c>, <c>2.0</c>, <c>-0.0</c>); a fraction never rounds.
         /// </summary>
