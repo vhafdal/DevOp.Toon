@@ -218,6 +218,14 @@ public class DictionaryEncodingTests
 
         Assert.Equal("k: v\nother: w", ToonEncoder.Encode(data, Encode(version)));
         Assert.Equal("Pairs:\n  k: v\n  other: w", ToonEncoder.Encode(new EnumerableHolder { Pairs = data }, Encode(version)));
+
+        var list = new List<ListAndMap> { new(("a", "x")), new(("b", "y")) };
+        var toon = ToonEncoder.Encode(list, Encode(version));
+        var decoded = ToonDecoder.Decode<List<Dictionary<string, string>>>(toon, Decode(version))!;
+
+        Assert.DoesNotContain("Key", toon);
+        Assert.Equal("x", decoded[0]["a"]);
+        Assert.Equal("y", decoded[1]["b"]);
     }
 
     public sealed class EnumerableHolder

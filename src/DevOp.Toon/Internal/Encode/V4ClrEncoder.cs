@@ -248,7 +248,7 @@ internal static class V4ClrEncoder
             WritePrimitive(writer, value, options);
             return;
         }
-        if (value is IList rows)
+        if (value is IList rows && !DictionaryEntries.IsDictionaryType(value.GetType()))
         {
             if (PrimitiveRows(rows, options)) WritePrimitiveArray(writer, rows, null, depth, false, true, options);
             else
