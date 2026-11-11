@@ -97,7 +97,7 @@ internal static class ClrObjectArrayFastEncoder
         }
 
         var isFullyTabular = headerProperties.Length == rowLayout.MemberCount;
-        if (!isFullyTabular && options.ObjectArrayLayout != ToonObjectArrayLayout.Columnar)
+        if (!isFullyTabular && (options.ObjectArrayLayout != ToonObjectArrayLayout.Columnar || rowLayout.HasScalarColumnMember(rows, options)))
         {
             return false;
         }
@@ -476,7 +476,7 @@ internal static class ClrObjectArrayFastEncoder
 
         if (NativeNormalize.IsPrimitiveOrNull(rawValue))
         {
-            if (options.IgnoreNullOrEmpty && (rawValue is null || rawValue is string { Length: 0 }))
+            if (options.IgnoreNullOrEmpty && IsNullOrEmptyScalar(rawValue))
                 return;
             var sb = writer.BeginLine(depth);
             sb.Append(NativePrimitives.EncodeKey(key));
@@ -521,7 +521,7 @@ internal static class ClrObjectArrayFastEncoder
 
         if (NativeNormalize.IsPrimitiveOrNull(rawValue))
         {
-            if (options.IgnoreNullOrEmpty && (rawValue is null || rawValue is string { Length: 0 }))
+            if (options.IgnoreNullOrEmpty && IsNullOrEmptyScalar(rawValue))
                 return;
             var sb = writer.BeginLine(depth);
             sb.Append(property.EncodedName);
@@ -568,7 +568,7 @@ internal static class ClrObjectArrayFastEncoder
 
         if (NativeNormalize.IsPrimitiveOrNull(rawValue))
         {
-            if (options.IgnoreNullOrEmpty && (rawValue is null || rawValue is string { Length: 0 }))
+            if (options.IgnoreNullOrEmpty && IsNullOrEmptyScalar(rawValue))
                 return;
             writer.StartLine(depth);
             writer.Append(NativePrimitives.EncodeKey(key));
@@ -610,7 +610,7 @@ internal static class ClrObjectArrayFastEncoder
 
         if (NativeNormalize.IsPrimitiveOrNull(rawValue))
         {
-            if (options.IgnoreNullOrEmpty && (rawValue is null || rawValue is string { Length: 0 }))
+            if (options.IgnoreNullOrEmpty && IsNullOrEmptyScalar(rawValue))
                 return;
             writer.StartLine(depth);
             writer.Append(property.EncodedName);
@@ -727,8 +727,26 @@ internal static class ClrObjectArrayFastEncoder
         {
             var (_, compactFieldWriter) = BuildTypedFieldWriter(property);
             var encodedName = property.EncodedName;
+            var isNullOrEmpty = CompileNullOrEmptyCheck(property.Info);
+            if (isNullOrEmpty is null)
+            {
+                return (instance, writer, depth, options) =>
+                {
+                    writer.StartLine(depth);
+                    writer.Append(encodedName);
+                    writer.Append(Constants.COLON);
+                    writer.Append(Constants.SPACE);
+                    compactFieldWriter(instance, writer, options.Delimiter);
+                };
+            }
+
             return (instance, writer, depth, options) =>
             {
+                if (options.IgnoreNullOrEmpty && isNullOrEmpty(instance))
+                {
+                    return;
+                }
+
                 writer.StartLine(depth);
                 writer.Append(encodedName);
                 writer.Append(Constants.COLON);
@@ -921,7 +939,8 @@ internal static class ClrObjectArrayFastEncoder
                 return true;
             }
 
-            if (headerProperties.Length > 0 && options.ObjectArrayLayout == ToonObjectArrayLayout.Columnar)
+            if (headerProperties.Length > 0 && options.ObjectArrayLayout == ToonObjectArrayLayout.Columnar &&
+                !rowLayout.HasScalarColumnMember(items, options))
             {
                 WriteClrObjectRows(encodedKey, key, items, rowLayout, writer, depth, options, columnar: true);
                 return true;
@@ -1006,7 +1025,8 @@ internal static class ClrObjectArrayFastEncoder
                 return true;
             }
 
-            if (headerProperties.Length > 0 && options.ObjectArrayLayout == ToonObjectArrayLayout.Columnar)
+            if (headerProperties.Length > 0 && options.ObjectArrayLayout == ToonObjectArrayLayout.Columnar &&
+                !rowLayout.HasScalarColumnMember(items, options))
             {
                 WriteClrObjectRows(encodedKey, key, items, rowLayout, writer, depth, options, columnar: true);
                 return true;
@@ -1912,6 +1932,50 @@ internal static class ClrObjectArrayFastEncoder
     }
 
     /// <summary>
+    /// Returns whether a scalar is one that normalization turns into null or an empty string, which
+    /// <see cref="ResolvedEncodeOptions.IgnoreNullOrEmpty"/> omits: null, an empty string, or a non-finite double or float.
+    /// </summary>
+    private static bool IsNullOrEmptyScalar(object? value) => value switch
+    {
+        null => true,
+        string text => text.Length == 0,
+        double number => !NumericUtils.IsFinite(number),
+        float number => !NumericUtils.IsFinite(number),
+        _ => false
+    };
+
+    /// <summary>
+    /// Compiles a check of whether a scalar property holds a value <see cref="IsNullOrEmptyScalar"/> accepts, without
+    /// boxing. Returns <see langword="null"/> for a type that can never hold one, such as <see cref="int"/>.
+    /// </summary>
+    private static Func<object, bool>? CompileNullOrEmptyCheck(PropertyInfo property)
+    {
+        var type = property.PropertyType;
+        var underlying = Nullable.GetUnderlyingType(type) ?? type;
+        if (underlying == typeof(double) || underlying == typeof(float))
+        {
+            var number = CompileNullableValueGetter<double>(property);
+            return row => number(row) is not { } value || !NumericUtils.IsFinite(value);
+        }
+
+        if (type == typeof(string))
+        {
+            var text = CompileReferenceGetter<string>(property);
+            return row => string.IsNullOrEmpty(text(row));
+        }
+
+        if (type.IsValueType && underlying == type)
+        {
+            return null;
+        }
+
+        var rowParam = Expression.Parameter(typeof(object), "row");
+        var getProp = Expression.Property(Expression.Convert(rowParam, property.DeclaringType!), property);
+        var isNull = Expression.Equal(getProp, Expression.Constant(null, type));
+        return Expression.Lambda<Func<object, bool>>(isNull, rowParam).Compile();
+    }
+
+    /// <summary>
     /// Compiles a typed getter Func&lt;object, T?&gt; for a reference-type property.
     /// Reference types never box — this just eliminates the untyped object? return.
     /// </summary>
@@ -2018,8 +2082,7 @@ internal static class ClrObjectArrayFastEncoder
             bool allNullOrEmpty = true;
             for (int ri = 0; ri < rows.Count; ri++)
             {
-                var v = getter(rows[ri]!);
-                if (v is not null && !(v is string s && s.Length == 0))
+                if (!IsNullOrEmptyScalar(getter(rows[ri]!)))
                 {
                     allNullOrEmpty = false;
                     break;
@@ -2118,14 +2181,70 @@ internal static class ClrObjectArrayFastEncoder
             CompactNonHeaderEmitters = compactNonHeaderEmitters;
             MemberCount = memberCount;
             ExtensionGetter = extensionGetter;
+            polymorphicMembers = new bool[nonHeaderProperties.Length];
             for (int i = 0; i < nonHeaderProperties.Length; i++)
             {
                 if (nonHeaderProperties[i].EnumerableElementType == typeof(byte))
                 {
                     HasByteSequenceMember = true;
-                    break;
+                }
+
+                var type = nonHeaderProperties[i].Info.PropertyType;
+                polymorphicMembers[i] = type == typeof(object) || type.IsInterface || type.IsAbstract;
+            }
+        }
+
+        // Non-header members whose declared type can hold a scalar or a byte sequence at runtime.
+        private readonly bool[] polymorphicMembers;
+
+        /// <summary>
+        /// Returns whether some non-header member holds a scalar (null included, and a byte sequence written as base64) in
+        /// every row. The slow path makes such a member a table column, which these cached layouts cannot, so the rows must be
+        /// normalized instead. A member of a concrete object or collection type can only be null, which matters only when
+        /// <see cref="ResolvedEncodeOptions.IgnoreNullOrEmpty"/> does not drop both forms.
+        /// </summary>
+        public bool HasScalarColumnMember(IList rows, ResolvedEncodeOptions options)
+        {
+            for (int m = 0; m < NonHeaderProperties.Length; m++)
+            {
+                if (!polymorphicMembers[m] && options.IgnoreNullOrEmpty)
+                {
+                    continue;
+                }
+
+                var getter = NonHeaderProperties[m].Getter;
+                var scalarInEveryRow = true;
+                for (int r = 0; r < rows.Count; r++)
+                {
+                    if (IsStructuredValue(getter(rows[r]!), options))
+                    {
+                        scalarInEveryRow = false;
+                        break;
+                    }
+                }
+
+                if (scalarInEveryRow)
+                {
+                    return true;
                 }
             }
+
+            return false;
+        }
+
+        private static bool IsStructuredValue(object? value, ResolvedEncodeOptions options)
+        {
+            if (NativeNormalize.IsPrimitiveOrNull(value))
+            {
+                return false;
+            }
+
+            if (value is IEnumerable<byte>)
+            {
+                return options.ByteArrayFormat != ToonByteArrayFormat.Base64String;
+            }
+
+            return value is IEnumerable || NativeNormalize.IsPlainObjectType(value!.GetType());
         }
 
         /// <summary>Gets whether a non-header member is a byte sequence, which base64 output turns into a scalar column.</summary>

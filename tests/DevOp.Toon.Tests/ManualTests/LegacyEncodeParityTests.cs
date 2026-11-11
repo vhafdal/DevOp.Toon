@@ -21,6 +21,20 @@ public sealed class LegacyEncodeParityTests
 
     public static TheoryData<ToonProtocolVersion> LegacyVersions => new() { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy };
 
+    public static TheoryData<ToonProtocolVersion, bool, bool, ToonByteArrayFormat> OmissionCases
+    {
+        get
+        {
+            var data = new TheoryData<ToonProtocolVersion, bool, bool, ToonByteArrayFormat>();
+            foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
+            foreach (var ignoreNullOrEmpty in new[] { false, true })
+            foreach (var excludeEmptyArrays in new[] { false, true })
+            foreach (var format in new[] { ToonByteArrayFormat.Base64String, ToonByteArrayFormat.NumericArray })
+                data.Add(version, ignoreNullOrEmpty, excludeEmptyArrays, format);
+            return data;
+        }
+    }
+
     [Theory]
     [MemberData(nameof(ByteCases))]
     public void Encode_ByteArrays_FastPathMatchesSlowPath(ToonProtocolVersion version, ToonByteArrayFormat format)
@@ -35,6 +49,79 @@ public sealed class LegacyEncodeParityTests
             AssertParity(new List<BytesHolder> { holder, SampleBytes() }, options);
             AssertParity(new Dictionary<string, BytesItem> { ["a"] = holder.Items![0] }, options);
         }
+    }
+
+    [Theory]
+    [MemberData(nameof(OmissionCases))]
+    public void Encode_NullEmptyAndNonFiniteMembers_FastPathMatchesSlowPath(
+        ToonProtocolVersion version, bool ignoreNullOrEmpty, bool excludeEmptyArrays, ToonByteArrayFormat format)
+    {
+        foreach (var indent in new[] { 1, 2 })
+        {
+            var options = new ToonEncodeOptions
+            {
+                ProtocolVersion = version,
+                Indent = indent,
+                IgnoreNullOrEmpty = ignoreNullOrEmpty,
+                ExcludeEmptyArrays = excludeEmptyArrays,
+                ByteArrayFormat = format
+            };
+            var rows = SparseRows();
+
+            AssertParity(rows, options);
+            Assert.Equal(ToonEncoder.Encode(LazyOf(rows), options), ToonEncoder.Encode(rows, options));
+            AssertParity(rows[0], options);
+            AssertParity(rows[1], options);
+            AssertParity(new SparseHolder { Id = 1, Primary = rows[0], Rows = rows }, options);
+            AssertParity(new List<SparseHolder> { new() { Id = 1, Primary = rows[1], Rows = rows }, new() { Id = 2, Rows = [] } }, options);
+            AssertParity(new Dictionary<string, SparseRow> { ["a"] = rows[0], ["b"] = rows[1] }, options);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(OmissionCases))]
+    public void Encode_ScalarsInObjectTypedRowMembers_FastPathMatchesSlowPath(
+        ToonProtocolVersion version, bool ignoreNullOrEmpty, bool excludeEmptyArrays, ToonByteArrayFormat format)
+    {
+        var options = new ToonEncodeOptions
+        {
+            ProtocolVersion = version,
+            Indent = 2,
+            IgnoreNullOrEmpty = ignoreNullOrEmpty,
+            ExcludeEmptyArrays = excludeEmptyArrays,
+            ByteArrayFormat = format
+        };
+        List<LooseRow>[] shapes =
+        [
+            new List<LooseRow> { new() { Name = "a", Extra = new byte[] { 1, 2 } }, new() { Name = "b", Extra = new byte[] { 3 } } },
+            new List<LooseRow> { new() { Name = "a", Extra = new List<byte> { 1, 2 } }, new() { Name = "b", Extra = new byte[0] } },
+            new List<LooseRow> { new() { Name = "a", Extra = 5 }, new() { Name = "b", Extra = "x" } },
+            new List<LooseRow> { new() { Name = "a", Extra = 5 }, new() { Name = "b" } },
+            new List<LooseRow> { new() { Name = "a" }, new() { Name = "b" } },
+            new List<LooseRow> { new() { Name = "a", Extra = new byte[] { 1 }, Leaf = new Leaf { Name = "n" } }, new() { Name = "b", Extra = 2 } },
+            new List<LooseRow> { new() { Name = "a", Extra = new byte[] { 1 } }, new() { Name = "b", Extra = new Leaf { Name = "n" } } }
+        ];
+
+        foreach (var rows in shapes)
+        {
+            AssertParity(rows, options);
+            AssertParity(new LooseHolder { Id = 1, Rows = rows }, options);
+        }
+    }
+
+    [Fact]
+    public void Encode_ByteArrayInObjectTypedRowMember_WrittenAsColumn()
+    {
+        var rows = new List<LooseRow> { new() { Name = "a", Extra = new byte[] { 1, 2 } }, new() { Name = "b", Extra = new byte[] { 3 } } };
+
+        var base64 = ToonEncoder.Encode(rows, new ToonEncodeOptions { ProtocolVersion = ToonProtocolVersion.CustomLegacy, Indent = 2 });
+        var numeric = ToonEncoder.Encode(rows, new ToonEncodeOptions
+        {
+            ProtocolVersion = ToonProtocolVersion.CustomLegacy, Indent = 2, ByteArrayFormat = ToonByteArrayFormat.NumericArray
+        });
+
+        Assert.Equal("[2]{Name,Extra}:\n  a,AQI=\n  b,Aw==", base64);
+        Assert.Equal("[2]{Name}:\n  a\n    Extra[2]: 1,2\n  b\n    Extra[1]: 3", numeric);
     }
 
     [Fact]
@@ -94,11 +181,16 @@ public sealed class LegacyEncodeParityTests
         foreach (var item in items) yield return item;
     }
 
+    private static IEnumerable<T> LazyOf<T>(IEnumerable<T> items)
+    {
+        foreach (var item in items) yield return item;
+    }
+
     private static object? ToSlowEquivalent(object? value)
     {
         switch (value)
         {
-            case null or string or int or decimal or bool or byte[] or List<byte>:
+            case null or string or int or long or double or float or decimal or bool or byte[] or List<byte>:
                 return value;
             case IDictionary dictionary:
                 var map = new Dictionary<string, object?>();
@@ -123,6 +215,32 @@ public sealed class LegacyEncodeParityTests
         Items = [new() { Name = "a", Data = [1, 2, 3], Bag = [9] }, new() { Name = "b", Data = [4], Bag = [10] }]
     };
 
+    private static List<SparseRow> SparseRows() =>
+    [
+        new()
+        {
+            Name = "a", Number = 1, Note = null, Count = null, Ratio = double.NaN, Score = float.NaN, Label = "",
+            Child = new SparseChild { Note = null, Count = null, Ratio = double.PositiveInfinity, Label = "", Values = [] },
+            Tags = [],
+            Children =
+            [
+                new() { Note = null, Count = 1, Ratio = 1, Label = "", Values = [1] },
+                new() { Note = "", Count = null, Ratio = double.NaN, Label = "", Values = [] }
+            ],
+            Data = [],
+            Map = new Dictionary<string, string?> { ["x"] = null, ["y"] = "", ["z"] = "v" }
+        },
+        new()
+        {
+            Name = "b", Number = 2, Note = "", Count = 3, Ratio = 1.5, Score = float.NegativeInfinity, Label = null,
+            Child = new SparseChild { Note = "n", Count = 0, Ratio = 0, Label = null, Values = null },
+            Tags = ["t"],
+            Children = [],
+            Data = [1, 2],
+            Map = []
+        }
+    ];
+
     private static DeepShape SampleDeep() => new() { Id = 1, A = new DeepLevel { X = 2, B = new Leaf { Name = "n" } } };
 
     public sealed class BytesItem
@@ -137,6 +255,51 @@ public sealed class LegacyEncodeParityTests
         public int Id { get; set; }
         public byte[]? Data { get; set; }
         public List<BytesItem>? Items { get; set; }
+    }
+
+    public sealed class SparseChild
+    {
+        public string? Note { get; set; }
+        public int? Count { get; set; }
+        public double Ratio { get; set; }
+        public string? Label { get; set; }
+        public List<int>? Values { get; set; }
+    }
+
+    public sealed class SparseRow
+    {
+        public string? Name { get; set; }
+        public int Number { get; set; }
+        public string? Note { get; set; }
+        public int? Count { get; set; }
+        public double Ratio { get; set; }
+        public float Score { get; set; }
+        public string? Label { get; set; }
+        public SparseChild? Child { get; set; }
+        public List<string>? Tags { get; set; }
+        public List<SparseChild>? Children { get; set; }
+        public byte[]? Data { get; set; }
+        public Dictionary<string, string?>? Map { get; set; }
+    }
+
+    public sealed class SparseHolder
+    {
+        public int Id { get; set; }
+        public SparseRow? Primary { get; set; }
+        public List<SparseRow>? Rows { get; set; }
+    }
+
+    public sealed class LooseRow
+    {
+        public string? Name { get; set; }
+        public object? Extra { get; set; }
+        public Leaf? Leaf { get; set; }
+    }
+
+    public sealed class LooseHolder
+    {
+        public int Id { get; set; }
+        public List<LooseRow>? Rows { get; set; }
     }
 
     public sealed class Leaf

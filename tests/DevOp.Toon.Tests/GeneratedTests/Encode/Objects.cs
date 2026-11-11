@@ -65,7 +65,7 @@ value: null
 """;
 
         // Act & Assert
-        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions());
+        var result = ToonEncoder.Encode(input, new LegacyDefaultToonEncodeOptions { IgnoreNullOrEmpty = false });
 
         Assert.Equal(expected, result);
     }

@@ -28,9 +28,26 @@ internal sealed class NativePrimitiveNode : NativeNode
     }
 
     /// <summary>
+    /// Initializes a scalar node for a parsed number, keeping its source text when the parse may have rounded it.
+    /// </summary>
+    /// <param name="value">The parsed number.</param>
+    /// <param name="numberText">The number's source text, or <see langword="null"/>.</param>
+    public NativePrimitiveNode(object value, string? numberText)
+    {
+        Value = value;
+        NumberText = numberText;
+    }
+
+    /// <summary>
     /// Gets the raw scalar value carried by the node.
     /// </summary>
     public object? Value { get; }
+
+    /// <summary>
+    /// Gets the source text of a number, when it was kept: typed materialization reads a decimal target from it exactly and
+    /// judges from it whether the number is an integer, while every other use takes <see cref="Value"/>.
+    /// </summary>
+    public string? NumberText { get; }
 }
 
 /// <summary>

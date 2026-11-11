@@ -150,6 +150,410 @@ public sealed class LegacyRouteParityTests
         Assert.Equal(0.5m, decoded.Map!["a"]);
     }
 
+    [Fact]
+    public void Deserialize_JsonTwoArgumentDecimalTargets_KeepExactValue()
+    {
+        const string exact = "0.1234567890123456789012345678";
+        var service = new ToonService();
+
+        var amounts = service.Deserialize<Amounts>(
+            $"{{\"M\":79228162514264337593543950000,\"D\":{exact},\"O\":{exact},\"Map\":{{\"a\":{exact},\"b\":-79228162514264337593543950335}}}}",
+            "application/json")!;
+        var line = service.Deserialize<AnnotatedLedgerLine>($"{{\"Name\":\"Cash\",\"Balance\":{exact},\"Extra\":{exact}}}", "application/json")!;
+        var record = service.Deserialize<LedgerLineRecord>($"{{\"Name\":\"Cash\",\"Balance\":79228162514264337593543950335}}", "application/json")!;
+        var values = service.Deserialize<List<decimal?>>($"[{exact},null,1.10]", "application/json")!;
+
+        Assert.Equal(79228162514264337593543950000m, amounts.M);
+        Assert.Equal(0.12345678901234568, amounts.D);
+        Assert.Equal(0.12345678901234568, Assert.IsType<double>(amounts.O));
+        Assert.Equal(0.1234567890123456789012345678m, amounts.Map!["a"]);
+        Assert.Equal(decimal.MinValue, amounts.Map["b"]);
+        Assert.Equal(0.1234567890123456789012345678m, line.Balance);
+        Assert.Equal(0.12345678901234568, Assert.IsType<double>(line.Annotations!["Extra"]));
+        Assert.Equal(decimal.MaxValue, record.Balance);
+        Assert.Equal([0.1234567890123456789012345678m, null, 1.10m], values);
+        Assert.Equal("1.10", values[2]!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.IsType<double>(ToonNode.Parse(exact)!.AsValue().Value);
+    }
+
+    [Theory]
+    [InlineData("{\"Int\":1e30}", "Number 1E+30 is outside the range of System.Int32")]
+    [InlineData("{\"NInt\":3000000000}", "Number 3000000000 is outside the range of System.Int32")]
+    [InlineData("{\"NLng\":9223372036854775808}", "Number 9.223372036854776E+18 is outside the range of System.Int64")]
+    [InlineData("{\"Byt\":300}", "Number 300 is outside the range of System.Byte")]
+    [InlineData("{\"UInt\":-1}", "Number -1 is outside the range of System.UInt32")]
+    [InlineData("{\"Flt\":1e39}", "Number outside supported finite range")]
+    public void Deserialize_JsonTwoArgumentNumberBeyondIntegerOrFloatRange_ThrowsFormatException(string json, string message)
+    {
+        AssertRangeError(message, () => new ToonService().Deserialize<Numbers>(json, "application/json"));
+    }
+
+    [Fact]
+    public void Deserialize_JsonTwoArgumentIntegersInRange_ConvertExactly()
+    {
+        var decoded = new ToonService().Deserialize<Numbers>("{\"ULng\":18446744073709551615,\"NLng\":-9223372036854775808,\"Dbl\":1e30,\"Sht\":-2}", "application/json")!;
+
+        Assert.Equal(ulong.MaxValue, decoded.ULng);
+        Assert.Equal(long.MinValue, decoded.NLng);
+        Assert.Equal(1e30, decoded.Dbl);
+        Assert.Equal((short)-2, decoded.Sht);
+        AssertRangeError("Number 1.5 is outside the range of System.Int32", () => new ToonService().Deserialize<Numbers>("{\"Int\":1.5}", "application/json"));
+    }
+
+    public static TheoryData<ToonProtocolVersion, string, string, string> DirectOutOfRangeCases
+    {
+        get
+        {
+            var data = new TheoryData<ToonProtocolVersion, string, string, string>();
+            foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
+            {
+                data.Add(version, "Dec", "1e30", "Number 1E+30 is outside the range of System.Decimal");
+                data.Add(version, "Dec", "1e400", "Number outside supported finite range");
+                data.Add(version, "Dec", "-1e400", "Number outside supported finite range");
+                data.Add(version, "NDec", "-1e29", "Number -1E+29 is outside the range of System.Decimal");
+                data.Add(version, "Dbl", "1e400", "Number outside supported finite range");
+                data.Add(version, "NDbl", "-1e400", "Number outside supported finite range");
+                data.Add(version, "Flt", "1e39", "Number outside supported finite range");
+                data.Add(version, "Int", "1e30", "Number 1E+30 is outside the range of System.Int32");
+                data.Add(version, "Int", "99999999999", "Number 99999999999 is outside the range of System.Int32");
+                data.Add(version, "NLng", "1e400", "Number outside supported finite range");
+                data.Add(version, "Byt", "300", "Number 300 is outside the range of System.Byte");
+                data.Add(version, "UInt", "-1", "Number -1 is outside the range of System.UInt32");
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(DirectOutOfRangeCases))]
+    public void Decode_LegacyNumberOutsideMemberRange_ThrowsFormatException(ToonProtocolVersion version, string member, string token, string message)
+    {
+        var options = Options(version);
+
+        AssertRangeError(message, () => ToonDecoder.Decode<Numbers>($"{member}: {token}", options));
+        AssertRangeError(message, () => ToonDecoder.Decode<List<Numbers>>($"[1]{{{member}}}:\n  {token}", options));
+        AssertRangeError(message, () => ToonDecoder.Decode<List<Numbers>>($"[1]:\n  - {member}: {token}", options));
+        AssertRangeError(message, () => ToonDecoder.Decode<List<Numbers>>($"[1]{{Int}}:\n  1\n    {member}: {token}", Options(ToonProtocolVersion.CustomLegacy)));
+    }
+
+    [Theory]
+    [InlineData(ToonProtocolVersion.V3_0)]
+    [InlineData(ToonProtocolVersion.CustomLegacy)]
+    public void Decode_LegacyNumberOutsideRangeOutsideMembers_ThrowsFormatException(ToonProtocolVersion version)
+    {
+        var options = Options(version);
+
+        AssertRangeError("System.Decimal", () => ToonDecoder.Decode<NumbersRecord>("Dec: 1e30\nInt: 1", options));
+        AssertRangeError("finite range", () => ToonDecoder.Decode<NumbersRecord>("Dec: 1\nInt: 1e400", options));
+        AssertRangeError("finite range", () => ToonDecoder.Decode<decimal>("1e400", options));
+        AssertRangeError("System.Decimal", () => ToonDecoder.Decode<List<decimal>>("[2]: 1,1e30", options));
+        AssertRangeError("finite range", () => ToonDecoder.Decode<Dictionary<string, decimal>>("a: 1e400", options));
+        AssertRangeError("System.Int32", () => ToonDecoder.Decode<Dictionary<string, int>>("a: 1e30", options));
+    }
+
+    [Theory]
+    [InlineData(ToonProtocolVersion.V3_0)]
+    [InlineData(ToonProtocolVersion.CustomLegacy)]
+    public void Decode_LegacyNumbersInsideMemberRange_Unchanged(ToonProtocolVersion version)
+    {
+        const string text = "Dec: 0.1234567890123456789012345678\nNDec: -79228162514264337593543950335\nDbl: 1e308\nNDbl: -1.5\nFlt: 3.4e38\n" +
+                            "Int: 1e2\nNLng: -9223372036854775808\nByt: 255\nUInt: 4294967295\nObj: 1e400";
+
+        var decoded = ToonDecoder.Decode<Numbers>(text, Options(version))!;
+
+        Assert.Equal(0.1234567890123456789012345678m, decoded.Dec);
+        Assert.Equal(decimal.MinValue, decoded.NDec);
+        Assert.Equal(1e308, decoded.Dbl);
+        Assert.Equal(-1.5, decoded.NDbl);
+        Assert.Equal(3.4e38f, decoded.Flt);
+        Assert.Equal(100, decoded.Int);
+        Assert.Equal(long.MinValue, decoded.NLng);
+        Assert.Equal(byte.MaxValue, decoded.Byt);
+        Assert.Equal(uint.MaxValue, decoded.UInt);
+        Assert.Equal("1e400", decoded.Obj);
+    }
+
+    public static TheoryData<ToonProtocolVersion, string, string, string> DirectRejectedTokenCases
+    {
+        get
+        {
+            var data = new TheoryData<ToonProtocolVersion, string, string, string>();
+            foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
+            {
+                data.Add(version, "Int", "1.5", "Number 1.5 is outside the range of System.Int32");
+                data.Add(version, "NInt", "-0.5", "Number -0.5 is outside the range of System.Int32");
+                data.Add(version, "NLng", "1.5", "Number 1.5 is outside the range of System.Int64");
+                data.Add(version, "UInt", "0.5", "Number 0.5 is outside the range of System.UInt32");
+                data.Add(version, "ULng", "2.5e0", "Number 2.5e0 is outside the range of System.UInt64");
+                data.Add(version, "Byt", "255.6", "Number 255.6 is outside the range of System.Byte");
+                data.Add(version, "Int", "abc", "Value abc is not a valid System.Int32");
+                data.Add(version, "Int", "\"1.5\"", "Value 1.5 is not a valid System.Int32");
+                data.Add(version, "Int", "Infinity", "Value Infinity is not a valid System.Int32");
+                data.Add(version, "Dec", "abc", "Value abc is not a valid System.Decimal");
+                data.Add(version, "Dec", "NaN", "Value NaN is not a valid System.Decimal");
+                data.Add(version, "NDec", "\"\"", "Value  is not a valid System.Decimal");
+                data.Add(version, "Dbl", "abc", "Value abc is not a valid System.Double");
+                data.Add(version, "Flt", "0x10", "Value 0x10 is not a valid System.Single");
+                data.Add(version, "Sht", "1_000", "Value 1_000 is not a valid System.Int16");
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(DirectRejectedTokenCases))]
+    public void Decode_LegacyTokenNotValidForNumericMember_ThrowsFormatException(ToonProtocolVersion version, string member, string token, string message)
+    {
+        var options = Options(version);
+
+        AssertRangeError(message, () => ToonDecoder.Decode<Numbers>($"{member}: {token}", options));
+        AssertRangeError(message, () => ToonDecoder.Decode<List<Numbers>>($"[1]{{{member}}}:\n  {token}", options));
+        AssertRangeError(message, () => ToonDecoder.Decode<List<Numbers>>($"[1]:\n  - {member}: {token}", options));
+        Assert.ThrowsAny<Exception>(() => ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V4_4)));
+    }
+
+    public static TheoryData<ToonProtocolVersion, string, string> DirectAcceptedTokenCases
+    {
+        get
+        {
+            var data = new TheoryData<ToonProtocolVersion, string, string>();
+            foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
+            {
+                data.Add(version, "Int", "\"12\"");
+                data.Add(version, "NInt", "\"-7\"");
+                data.Add(version, "Dbl", "\"1.5\"");
+                data.Add(version, "Dec", "\"0.1234567890123456789012345678\"");
+                data.Add(version, "Flt", "\"Infinity\"");
+                data.Add(version, "Int", "true");
+                data.Add(version, "Dec", "false");
+                data.Add(version, "Int", "null");
+                data.Add(version, "Dbl", "null");
+                data.Add(version, "Byt", "1.5");
+                data.Add(version, "Byt", "-0.5");
+                data.Add(version, "Sht", "2.5");
+                data.Add(version, "Sht", "-1.5e0");
+                data.Add(version, "ULng", "\"18446744073709551615\"");
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(DirectAcceptedTokenCases))]
+    public void Decode_LegacyTokenAcceptedByV4_DecodesAsV4Does(ToonProtocolVersion version, string member, string token)
+    {
+        var property = typeof(Numbers).GetProperty(member)!;
+        var expected = property.GetValue(ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V4_4)));
+        var options = Options(version);
+
+        Assert.Equal(expected, property.GetValue(ToonDecoder.Decode<Numbers>($"{member}: {token}", options)));
+        Assert.Equal(expected, property.GetValue(ToonDecoder.Decode<List<Numbers>>($"[1]{{{member}}}:\n  {token}", options)![0]));
+        Assert.Equal(expected, property.GetValue(ToonDecoder.Decode<List<Numbers>>($"[1]:\n  - {member}: {token}", options)![0]));
+    }
+
+    public static TheoryData<ToonProtocolVersion, string, string, string> NativeOutOfRangeCases
+    {
+        get
+        {
+            var data = new TheoryData<ToonProtocolVersion, string, string, string>();
+            foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
+            {
+                data.Add(version, "Int", "1e30", "Number 1E+30 is outside the range of System.Int32");
+                data.Add(version, "NInt", "99999999999", "Number 99999999999 is outside the range of System.Int32");
+                data.Add(version, "Int", "1e400", "Number outside supported finite range");
+                data.Add(version, "NLng", "-1e30", "Number -1E+30 is outside the range of System.Int64");
+                data.Add(version, "Byt", "300", "Number 300 is outside the range of System.Byte");
+                data.Add(version, "UInt", "-1", "Number -1 is outside the range of System.UInt32");
+                data.Add(version, "ULng", "-1", "Number -1 is outside the range of System.UInt64");
+                data.Add(version, "Dec", "1e400", "Number outside supported finite range");
+                data.Add(version, "NDec", "-1e400", "Number outside supported finite range");
+                data.Add(version, "Dbl", "1e400", "Number outside supported finite range");
+                data.Add(version, "Flt", "1e39", "Number outside supported finite range");
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(NativeOutOfRangeCases))]
+    public void Decode_LegacyNativeRouteNumberOutsideMemberRange_ThrowsFormatException(ToonProtocolVersion version, string member, string token, string message)
+    {
+        var options = new ToonDecodeOptions { ProtocolVersion = version, Indent = 2, ExpandPaths = ToonPathExpansion.Safe };
+
+        AssertRangeError(message, () => ToonDecoder.Decode<Numbers>($"{member}: {token}\nz.q: 1", options));
+        AssertRangeError(message, () => ToonDecoder.Decode<List<Numbers>>($"[1]:\n  - {member}: {token}\n    z.q: 1", options));
+    }
+
+    [Theory]
+    [InlineData(ToonProtocolVersion.V3_0)]
+    [InlineData(ToonProtocolVersion.CustomLegacy)]
+    public void Decode_LegacyNativeRouteNumbersInRange_ConvertAndFractionsAndUnsupportedTypesFail(ToonProtocolVersion version)
+    {
+        var options = new ToonDecodeOptions { ProtocolVersion = version, Indent = 2, ExpandPaths = ToonPathExpansion.Safe };
+
+        var decoded = ToonDecoder.Decode<Numbers>("Dbl: -1\nNDbl: 99999999999\nFlt: -2\nInt: -5\nULng: 300\nz.q: 1", options)!;
+
+        Assert.Equal(-1d, decoded.Dbl);
+        Assert.Equal(99999999999d, decoded.NDbl);
+        Assert.Equal(-2f, decoded.Flt);
+        Assert.Equal(-5, decoded.Int);
+        Assert.Equal(300ul, decoded.ULng);
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<PointerHolder>("Ptr: 1e30\nz.q: 1", options));
+        AssertRangeError("Number 1.5 is outside the range of System.Int32", () => ToonDecoder.Decode<Numbers>("Int: 1.5\nz.q: 1", options));
+    }
+
+    public static TheoryData<string, string> TinyFractionCases
+    {
+        get
+        {
+            var data = new TheoryData<string, string>();
+            foreach (var token in new[] { "1e-29", "-1e-29", "0.0000000000000000000000000001", "1.00000000000000000000000000001", "2.5", "1e-400" })
+            foreach (var member in new[] { "Int", "NLng", "UInt", "ULng", "Byt", "Sht" })
+                data.Add(member, token);
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(TinyFractionCases))]
+    public void Decode_FractionForIntegerMember_RejectedOrRoundedAsV4OnEveryRoute(string member, string token)
+    {
+        var property = typeof(Numbers).GetProperty(member)!;
+        var smallInteger = member is "Byt" or "Sht";
+        var native = new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V3_0, Indent = 2, ExpandPaths = ToonPathExpansion.Safe };
+        var routes = new Func<Numbers?>[]
+        {
+            () => ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V3_0)),
+            () => ToonDecoder.Decode<List<Numbers>>($"[1]{{{member}}}:\n  {token}", Options(ToonProtocolVersion.CustomLegacy))![0],
+            () => ToonDecoder.Decode<Numbers>($"{member}: {token}\nz.q: 1", native),
+            () => new ToonService().Deserialize<Numbers>($"{{\"{member}\":{token}}}", "application/json")
+        };
+
+        if (smallInteger)
+        {
+            var expected = property.GetValue(ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V4_4)));
+            foreach (var route in routes) Assert.Equal(expected, property.GetValue(route()));
+        }
+        else
+        {
+            Assert.ThrowsAny<Exception>(() => ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V4_4)));
+            foreach (var route in routes) AssertRangeError("is outside the range of System.", () => route());
+        }
+    }
+
+    [Theory]
+    [InlineData("1e2", 100)]
+    [InlineData("1.0e1", 10)]
+    [InlineData("100000000000000000000e-20", 1)]
+    [InlineData("0.0e5", 0)]
+    [InlineData("-2.50e1", -25)]
+    public void Decode_IntegralNumberWithExponentOrFraction_DecodesOnEveryRoute(string token, int expected)
+    {
+        var native = new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V3_0, Indent = 2, ExpandPaths = ToonPathExpansion.Safe };
+
+        Assert.Equal(expected, ToonDecoder.Decode<Numbers>($"Int: {token}", Options(ToonProtocolVersion.V3_0))!.Int);
+        Assert.Equal(expected, ToonDecoder.Decode<List<Numbers>>($"[1]{{NLng}}:\n  {token}", Options(ToonProtocolVersion.CustomLegacy))![0].NLng);
+        Assert.Equal(expected, ToonDecoder.Decode<Numbers>($"Sht: {token}\nz.q: 1", native)!.Sht);
+        Assert.Equal(expected, new ToonService().Deserialize<Numbers>($"{{\"Int\":{token}}}", "application/json")!.Int);
+    }
+
+    [Theory]
+    [InlineData("NLng", "9007199254740993.0", "9007199254740993")]
+    [InlineData("NLng", "9007199254740993", "9007199254740993")]
+    [InlineData("NLng", "-9007199254740993e0", "-9007199254740993")]
+    [InlineData("ULng", "18446744073709551615.0", "18446744073709551615")]
+    [InlineData("Dec", "79228162514264337593543950335.0", "79228162514264337593543950335")]
+    [InlineData("Dec", "1234567.123456789012345678", "1234567.123456789012345678")]
+    public void Decode_NumberBeyondDoublePrecision_ExactOnEveryRoute(string member, string token, string expected)
+    {
+        var property = typeof(Numbers).GetProperty(member)!;
+        var native = new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V3_0, Indent = 2, ExpandPaths = ToonPathExpansion.Safe };
+        var routes = new Func<Numbers?>[]
+        {
+            () => ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V3_0)),
+            () => ToonDecoder.Decode<List<Numbers>>($"[1]{{{member}}}:\n  {token}", Options(ToonProtocolVersion.CustomLegacy))![0],
+            () => ToonDecoder.Decode<Numbers>($"{member}: {token}\nz.q: 1", native),
+            () => ToonDecoder.Decode<List<Numbers>>($"[1]:\n  - {member}: {token}\n    z.q: 1", native)![0],
+            () => new ToonService().Deserialize<Numbers>($"{{\"{member}\":{token}}}", "application/json")
+        };
+
+        foreach (var route in routes)
+        {
+            Assert.Equal(expected, Convert.ToString(property.GetValue(route()), System.Globalization.CultureInfo.InvariantCulture));
+        }
+    }
+
+    public static TheoryData<string, string> ZeroWithExponentCases
+    {
+        get
+        {
+            var data = new TheoryData<string, string>();
+            foreach (var token in new[] { "0e-2", "-0e-5", "0.000e-10", "0.0" })
+            foreach (var member in new[] { "Int", "NInt", "Lng", "NLng" })
+                data.Add(member, token);
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(ZeroWithExponentCases))]
+    public void Decode_ZeroWithFractionOrExponentForIntegerMember_DecodesAsZeroOnEveryRoute(string member, string token)
+    {
+        var property = typeof(Numbers).GetProperty(member)!;
+
+        foreach (var route in AllRoutes(member, token))
+        {
+            Assert.Equal("0", Convert.ToString(property.GetValue(route()), System.Globalization.CultureInfo.InvariantCulture));
+        }
+    }
+
+    [Theory]
+    [InlineData("Flt", "1.000000059604644775400625")]
+    [InlineData("NFlt", "1.000000059604644775400625")]
+    [InlineData("Flt", "16777217.000000001")]
+    [InlineData("Dbl", "9007199254740993.0000001")]
+    [InlineData("NDbl", "1234567.1234567891")]
+    [InlineData("Dbl", "1.00000000000000011102230246251565404236316680908203126")]
+    public void Decode_FloatingNumberNearRoundingMidpoint_RoundsOnceOnEveryRoute(string member, string token)
+    {
+        var property = typeof(Numbers).GetProperty(member)!;
+        var single = member.EndsWith("Flt", StringComparison.Ordinal);
+        object expected = single
+            ? (object)float.Parse(token, System.Globalization.CultureInfo.InvariantCulture)
+            : double.Parse(token, System.Globalization.CultureInfo.InvariantCulture);
+
+        Assert.Equal(expected, property.GetValue(ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V4_4))));
+        foreach (var route in AllRoutes(member, token))
+        {
+            Assert.Equal(expected, property.GetValue(route()));
+        }
+    }
+
+    private static Func<Numbers?>[] AllRoutes(string member, string token)
+    {
+        var native = new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V3_0, Indent = 2, ExpandPaths = ToonPathExpansion.Safe };
+        return
+        [
+            () => ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V3_0)),
+            () => ToonDecoder.Decode<List<Numbers>>($"[1]{{{member}}}:\n  {token}", Options(ToonProtocolVersion.CustomLegacy))![0],
+            () => ToonDecoder.Decode<Numbers>($"{member}: {token}\nz.q: 1", native),
+            () => ToonDecoder.Decode<List<Numbers>>($"[1]:\n  - {member}: {token}\n    z.q: 1", native)![0],
+            () => new ToonService().Deserialize<Numbers>($"{{\"{member}\":{token}}}", "application/json")
+        ];
+    }
+
+    private static void AssertRangeError(string message, Func<object?> decode)
+    {
+        var error = Assert.Throws<ToonFormatException>(decode);
+
+        Assert.Equal(ToonErrorKind.Syntax, error.Kind);
+        Assert.Contains(message, error.Message);
+    }
+
     private static ToonDecodeOptions Options(ToonProtocolVersion version) => new() { ProtocolVersion = version, Indent = 2 };
 
     public sealed class Amounts
@@ -158,6 +562,32 @@ public sealed class LegacyRouteParityTests
         public double D { get; set; }
         public object? O { get; set; }
         public Dictionary<string, decimal>? Map { get; set; }
+    }
+
+    public sealed class Numbers
+    {
+        public decimal Dec { get; set; }
+        public decimal? NDec { get; set; }
+        public double Dbl { get; set; }
+        public double? NDbl { get; set; }
+        public float Flt { get; set; }
+        public float? NFlt { get; set; }
+        public int Int { get; set; }
+        public long Lng { get; set; }
+        public long? NLng { get; set; }
+        public byte Byt { get; set; }
+        public short Sht { get; set; }
+        public uint UInt { get; set; }
+        public ulong ULng { get; set; }
+        public int? NInt { get; set; }
+        public object? Obj { get; set; }
+    }
+
+    public sealed record NumbersRecord(decimal Dec, int Int);
+
+    public sealed class PointerHolder
+    {
+        public IntPtr Ptr { get; set; }
     }
 
     public sealed class LedgerLine

@@ -44,14 +44,25 @@ public sealed class LegacyTypedDecodeTests
     }
 
     [Theory]
+    [InlineData("1000000000000001", 1000000000000001L)]
+    [InlineData("9007199254740993", 9007199254740993L)]
+    [InlineData("9007199254740994", 9007199254740994L)]
+    public void Decode_ExpandPathsIntegerBeyondDoublePrecision_DecodesExactly(string text, long expected)
+    {
+        var decoded = ToonDecoder.Decode<Counters>($"Wide: {text}\nUnit.Name: u", Decode(ToonProtocolVersion.V3_0, ToonPathExpansion.Safe))!;
+
+        Assert.Equal(expected, decoded.Wide);
+    }
+
+    [Theory]
     [InlineData("Small: 1.5")]
     [InlineData("Large: 3000000000")]
-    [InlineData("Wide: 1000000000000001")]
-    [InlineData("Wide: 9007199254740994")]
-    public void Decode_ExpandPathsNumberOutsideIntegralRange_Throws(string text)
+    public void Decode_ExpandPathsNumberOutsideIntegralRange_ThrowsFormatException(string text)
     {
-        Assert.Throws<NotSupportedException>(() =>
+        var error = Assert.Throws<ToonFormatException>(() =>
             ToonDecoder.Decode<Counters>(text + "\nUnit.Name: u", Decode(ToonProtocolVersion.V3_0, ToonPathExpansion.Safe)));
+
+        Assert.Contains("outside the range of System.Int32", error.Message);
     }
 
     private static ToonDecodeOptions Decode(ToonProtocolVersion version, ToonPathExpansion expandPaths = ToonPathExpansion.Off) => new()

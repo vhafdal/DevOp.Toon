@@ -144,7 +144,9 @@ internal static class NativePathExpansion
             return null;
 
         if (node is NativePrimitiveNode primitive)
-            return new NativePrimitiveNode(primitive.Value);
+            return primitive.NumberText is { } numberText
+                ? new NativePrimitiveNode(primitive.Value!, numberText)
+                : new NativePrimitiveNode(primitive.Value);
 
         if (node is NativeArrayNode array)
         {

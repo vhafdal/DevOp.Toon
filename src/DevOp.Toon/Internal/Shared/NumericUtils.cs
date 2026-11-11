@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 
@@ -121,6 +122,139 @@ namespace DevOp.Toon.Internal.Shared
 #else
             return float.IsFinite(value);
 #endif
+        }
+
+        /// <summary>
+        /// Returns whether text has the shape of a decimal number (<c>-12</c>, <c>0e-2</c>, <c>007</c>, <c>1e400</c>), whatever
+        /// its magnitude or leading zeros.
+        /// </summary>
+        public static bool IsNumberShaped(string text)
+        {
+            var i = text.Length > 0 && text[0] == '-' ? 1 : 0;
+            if (SkipDigits(text, ref i) == 0)
+            {
+                return false;
+            }
+
+            if (i < text.Length && text[i] == '.')
+            {
+                i++;
+                if (SkipDigits(text, ref i) == 0)
+                {
+                    return false;
+                }
+            }
+
+            if (i < text.Length && (text[i] == 'e' || text[i] == 'E'))
+            {
+                i++;
+                if (i < text.Length && (text[i] == '+' || text[i] == '-'))
+                {
+                    i++;
+                }
+
+                if (SkipDigits(text, ref i) == 0)
+                {
+                    return false;
+                }
+            }
+
+            return i == text.Length;
+        }
+
+        private static int SkipDigits(string text, ref int index)
+        {
+            var start = index;
+            while (index < text.Length && text[index] >= '0' && text[index] <= '9')
+            {
+                index++;
+            }
+
+            return index - start;
+        }
+
+        /// <summary>
+        /// Returns whether a decimal number literal such as <c>1e2</c>, <c>-2.50e1</c> or <c>1e-29</c> denotes an integer,
+        /// judged from its digits: parsing first can round a fraction such as <c>1e-29</c> or
+        /// <c>1.00000000000000000000000000001</c> to an integer.
+        /// </summary>
+        public static bool IsIntegralNumberText(string text)
+        {
+            var i = text.Length > 0 && (text[0] == '-' || text[0] == '+') ? 1 : 0;
+            var integerDigits = 0;
+            var digitCount = 0;
+            var lastNonZero = -1;
+            var seenPoint = false;
+            for (; i < text.Length; i++)
+            {
+                var c = text[i];
+                if (c == '.')
+                {
+                    seenPoint = true;
+                    continue;
+                }
+
+                if (c < '0' || c > '9')
+                {
+                    break;
+                }
+
+                if (c != '0')
+                {
+                    lastNonZero = digitCount;
+                }
+
+                digitCount++;
+                if (!seenPoint)
+                {
+                    integerDigits++;
+                }
+            }
+
+            long exponent = 0;
+            if (i < text.Length && (text[i] == 'e' || text[i] == 'E'))
+            {
+                i++;
+                var negative = i < text.Length && text[i] == '-';
+                if (i < text.Length && (text[i] == '-' || text[i] == '+'))
+                {
+                    i++;
+                }
+
+                for (; i < text.Length && text[i] >= '0' && text[i] <= '9'; i++)
+                {
+                    exponent = Math.Min(exponent * 10 + (text[i] - '0'), 1_000_000_000L);
+                }
+
+                if (negative)
+                {
+                    exponent = -exponent;
+                }
+            }
+
+            // Every digit zero is exactly zero, whatever the exponent.
+            return lastNonZero < 0 || lastNonZero < integerDigits + exponent;
+        }
+
+        /// <summary>
+        /// Converts a number with a fractional part to an integer type the way 4.x decoding does: it rounds to even into
+        /// <see cref="byte"/>, <see cref="sbyte"/>, <see cref="short"/> and <see cref="ushort"/>, and is outside the range of
+        /// every other integer type.
+        /// </summary>
+        public static object ConvertFractionToInteger(Type type, decimal value, string numberText)
+        {
+            if (type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort))
+            {
+                try
+                {
+                    return Convert.ChangeType(value, type, System.Globalization.CultureInfo.InvariantCulture);
+                }
+                catch (OverflowException)
+                {
+                }
+            }
+
+            throw ToonFormatException.Syntax($"Number {numberText} is outside the range of {type.FullName}");
         }
     }
 }

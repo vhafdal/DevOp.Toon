@@ -85,7 +85,21 @@ public abstract class ToonNode
             throw new ArgumentNullException(nameof(json));
         }
 
-        return new JsonParser(json).Parse();
+        return new JsonParser(json, keepNumberText: false).Parse();
+    }
+
+    /// <summary>
+    /// Parses JSON like <see cref="Parse(string)"/>, and also keeps the source text of every number that is not read as a
+    /// <see cref="long"/> in <see cref="ToonValue.NumberText"/>, so a decimal target can be read exactly.
+    /// </summary>
+    internal static ToonNode? ParseKeepingNumberText(string json)
+    {
+        if (json == null)
+        {
+            throw new ArgumentNullException(nameof(json));
+        }
+
+        return new JsonParser(json, keepNumberText: true).Parse();
     }
 
     /// <summary>
@@ -218,11 +232,13 @@ public abstract class ToonNode
     private sealed class JsonParser
     {
         private readonly string json;
+        private readonly bool keepNumberText;
         private int index;
 
-        public JsonParser(string json)
+        public JsonParser(string json, bool keepNumberText)
         {
             this.json = json;
+            this.keepNumberText = keepNumberText;
         }
 
         public ToonNode? Parse()
@@ -365,7 +381,7 @@ public abstract class ToonNode
                 return new ToonValue(integer);
             var parsedNumber = FloatUtils.NormalizeSignedZero(double.Parse(token, CultureInfo.InvariantCulture));
 
-            return new ToonValue(parsedNumber);
+            return keepNumberText ? new ToonValue(parsedNumber, token) : new ToonValue(parsedNumber);
         }
 
         private string ParseString()
@@ -664,10 +680,21 @@ public sealed class ToonValue : ToonNode
         Value = value;
     }
 
+    internal ToonValue(double value, string numberText)
+    {
+        Value = value;
+        NumberText = numberText;
+    }
+
     /// <summary>
     /// Gets the wrapped scalar value.
     /// </summary>
     public object? Value { get; }
+
+    /// <summary>
+    /// Gets the JSON source text of a number parsed as a <see cref="double"/>, when the parse kept it.
+    /// </summary>
+    internal string? NumberText { get; }
 
     /// <summary>
     /// Returns this instance as a <see cref="ToonValue"/>.
