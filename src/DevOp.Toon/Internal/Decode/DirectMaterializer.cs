@@ -16,6 +16,7 @@ namespace DevOp.Toon.Internal.Decode
     /// </summary>
     internal static class DirectMaterializer
     {
+        private const string OutsideFiniteRange = "Number outside supported finite range";
         private static readonly object SyncRoot = new object();
         private static readonly Dictionary<Type, TypePlan> PlanCache = new Dictionary<Type, TypePlan>();
         private static readonly ConcurrentDictionary<string, ArrayHeaderParseResult> ArrayHeaderCache =
@@ -1982,8 +1983,7 @@ namespace DevOp.Toon.Internal.Decode
                     return true;
                 }
 
-                value = null;
-                return false;
+                return TryConvertNumberOutsideType(type, token, out value);
             }
 
             if (type == typeof(sbyte))
@@ -1998,8 +1998,7 @@ namespace DevOp.Toon.Internal.Decode
                     return true;
                 }
 
-                value = null;
-                return false;
+                return TryConvertNumberOutsideType(type, token, out value);
             }
 
             if (type == typeof(short))
@@ -2014,8 +2013,7 @@ namespace DevOp.Toon.Internal.Decode
                     return true;
                 }
 
-                value = null;
-                return false;
+                return TryConvertNumberOutsideType(type, token, out value);
             }
 
             if (type == typeof(ushort))
@@ -2030,8 +2028,7 @@ namespace DevOp.Toon.Internal.Decode
                     return true;
                 }
 
-                value = null;
-                return false;
+                return TryConvertNumberOutsideType(type, token, out value);
             }
 
             if (type == typeof(int))
@@ -2046,8 +2043,7 @@ namespace DevOp.Toon.Internal.Decode
                     return true;
                 }
 
-                value = null;
-                return false;
+                return TryConvertNumberOutsideType(type, token, out value);
             }
 
             if (type == typeof(uint))
@@ -2062,8 +2058,7 @@ namespace DevOp.Toon.Internal.Decode
                     return true;
                 }
 
-                value = null;
-                return false;
+                return TryConvertNumberOutsideType(type, token, out value);
             }
 
             if (type == typeof(long))
@@ -2078,8 +2073,7 @@ namespace DevOp.Toon.Internal.Decode
                     return true;
                 }
 
-                value = null;
-                return false;
+                return TryConvertNumberOutsideType(type, token, out value);
             }
 
             if (type == typeof(ulong))
@@ -2094,8 +2088,7 @@ namespace DevOp.Toon.Internal.Decode
                     return true;
                 }
 
-                value = null;
-                return false;
+                return TryConvertNumberOutsideType(type, token, out value);
             }
 
             if (type == typeof(double))
@@ -2106,12 +2099,16 @@ namespace DevOp.Toon.Internal.Decode
                 if (double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var doubleValue))
 #endif
                 {
+                    if (double.IsInfinity(doubleValue) && IsNumberToken(token))
+                    {
+                        throw ToonFormatException.Syntax(OutsideFiniteRange);
+                    }
+
                     value = doubleValue;
                     return true;
                 }
 
-                value = null;
-                return false;
+                return TryConvertNumberOutsideType(type, token, out value);
             }
 
             if (type == typeof(float))
@@ -2122,12 +2119,16 @@ namespace DevOp.Toon.Internal.Decode
                 if (float.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var floatValue))
 #endif
                 {
+                    if (float.IsInfinity(floatValue) && IsNumberToken(token))
+                    {
+                        throw ToonFormatException.Syntax(OutsideFiniteRange);
+                    }
+
                     value = floatValue;
                     return true;
                 }
 
-                value = null;
-                return false;
+                return TryConvertNumberOutsideType(type, token, out value);
             }
 
             if (type == typeof(decimal))
@@ -2142,8 +2143,7 @@ namespace DevOp.Toon.Internal.Decode
                     return true;
                 }
 
-                value = null;
-                return false;
+                return TryConvertNumberOutsideType(type, token, out value);
             }
 
             if (type == typeof(DateTime))
@@ -2370,6 +2370,106 @@ namespace DevOp.Toon.Internal.Decode
 
             value = null;
             return false;
+        }
+
+        /// <summary>
+        /// Handles a token that did not parse as the numeric <paramref name="type"/>. A number the type cannot hold throws the
+        /// format error the native and JSON routes report instead of leaving the member at its default; an integral number in
+        /// exponent or fraction form that fits an integer type converts. Any other token is not converted.
+        /// </summary>
+        private static bool TryConvertNumberOutsideType(Type type, ReadOnlySpan<char> token, out object? value)
+        {
+            value = null;
+            if (!IsNumberToken(token))
+            {
+                return false;
+            }
+
+            var text = token.ToString();
+            if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) || double.IsInfinity(number) ||
+                type == typeof(double) || type == typeof(float))
+            {
+                throw ToonFormatException.Syntax(OutsideFiniteRange);
+            }
+
+            if (type != typeof(decimal) && decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var exact))
+            {
+                if (exact != decimal.Truncate(exact))
+                {
+                    return false;
+                }
+
+                value = NarrowInteger(type, exact);
+                if (value != null)
+                {
+                    return true;
+                }
+            }
+
+            throw ToonFormatException.Syntax($"Number {number.ToString("R", CultureInfo.InvariantCulture)} is outside the range of {type.FullName}");
+        }
+
+        private static object? NarrowInteger(Type type, decimal value)
+        {
+            if (type == typeof(int)) return value >= int.MinValue && value <= int.MaxValue ? (int)value : null;
+            if (type == typeof(long)) return value >= long.MinValue && value <= long.MaxValue ? (long)value : null;
+            if (type == typeof(short)) return value >= short.MinValue && value <= short.MaxValue ? (short)value : null;
+            if (type == typeof(byte)) return value >= byte.MinValue && value <= byte.MaxValue ? (byte)value : null;
+            if (type == typeof(sbyte)) return value >= sbyte.MinValue && value <= sbyte.MaxValue ? (sbyte)value : null;
+            if (type == typeof(ushort)) return value >= ushort.MinValue && value <= ushort.MaxValue ? (ushort)value : null;
+            if (type == typeof(uint)) return value >= uint.MinValue && value <= uint.MaxValue ? (uint)value : null;
+            if (type == typeof(ulong)) return value >= ulong.MinValue && value <= ulong.MaxValue ? (ulong)value : null;
+            return null;
+        }
+
+        /// <summary>
+        /// Returns whether a bare token has the shape of a decimal number (<c>-12</c>, <c>1.5</c>, <c>1e400</c>), whatever its
+        /// magnitude; quoted strings and words such as <c>Infinity</c> do not.
+        /// </summary>
+        private static bool IsNumberToken(ReadOnlySpan<char> token)
+        {
+            var i = token.Length > 0 && token[0] == '-' ? 1 : 0;
+            var digits = SkipDigits(token, ref i);
+            if (digits == 0)
+            {
+                return false;
+            }
+
+            if (i < token.Length && token[i] == '.')
+            {
+                i++;
+                if (SkipDigits(token, ref i) == 0)
+                {
+                    return false;
+                }
+            }
+
+            if (i < token.Length && (token[i] == 'e' || token[i] == 'E'))
+            {
+                i++;
+                if (i < token.Length && (token[i] == '+' || token[i] == '-'))
+                {
+                    i++;
+                }
+
+                if (SkipDigits(token, ref i) == 0)
+                {
+                    return false;
+                }
+            }
+
+            return i == token.Length;
+        }
+
+        private static int SkipDigits(ReadOnlySpan<char> token, ref int index)
+        {
+            var start = index;
+            while (index < token.Length && token[index] >= '0' && token[index] <= '9')
+            {
+                index++;
+            }
+
+            return index - start;
         }
 
         private static bool TryConvertUntypedPrimitive(string source, int start, int endExclusive, out object? value, bool alreadyTrimmed = false)
@@ -3641,9 +3741,9 @@ namespace DevOp.Toon.Internal.Decode
         {
             NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
 #if NETSTANDARD2_0
-            if (double.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            if (double.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !double.IsInfinity(value))
 #else
-            if (double.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            if (double.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !double.IsInfinity(value))
 #endif
             {
                 setter(instance, value);
@@ -3663,9 +3763,9 @@ namespace DevOp.Toon.Internal.Decode
             }
 
 #if NETSTANDARD2_0
-            if (double.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            if (double.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !double.IsInfinity(value))
 #else
-            if (double.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            if (double.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !double.IsInfinity(value))
 #endif
             {
                 setter(instance, value);
@@ -3679,9 +3779,9 @@ namespace DevOp.Toon.Internal.Decode
         {
             NormalizeRange(source, ref start, ref endExclusive, alreadyTrimmed);
 #if NETSTANDARD2_0
-            if (float.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            if (float.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !float.IsInfinity(value))
 #else
-            if (float.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            if (float.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !float.IsInfinity(value))
 #endif
             {
                 setter(instance, value);
@@ -3701,9 +3801,9 @@ namespace DevOp.Toon.Internal.Decode
             }
 
 #if NETSTANDARD2_0
-            if (float.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            if (float.TryParse(source.Substring(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !float.IsInfinity(value))
 #else
-            if (float.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            if (float.TryParse(source.AsSpan(start, endExclusive - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && !float.IsInfinity(value))
 #endif
             {
                 setter(instance, value);
