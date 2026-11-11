@@ -59,7 +59,8 @@ namespace DevOp.Toon.Internal.Decode
             catch (NotSupportedException) { return false; }
 
             return plan.Kind == PlanKind.Object &&
-                   (plan.Properties?.ContainsKey(key) == true || plan.ConstructorParameterLookup?.ContainsKey(key) == true);
+                   (plan.Properties?.ContainsKey(key) == true || plan.ConstructorParameterLookup?.ContainsKey(key) == true ||
+                    plan.ConstructorMembers?.ContainsKey(key) == true);
         }
 
         private static TypePlan GetPlan(Type type)
@@ -254,6 +255,7 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             var extension = ExtensionDataAccessor.Find(type);
+            var constructorMembers = BuildConstructorMemberPlans(properties, bestLookup, extension, building);
             var extensionArgument = -1;
             HashSet<string>? unboundMembers = null;
             if (extension != null)
@@ -262,7 +264,7 @@ namespace DevOp.Toon.Internal.Decode
                 foreach (var property in properties)
                 {
                     if (property.GetIndexParameters().Length == 0 && !extension.IsExtension(property) &&
-                        !bestLookup.ContainsKey(property.Name))
+                        !bestLookup.ContainsKey(property.Name) && constructorMembers?.ContainsKey(property.Name) != true)
                     {
                         AddMemberNames(unboundMembers ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase), property);
                     }
@@ -273,8 +275,86 @@ namespace DevOp.Toon.Internal.Decode
                 type,
                 CreateConstructorFactory(bestConstructor),
                 bestParameters,
-                bestLookup).WithExtension(extension, extensionArgument, unboundMembers);
+                bestLookup).WithExtension(extension, extensionArgument, unboundMembers)
+                .WithConstructorMembers(constructorMembers);
             return true;
+        }
+
+        /// <summary>
+        /// Plans the settable members of a constructor-bound type that no constructor parameter covers; they are assigned
+        /// after construction. Members whose type the direct path cannot build stay unbound, as before.
+        /// </summary>
+        private static Dictionary<string, PropertyPlan>? BuildConstructorMemberPlans(
+            PropertyInfo[] properties,
+            Dictionary<string, ConstructorParameterPlan> lookup,
+            ExtensionDataAccessor? extension,
+            HashSet<Type> building)
+        {
+            Dictionary<string, PropertyPlan>? members = null;
+            foreach (var property in properties)
+            {
+                if (!property.CanWrite || property.GetIndexParameters().Length != 0 || lookup.ContainsKey(property.Name) ||
+                    extension?.IsExtension(property) == true)
+                {
+                    continue;
+                }
+
+                var propertyPlan = BuildPlan(property.PropertyType, building);
+                if (!propertyPlan.IsSupported)
+                {
+                    continue;
+                }
+
+                var entry = new PropertyPlan(propertyPlan, CreateSetter(property), null);
+                members ??= new Dictionary<string, PropertyPlan>(StringComparer.OrdinalIgnoreCase);
+                members[property.Name] = entry;
+                var toonName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
+                if (toonName is { Length: > 0 })
+                {
+                    members[toonName] = entry;
+                }
+            }
+
+            return members;
+        }
+
+        private static bool TryReadConstructorMemberField(
+            TypePlan plan,
+            object?[] arguments,
+            string key,
+            LineCursor cursor,
+            string content,
+            int baseDepth,
+            ResolvedDecodeOptions options,
+            ParsedFieldInfo field,
+            out bool valueRead)
+        {
+            if (plan.ConstructorMembers == null || !plan.ConstructorMembers.TryGetValue(key, out var member))
+            {
+                valueRead = false;
+                return false;
+            }
+
+            valueRead = TryReadFieldValue(cursor, content, baseDepth, member.Plan, options, field, out var value);
+            if (valueRead)
+            {
+                AddPendingMember(plan, arguments, member, value);
+            }
+
+            return true;
+        }
+
+        private static void AddPendingMember(TypePlan plan, object?[] arguments, PropertyPlan member, object? value)
+        {
+            var slot = plan.ConstructorMemberSlot;
+            var pending = arguments[slot] as List<KeyValuePair<PropertyPlan, object?>>;
+            if (pending == null)
+            {
+                pending = new List<KeyValuePair<PropertyPlan, object?>>();
+                arguments[slot] = pending;
+            }
+
+            pending.Add(new KeyValuePair<PropertyPlan, object?>(member, value));
         }
 
         private static void AddMemberNames(HashSet<string> names, PropertyInfo property)
@@ -655,6 +735,16 @@ namespace DevOp.Toon.Internal.Decode
                 var key = GetArrayHeaderKey(content, field.ArrayHeader);
                 if (!TryGetConstructorParameter(plan, key, out var parameter))
                 {
+                    if (TryReadConstructorMemberField(plan, arguments, key, cursor, content, baseDepth, options, field, out var memberRead))
+                    {
+                        if (!memberRead)
+                        {
+                            SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                        }
+
+                        return memberRead;
+                    }
+
                     if (plan.Extension == null || !TryCaptureConstructorExtensionField(plan, arguments, key, cursor, content, contentStart, baseDepth, options))
                     {
                         SkipArrayFromHeader(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
@@ -680,6 +770,11 @@ namespace DevOp.Toon.Internal.Decode
             var fieldKey = GetFieldKey(content, field);
             if (!TryGetConstructorParameter(plan, fieldKey, out var parameterPlan))
             {
+                if (TryReadConstructorMemberField(plan, arguments, fieldKey, cursor, content, baseDepth, options, field, out var memberRead))
+                {
+                    return memberRead;
+                }
+
                 if (plan.Extension != null && TryCaptureConstructorExtensionField(plan, arguments, fieldKey, cursor, content, contentStart, baseDepth, options))
                 {
                     return true;
@@ -1320,6 +1415,7 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             var columnPlans = GetOrCreateConstructorColumnPlans(elementPlan, header.Fields);
+            var memberColumns = elementPlan.ConstructorMembers == null ? null : GetConstructorMemberColumns(elementPlan.ConstructorMembers, header.Fields);
             var tokenRanges = new Parser.TokenRange[columnPlans.Length];
             var rowDepth = baseDepth + 1;
             int rowCount = 0;
@@ -1350,6 +1446,17 @@ namespace DevOp.Toon.Internal.Decode
                     var parameter = columnPlans[i];
                     if (parameter == null)
                     {
+                        if (memberColumns?[i] is { } member)
+                        {
+                            if (!TryReadPrimitiveLikeValue(member.Plan, line.SourceString, contentOffset + tokenRanges[i].Start, contentOffset + tokenRanges[i].EndExclusive, out var memberValue, alreadyTrimmed: true))
+                            {
+                                return false;
+                            }
+
+                            AddPendingMember(elementPlan, arguments, member, memberValue);
+                            continue;
+                        }
+
                         if (elementPlan.Extension != null)
                         {
                             var slot = elementPlan.ConstructorParameters.Length;
@@ -1398,6 +1505,20 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             return rowCount == header.Length;
+        }
+
+        private static PropertyPlan?[] GetConstructorMemberColumns(Dictionary<string, PropertyPlan> members, List<string> fields)
+        {
+            var columns = new PropertyPlan?[fields.Count];
+            for (int i = 0; i < fields.Count; i++)
+            {
+                if (members.TryGetValue(fields[i], out var member))
+                {
+                    columns[i] = member;
+                }
+            }
+
+            return columns;
         }
 
         private static PropertyPlan?[] GetOrCreateColumnPlans(TypePlan elementPlan, List<string> fields)
@@ -2862,7 +2983,8 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             // An extension-data type keeps its collected entries in one slot past the constructor arguments.
-            arguments = new object?[plan.ConstructorParameters.Length + (plan.Extension != null ? 1 : 0)];
+            // Pending values of members assigned after construction take one more slot.
+            arguments = new object?[plan.ConstructorParameters.Length + (plan.Extension != null ? 1 : 0) + (plan.ConstructorMembers != null ? 1 : 0)];
             assigned = new bool[plan.ConstructorParameters.Length];
             return true;
         }
@@ -2905,6 +3027,14 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             var value = plan.ConstructorFactory!(arguments);
+            if (plan.ConstructorMembers != null && arguments[plan.ConstructorMemberSlot] is List<KeyValuePair<PropertyPlan, object?>> pending)
+            {
+                foreach (var entry in pending)
+                {
+                    entry.Key.Setter(value, entry.Value);
+                }
+            }
+
             if (extensionEntries != null && plan.ExtensionArgument < 0)
             {
                 plan.Extension!.Populate(value, extensionEntries);
@@ -4131,6 +4261,16 @@ namespace DevOp.Toon.Internal.Decode
             public ExtensionDataAccessor? Extension { get; private set; }
             public int ExtensionArgument { get; private set; } = -1;
             public HashSet<string>? UnboundMembers { get; private set; }
+
+            public Dictionary<string, PropertyPlan>? ConstructorMembers { get; private set; }
+
+            public int ConstructorMemberSlot => ConstructorParameters!.Length + (Extension != null ? 1 : 0);
+
+            public TypePlan WithConstructorMembers(Dictionary<string, PropertyPlan>? members)
+            {
+                ConstructorMembers = members;
+                return this;
+            }
 
             public TypePlan WithExtension(ExtensionDataAccessor? extension, int argument, HashSet<string>? unboundMembers)
             {
