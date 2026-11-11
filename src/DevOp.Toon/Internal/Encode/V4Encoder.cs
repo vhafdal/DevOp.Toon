@@ -27,7 +27,7 @@ internal static class V4Encoder
             if (!listItem && TryKeyedRows(obj, out var rows, out var entryKeys) && TryColumns(rows, options, out var columns))
             {
                 Start(writer, depth, false, options);
-                Header(writer, key, rows.Count, true, columns, options);
+                Header(writer, key, rows.Count, true, columns, rows[0], options);
                 WriteRows(writer, rows, entryKeys, columns, depth + 1, options);
                 return;
             }
@@ -80,7 +80,7 @@ internal static class V4Encoder
         {
             if (TryKeyedRows(obj, out var rows, out var keys) && TryColumns(rows, options, out var columns))
             {
-                Header(writer, key, rows.Count, true, columns, options);
+                Header(writer, key, rows.Count, true, columns, rows[0], options);
                 WriteRows(writer, rows, keys, columns, depth + 2, options);
             }
             else
@@ -112,7 +112,7 @@ internal static class V4Encoder
         }
         if (AllPrimitive(array))
         {
-            Header(writer, key, array.Count, false, null, options);
+            Header(writer, key, array.Count, false, null, null, options);
             if (array.Count > 0) writer.Append(' ');
             for (var i = 0; i < array.Count; i++)
             {
@@ -123,11 +123,11 @@ internal static class V4Encoder
         }
         if (!listItem && TryArrayRows(array, out var rows) && TryColumns(rows, options, out var columns))
         {
-            Header(writer, key, rows.Count, false, columns, options);
+            Header(writer, key, rows.Count, false, columns, rows[0], options);
             WriteRows(writer, rows, null, columns, depth + 1, options);
             return;
         }
-        Header(writer, key, array.Count, false, null, options);
+        Header(writer, key, array.Count, false, null, null, options);
         foreach (var item in array) WriteValue(writer, item, null, depth + 1, true, options);
     }
 
@@ -141,6 +141,7 @@ internal static class V4Encoder
     {
         internal string Name = string.Empty;
         internal List<Column>? Children;
+        internal bool Constant;
     }
 
     private static bool TryArrayRows(NativeArrayNode array, out List<NativeObjectNode> rows)
@@ -203,7 +204,49 @@ internal static class V4Encoder
             if (!custom) return false;
         }
         if (!custom && !SameKeys(rows)) return false;
-        return columns.Count > 0;
+        if (columns.Count == 0) return false;
+        if (options.ConstantColumns && rows.Count >= ConstantColumnTokens.MinimumRows)
+        {
+            MarkConstants(rows, columns);
+            if (!HasCell(columns)) KeepFirstCell(columns);
+        }
+        return true;
+    }
+
+    private static void MarkConstants(IReadOnlyList<NativeObjectNode> rows, List<Column> columns)
+    {
+        foreach (var column in columns)
+        {
+            if (column.Children != null)
+            {
+                var children = new List<NativeObjectNode>(rows.Count);
+                foreach (var row in rows) children.Add((NativeObjectNode)row[column.Name]!);
+                MarkConstants(children, column.Children);
+                continue;
+            }
+            var first = (rows[0][column.Name] as NativePrimitiveNode)?.Value;
+            var constant = true;
+            for (var i = 1; constant && i < rows.Count; i++)
+                constant = ConstantColumnTokens.SameToken(first, (rows[i][column.Name] as NativePrimitiveNode)?.Value);
+            column.Constant = constant;
+        }
+    }
+
+    private static bool HasCell(List<Column> columns)
+    {
+        foreach (var column in columns)
+            if (column.Children != null ? HasCell(column.Children) : !column.Constant) return true;
+        return false;
+    }
+
+    private static bool KeepFirstCell(List<Column> columns)
+    {
+        foreach (var column in columns)
+        {
+            if (column.Children == null) { column.Constant = false; return true; }
+            if (KeepFirstCell(column.Children)) return true;
+        }
+        return false;
     }
 
     private static bool TryUniformColumns(IReadOnlyList<NativeObjectNode> rows, ResolvedEncodeOptions options, out List<Column> columns)
@@ -268,7 +311,7 @@ internal static class V4Encoder
         foreach (var column in columns)
         {
             if (column.Children != null) Cells(writer, (NativeObjectNode)row[column.Name]!, column.Children, delimiter, ref first);
-            else
+            else if (!column.Constant)
             {
                 if (!first) writer.Append(delimiter);
                 Primitive(writer, row[column.Name], delimiter, false);
@@ -277,7 +320,7 @@ internal static class V4Encoder
         }
     }
 
-    private static void Header(CompactBufferWriter writer, string? key, int count, bool keyed, List<Column>? columns, ResolvedEncodeOptions options)
+    private static void Header(CompactBufferWriter writer, string? key, int count, bool keyed, List<Column>? columns, NativeObjectNode? sample, ResolvedEncodeOptions options)
     {
         var delimiter = options.Delimiter;
         if (key != null) Key(writer, key, options.AnnotationKeys);
@@ -285,18 +328,24 @@ internal static class V4Encoder
         if (keyed) writer.Append(':');
         if (delimiter != ',') writer.Append(delimiter);
         writer.Append(']');
-        if (columns != null) Fields(writer, columns, delimiter, options.AnnotationKeys);
+        if (columns != null) Fields(writer, columns, sample!, delimiter, options.AnnotationKeys);
         writer.Append(':');
     }
 
-    private static void Fields(CompactBufferWriter writer, List<Column> columns, char delimiter, bool annotationKeys)
+    private static void Fields(CompactBufferWriter writer, List<Column> columns, NativeObjectNode sample, char delimiter, bool annotationKeys)
     {
         writer.Append('{');
         for (var i = 0; i < columns.Count; i++)
         {
+            var column = columns[i];
             if (i != 0) writer.Append(delimiter);
-            Key(writer, columns[i].Name, annotationKeys);
-            if (columns[i].Children != null) Fields(writer, columns[i].Children!, delimiter, annotationKeys);
+            Key(writer, column.Name, annotationKeys);
+            if (column.Children != null) Fields(writer, column.Children, (NativeObjectNode)sample[column.Name]!, delimiter, annotationKeys);
+            else if (column.Constant)
+            {
+                writer.Append('=');
+                ConstantColumnTokens.WriteHeaderValue(writer, (sample[column.Name], delimiter), static (target, cell) => Primitive(target, cell.Item1, cell.Item2, false));
+            }
         }
         writer.Append('}');
     }
@@ -452,7 +501,7 @@ internal static class V4Encoder
         if (quote) Quote(writer, text); else writer.Append(text);
     }
 
-    private static void Quote(CompactBufferWriter writer, string text)
+    internal static void Quote(CompactBufferWriter writer, string text)
     {
         ValidateUnicode(text);
         writer.Append('"');

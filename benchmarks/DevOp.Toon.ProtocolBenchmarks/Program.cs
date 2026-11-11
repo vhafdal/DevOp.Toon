@@ -54,6 +54,8 @@ profiles.Add(("official4.4-lossless", Encode(ToonObjectArrayLayout.Auto, false, 
 profiles.Add(("custom4.4-lossless", Encode(ToonObjectArrayLayout.Columnar, false, ToonProtocolVersion.CustomV4_4), Decode(ToonProtocolVersion.CustomV4_4), true));
 profiles.Add(("custom-legacy-compact", Encode(ToonObjectArrayLayout.Columnar, true, ToonProtocolVersion.CustomLegacy), Decode(ToonProtocolVersion.CustomLegacy), false));
 profiles.Add(("custom4.4-compact", Encode(ToonObjectArrayLayout.Columnar, true, ToonProtocolVersion.CustomV4_4), Decode(ToonProtocolVersion.CustomV4_4), false));
+profiles.Add(("custom4.4-constants-lossless", Encode(ToonObjectArrayLayout.Columnar, false, ToonProtocolVersion.CustomV4_4, constants: true), Decode(ToonProtocolVersion.CustomV4_4), true));
+profiles.Add(("custom4.4-constants-compact", Encode(ToonObjectArrayLayout.Columnar, true, ToonProtocolVersion.CustomV4_4, constants: true), Decode(ToonProtocolVersion.CustomV4_4), false));
 #endif
 foreach (var profile in profiles)
 {
@@ -146,11 +148,39 @@ foreach (var name in new[] { "prods.toon", "prodsOLD.toon" })
     }
     catch (Exception error) { saved.Error = error.ToString(); }
 }
+#if !BASELINE
+var accountRows = int.Parse(Arg("--synthetic-accounts") ?? "1000");
+if (accountRows > 0)
+{
+    var accounts = SyntheticAccount.Create(accountRows);
+    var accountJson = JsonSerializer.Serialize(accounts, serializer);
+    foreach (var profile in profiles)
+    {
+        if (profile.Encode.ProtocolVersion is not (ToonProtocolVersion.CustomV4_4 or ToonProtocolVersion.V4_4)) continue;
+        if (selected != null && !selected.Split(',').Contains(profile.Name)) continue;
+        var size = new SizeProfile { Name = profile.Name, Rows = accountRows, ExactPreservationRequired = profile.Lossless };
+        result.SyntheticAccounts.Add(size);
+        try
+        {
+            var utf8 = Encoding.UTF8.GetBytes(ToonEncoder.Encode(accounts, profile.Encode));
+            if (payloadDirectory != null) File.WriteAllBytes(Path.Combine(payloadDirectory, result.Build + "-accounts-" + profile.Name + ".toon"), utf8);
+            var decoded = ToonDecoder.Decode<List<SyntheticAccount>>(Encoding.UTF8.GetString(utf8), profile.Decode);
+            size.RoundTripDifference = Difference(accountJson, JsonSerializer.Serialize(decoded, serializer));
+            size.Correct = decoded?.Count == accountRows && size.RoundTripDifference == null;
+            size.Utf8Bytes = utf8.Length;
+            size.GzipBytes = Compress(utf8, false);
+            size.BrotliBytes = Compress(utf8, true);
+        }
+        catch (Exception error) { size.Error = error.ToString(); }
+    }
+}
+#endif
 var output = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
 var outputPath = Arg("--output");
 if (outputPath != null) File.WriteAllText(outputPath, output + "\n");
 else Console.WriteLine(output);
-return result.Profiles.Any(p => p.Error != null || p.ExactPreservationRequired && p.Correct != true || p.AutoError != null || p.AutoMatchesExplicit == false) ? 2 : 0;
+return result.Profiles.Any(p => p.Error != null || p.ExactPreservationRequired && p.Correct != true || p.AutoError != null || p.AutoMatchesExplicit == false)
+    || result.SyntheticAccounts.Any(p => p.Error != null || p.ExactPreservationRequired && p.Correct != true) ? 2 : 0;
 
 string FindData()
 {
@@ -172,11 +202,12 @@ string? Arg(string name)
 #if BASELINE
 ToonEncodeOptions Encode(ToonObjectArrayLayout layout, bool compact) => new()
 #else
-ToonEncodeOptions Encode(ToonObjectArrayLayout layout, bool compact, ToonProtocolVersion version) => new()
+ToonEncodeOptions Encode(ToonObjectArrayLayout layout, bool compact, ToonProtocolVersion version, bool constants = false) => new()
 #endif
 {
 #if !BASELINE
     ProtocolVersion = version,
+    ConstantColumns = constants,
 #endif
     Indent = 1,
     KeyFolding = ToonKeyFolding.Off,
@@ -316,6 +347,68 @@ sealed class Report
     public string? Notes { get; set; }
     public List<Profile> Profiles { get; } = new();
     public List<SavedFixture> SavedFixtures { get; } = new();
+    public List<SizeProfile> SyntheticAccounts { get; } = new();
+}
+sealed class SizeProfile
+{
+    public string Name { get; set; } = "";
+    public int Rows { get; set; }
+    public bool ExactPreservationRequired { get; set; }
+    public bool? Correct { get; set; }
+    public string? RoundTripDifference { get; set; }
+    public long Utf8Bytes { get; set; }
+    public long GzipBytes { get; set; }
+    public long BrotliBytes { get; set; }
+    public string? Error { get; set; }
+}
+/// <summary>
+/// A chart-of-accounts row: one tenant's accounts share the company, audit and status fields while the code,
+/// name and type vary. Generated deterministically so every build measures the same payload.
+/// </summary>
+sealed class SyntheticAccount
+{
+    public string Id { get; set; } = "";
+    public string CompanyId { get; set; } = "";
+    public int AccountCode { get; set; }
+    public string Name { get; set; } = "";
+    public string AccountType { get; set; } = "";
+    public string? VatCode { get; set; }
+    public string Currency { get; set; } = "";
+    public bool IsSystem { get; set; }
+    public bool IsActive { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public DateTime Created { get; set; }
+    public string? ModifiedBy { get; set; }
+    public decimal OpeningBalance { get; set; }
+
+    public static List<SyntheticAccount> Create(int count)
+    {
+        string[] types = ["Asset", "Liability", "Equity", "Income", "Expense"];
+        string?[] vat = ["S1", "S2", null, "E0"];
+        var created = new DateTime(2026, 1, 2, 17, 3, 15, DateTimeKind.Utc);
+        var accounts = new List<SyntheticAccount>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var code = 1000 + i * 10;
+            accounts.Add(new SyntheticAccount
+            {
+                Id = "accounts/" + code,
+                CompanyId = "acme-ehf",
+                AccountCode = code,
+                Name = "Account " + code,
+                AccountType = types[i * types.Length / count],
+                VatCode = vat[i % vat.Length],
+                Currency = "EUR",
+                IsSystem = false,
+                IsActive = true,
+                CreatedBy = "system",
+                Created = created,
+                ModifiedBy = null,
+                OpeningBalance = 0m
+            });
+        }
+        return accounts;
+    }
 }
 sealed class Profile
 {

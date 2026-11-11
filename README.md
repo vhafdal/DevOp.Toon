@@ -130,6 +130,8 @@ Omission settings trade data preservation for compactness. `IgnoreNullOrEmpty` c
 
 **Version selection in 0.3.0:** encoding defaults to official 4.4. Supply `ToonEncodeOptions.ProtocolVersion` with a concrete `ToonProtocolVersion`; decoding defaults to `Auto` and requires an explicit `ToonDecodeOptions.ProtocolVersion` for ambiguous version-dependent input. Select `CustomLegacy` for the earlier custom wire profile or `CustomV4_4` for nested header groups plus row/keyed spills. Official profiles default both omission settings to false; custom profiles default them to true. Encoder options and runtime DI encoding default to one space; decode options default to two. The API integration aligns both at two spaces. See the [protocol version guide](https://github.com/vhafdal/DevOp.Toon/blob/main/Documentation/ProtocolVersions.md) for migration examples.
 
+**Constant columns (after 0.4.0):** with `CustomV4_4`, the opt-in `ConstantColumns` option writes a column that has the same value in every row once in the table header (`Name=value`); other versions ignore it, and readers from 0.4.0 and earlier cannot decode that output. With `Auto` decoding, an unquoted `=` inside a table header's field list now selects `CustomV4_4`, so hand-written official input that uses such an unquoted field name must be decoded with an explicit official `ProtocolVersion`.
+
 ## Performance evidence
 
 The **6 November 2026 published-package benchmark** uses all **2,051 product DTOs** on .NET

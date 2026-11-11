@@ -126,6 +126,33 @@ public sealed class ProtocolVersionOptionsTests
     }
 
     [Fact]
+    public void Clone_ConstantColumnsSet_PreservesExplicitValue()
+    {
+        var options = new ToonEncodeOptions { ProtocolVersion = ToonProtocolVersion.CustomV4_4, ConstantColumns = true };
+
+        var clone = options.Clone();
+        clone.ProtocolVersion = ToonProtocolVersion.V4_4;
+        clone.ProtocolVersion = ToonProtocolVersion.CustomV4_4;
+
+        Assert.True(clone.ConstantColumns);
+        Assert.False(new ToonEncodeOptions().Clone().ConstantColumns);
+        Assert.Equal("[3]{Id,K=x}:\n 1\n 2\n 3", ToonEncoder.Json2Toon("[{\"Id\":1,\"K\":\"x\"},{\"Id\":2,\"K\":\"x\"},{\"Id\":3,\"K\":\"x\"}]", clone));
+    }
+
+    [Fact]
+    public void GetResolvedOptions_ConstantColumnsToggled_InvalidatesCache()
+    {
+        const string json = "[{\"Id\":1,\"K\":\"x\"},{\"Id\":2,\"K\":\"x\"},{\"Id\":3,\"K\":\"x\"}]";
+        var options = new ToonEncodeOptions { ProtocolVersion = ToonProtocolVersion.CustomV4_4 };
+
+        Assert.Equal("[3]{Id,K}:\n 1,x\n 2,x\n 3,x", ToonEncoder.Json2Toon(json, options));
+        options.ConstantColumns = true;
+        Assert.Equal("[3]{Id,K=x}:\n 1\n 2\n 3", ToonEncoder.Json2Toon(json, options));
+        options.ConstantColumns = false;
+        Assert.Equal("[3]{Id,K}:\n 1,x\n 2,x\n 3,x", ToonEncoder.Json2Toon(json, options));
+    }
+
+    [Fact]
     public void ToonEncodeOptions_Validate_RejectsUndefinedEnum()
     {
         var options = new ToonEncodeOptions { ProtocolVersion = (ToonProtocolVersion)999 };

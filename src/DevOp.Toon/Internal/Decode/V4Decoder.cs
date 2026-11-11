@@ -54,6 +54,7 @@ internal static class V4Decoder
     private sealed class Field
     {
         internal string Name = string.Empty;
+        internal string? Constant;
         internal List<Field>? Children;
         internal Type? BoundType;
         internal V4Materialization.Member? BoundMember;
@@ -393,15 +394,20 @@ internal static class V4Decoder
                     if (field.Children != null) value = ReadFields(field.Children, cells, delimiter, ref cell, member?.Type ?? row.FieldType(field.Name), emptyCells).Finish();
                     else
                     {
-                        if (emptyCells || cell > cells.Length)
+                        ReadOnlySpan<char> token;
+                        if (field.Constant != null) token = field.Constant.AsSpan();
+                        else
                         {
-                            if (!options.Strict && version < 404) continue;
-                            throw Error("Row width mismatch");
+                            if (emptyCells || cell > cells.Length)
+                            {
+                                if (!options.Strict && version < 404) continue;
+                                throw Error("Row width mismatch");
+                            }
+                            var end = Find(cells.Slice(cell), delimiter);
+                            if (end < 0) end = cells.Length - cell;
+                            token = cells.Slice(cell, end);
+                            cell += end + 1;
                         }
-                        var end = Find(cells.Slice(cell), delimiter);
-                        if (end < 0) end = cells.Length - cell;
-                        var token = cells.Slice(cell, end);
-                        cell += end + 1;
                         if (TrySetPrimitive(ref row, field.Name, token, boundMember: member)) continue;
                         value = Primitive(token, false, member?.Type ?? row.FieldType(field.Name));
                     }
@@ -494,13 +500,13 @@ internal static class V4Decoder
                 if (ch == '{') depth++;
                 if (ch == '}' && --depth == 0) { end = i; break; }
             }
-            if (end < 0 || end - start + 1 > 4096) return ParseFields(text, ref position, delimiter, allowDuplicates);
+            if (end < 0 || end - start + 1 > 4096) return ParseHeaderFields(text, ref position, delimiter, allowDuplicates);
             var key = new SchemaKey(text, start, end - start + 1, delimiter, allowDuplicates);
             if (firstSchema.HasValue && firstSchema.Value.Equals(key))
             { position = end + 1; return firstFields!; }
             if (schemas != null && schemas.TryGetValue(key, out var cached))
             { position = end + 1; return cached; }
-            var fields = ParseFields(text, ref position, delimiter, allowDuplicates);
+            var fields = ParseHeaderFields(text, ref position, delimiter, allowDuplicates);
             if (!firstSchema.HasValue)
             {
                 firstSchema = key.Copy(); firstFields = fields;
@@ -515,6 +521,21 @@ internal static class V4Decoder
             return fields;
         }
 
+        private List<Field> ParseHeaderFields(string text, ref int position, char delimiter, bool allowDuplicates)
+        {
+            var fields = ParseFields(text, ref position, delimiter, allowDuplicates);
+            // Without a cell every row line would be blank, so the rows could not be counted or told apart.
+            if (custom && !HasCell(fields)) throw new HeaderGrammarException("Header requires at least one cell column");
+            return fields;
+        }
+
+        private static bool HasCell(List<Field> fields)
+        {
+            foreach (var field in fields)
+                if (field.Children != null ? HasCell(field.Children) : field.Constant == null) return true;
+            return false;
+        }
+
         private List<Field> ParseFields(string text, ref int p, char delimiter, bool allowDuplicates = false)
         {
             if (++recursion > 256) throw Error("Maximum nesting depth 256 exceeded");
@@ -523,10 +544,12 @@ internal static class V4Decoder
                 p++;
                 var result = new List<Field>();
                 var names = new HashSet<string>(StringComparer.Ordinal);
+                HashSet<string>? constants = null;
                 while (p < text.Length)
                 {
                     var start = p;
                     var quoted = false;
+                    var equals = -1;
                     while (p < text.Length)
                     {
                         var ch = text[p];
@@ -534,18 +557,28 @@ internal static class V4Decoder
                         if (ch == '"') quoted = !quoted;
                         if (!quoted && (ch == '{' || ch == '}' || ch == delimiter)) break;
                         if (!quoted && (ch == ',' || ch == '|' || ch == '\t') && ch != delimiter) throw new HeaderGrammarException("Wrong field delimiter");
+                        if (custom && !quoted && ch == '=')
+                        {
+                            if (equals >= 0) throw new HeaderGrammarException("Unquoted '=' in constant value");
+                            equals = p;
+                        }
                         p++;
                     }
                     if (p >= text.Length) throw new HeaderGrammarException("Unclosed field list");
-                    var raw = text.Substring(start, p - start);
+                    var raw = text.Substring(start, (equals >= 0 ? equals : p) - start);
+                    var constant = equals >= 0 ? ReadConstant(text, equals + 1, p) : null;
                     var name = Key(raw);
                     var emptyToken = TrimSpan(raw.AsSpan()).IsEmpty;
                     var emptyGroup = result.Count == 0 && text[p] == '}';
                     var spacedGroup = text[p] == '{' && raw.Length > 0 && (raw[raw.Length - 1] == ' ' || raw[raw.Length - 1] == '\t');
                     if (emptyToken && (version >= 402 || emptyGroup) || version >= 402 && spacedGroup)
                         throw new HeaderGrammarException("Empty or space-separated field group");
-                    if (options.Strict && !allowDuplicates && !names.Add(name)) throw new HeaderGrammarException("Duplicate header field");
-                    var field = new Field { Name = name };
+                    var duplicate = !names.Add(name);
+                    // A constant is never resolved by "last field wins": that would drop it or every cell silently.
+                    if (duplicate && (options.Strict && !allowDuplicates || constant != null || constants?.Contains(name) == true))
+                        throw new HeaderGrammarException("Duplicate header field");
+                    if (constant != null) (constants ??= new HashSet<string>(StringComparer.Ordinal)).Add(name);
+                    var field = new Field { Name = name, Constant = constant };
                     if (text[p] == '{')
                     {
                         field.Children = ParseFields(text, ref p, delimiter, allowDuplicates);
@@ -559,6 +592,19 @@ internal static class V4Decoder
                 throw new HeaderGrammarException("Unclosed field list");
             }
             finally { recursion--; }
+        }
+
+        private string ReadConstant(string text, int start, int end)
+        {
+            if (text[end] == '{') throw new HeaderGrammarException("Constant on field group");
+            var value = TrimSpan(text.AsSpan(start, end - start));
+            if (value.IsEmpty) throw new HeaderGrammarException("Empty constant value");
+            if (value[0] == '"')
+            {
+                try { String(value); }
+                catch (ToonFormatException) { throw new HeaderGrammarException("Malformed constant value"); }
+            }
+            return value.ToString();
         }
 
         private string Key(string token)
