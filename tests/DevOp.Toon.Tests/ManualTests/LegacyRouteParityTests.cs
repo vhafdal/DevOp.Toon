@@ -114,7 +114,51 @@ public sealed class LegacyRouteParityTests
         Assert.Equal(3, decoded[1].Rows![0].V);
     }
 
+    [Theory]
+    [InlineData("{\"M\":1e400}")]
+    [InlineData("{\"D\":-1e400}")]
+    [InlineData("{\"O\":1e400}")]
+    [InlineData("{\"O\":[1,{\"x\":1e999}]}")]
+    public void Deserialize_JsonTwoArgumentNumberBeyondDoubleRange_ThrowsFormatException(string json)
+    {
+        var error = Assert.Throws<ToonFormatException>(() => new ToonService().Deserialize<Amounts>(json, "application/json"));
+
+        Assert.Contains("finite range", error.Message);
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode<Amounts>("M: 1e400", new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V4_4 }));
+    }
+
+    [Theory]
+    [InlineData("{\"M\":1e30}")]
+    [InlineData("{\"M\":79228162514264337593543950336}")]
+    [InlineData("{\"Map\":{\"a\":-1e29}}")]
+    public void Deserialize_JsonTwoArgumentNumberBeyondDecimalRange_ThrowsFormatException(string json)
+    {
+        var error = Assert.Throws<ToonFormatException>(() => new ToonService().Deserialize<Amounts>(json, "application/json"));
+
+        Assert.Equal(ToonErrorKind.Syntax, error.Kind);
+        Assert.Contains("System.Decimal", error.Message);
+    }
+
+    [Fact]
+    public void Deserialize_JsonTwoArgumentNumbersInRange_Unchanged()
+    {
+        var decoded = new ToonService().Deserialize<Amounts>("{\"M\":12345.678,\"D\":1e308,\"O\":1e30,\"Map\":{\"a\":0.5}}", "application/json")!;
+
+        Assert.Equal(12345.678m, decoded.M);
+        Assert.Equal(1e308, decoded.D);
+        Assert.Equal(1e30, decoded.O);
+        Assert.Equal(0.5m, decoded.Map!["a"]);
+    }
+
     private static ToonDecodeOptions Options(ToonProtocolVersion version) => new() { ProtocolVersion = version, Indent = 2 };
+
+    public sealed class Amounts
+    {
+        public decimal M { get; set; }
+        public double D { get; set; }
+        public object? O { get; set; }
+        public Dictionary<string, decimal>? Map { get; set; }
+    }
 
     public sealed class LedgerLine
     {

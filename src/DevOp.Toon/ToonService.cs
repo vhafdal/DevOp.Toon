@@ -246,6 +246,7 @@ public sealed class ToonService : IToonService
         if (IsJsonContentType(contentType))
         {
             var native = ToonNodeConverter.ToNativeNode(ToonNode.Parse(body));
+            EnsureFiniteNumbers(native);
             if (NativeTypedMaterializer.TryConvert<T>(native, out var value)) return value;
             throw new NotSupportedException($"JSON deserialization does not support target type '{typeof(T).FullName}'.");
         }
@@ -275,6 +276,22 @@ public sealed class ToonService : IToonService
         throw new NotSupportedException(
             $"Content type '{contentType}' is not supported by Deserialize<T>. " +
             "Use a TOON (application/toon, text/toon) or JSON (application/json, text/json) content type.");
+    }
+
+    // A JSON number beyond the double range parses as an infinity; official TOON decoding rejects the same value.
+    private static void EnsureFiniteNumbers(NativeNode? node)
+    {
+        switch (node)
+        {
+            case NativePrimitiveNode { Value: double number } when double.IsInfinity(number) || double.IsNaN(number):
+                throw ToonFormatException.Syntax("Number outside supported finite range");
+            case NativeArrayNode array:
+                foreach (var item in array) EnsureFiniteNumbers(item);
+                break;
+            case NativeObjectNode obj:
+                foreach (var entry in obj) EnsureFiniteNumbers(entry.Value);
+                break;
+        }
     }
 
     private static bool IsToonContentType(string contentType) =>

@@ -18,6 +18,8 @@ internal static class NativeTypedMaterializer
     private static readonly object SyncRoot = new object();
     private static readonly Dictionary<Type, TypePlan> PlanCache = new Dictionary<Type, TypePlan>();
     private const double MaxExactDoubleInteger = 9007199254740992d;
+    // (double)decimal.MaxValue rounds up past decimal.MaxValue, so every double at or above it overflows the conversion.
+    private const double MaxDecimalAsDouble = (double)decimal.MaxValue;
     private const decimal MaxExactParsedDecimalInteger = 1000000000000000m;
 
     /// <summary>
@@ -1012,6 +1014,11 @@ internal static class NativeTypedMaterializer
 
             if (primitiveValue is double decimalDouble)
             {
+                if (double.IsNaN(decimalDouble) || Math.Abs(decimalDouble) >= MaxDecimalAsDouble)
+                {
+                    throw ToonFormatException.Syntax($"Number {decimalDouble.ToString("R", CultureInfo.InvariantCulture)} is outside the range of System.Decimal");
+                }
+
                 value = Convert.ToDecimal(decimalDouble, CultureInfo.InvariantCulture);
                 return true;
             }
