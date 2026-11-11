@@ -20,6 +20,7 @@ public class ToonEncodeOptions
     private ToonObjectArrayLayout? explicitObjectArrayLayout;
     private bool? explicitIgnoreNullOrEmpty;
     private bool? explicitExcludeEmptyArrays;
+    private bool? explicitConstantColumns;
     private ResolvedEncodeOptions? cachedResolvedOptions;
 
     /// <summary>
@@ -194,6 +195,31 @@ public class ToonEncodeOptions
     }
 
     /// <summary>
+    /// Gets or sets whether a table column whose value is identical in every row is written once in the
+    /// table header (<c>Name=value</c>) instead of in every row.
+    /// </summary>
+    /// <remarks>
+    /// The default is <see langword="false"/>. Only <see cref="ToonProtocolVersion.CustomV4_4"/> writes constant
+    /// columns; every other protocol version ignores this option and its output is unchanged. A column is written
+    /// as a constant only when the table has at least three rows and the column's encoded value is the same in each
+    /// of them; at least one column of every table stays a row cell. Decoders that do not support CustomV4_4
+    /// constant columns (DevOp.Toon 0.4.0 and earlier) cannot read such output, so enable this option only when
+    /// every reader is up to date.
+    /// </remarks>
+    public bool ConstantColumns
+    {
+        get => explicitConstantColumns ?? false;
+        set
+        {
+            if (explicitConstantColumns == value)
+                return;
+
+            explicitConstantColumns = value;
+            cachedResolvedOptions = null;
+        }
+    }
+
+    /// <summary>
     /// Creates a shallow clone of the current options instance, preserving explicit override state.
     /// </summary>
     /// <returns>A new <see cref="ToonEncodeOptions"/> instance with identical settings and explicit overrides.</returns>
@@ -209,7 +235,8 @@ public class ToonEncodeOptions
             byteArrayFormat = byteArrayFormat,
             explicitObjectArrayLayout = explicitObjectArrayLayout,
             explicitIgnoreNullOrEmpty = explicitIgnoreNullOrEmpty,
-            explicitExcludeEmptyArrays = explicitExcludeEmptyArrays
+            explicitExcludeEmptyArrays = explicitExcludeEmptyArrays,
+            explicitConstantColumns = explicitConstantColumns
         };
     }
 
@@ -261,7 +288,8 @@ public class ToonEncodeOptions
             ObjectArrayLayout = ObjectArrayLayout,
             ByteArrayFormat = byteArrayFormat,
             IgnoreNullOrEmpty = IgnoreNullOrEmpty,
-            ExcludeEmptyArrays = ExcludeEmptyArrays
+            ExcludeEmptyArrays = ExcludeEmptyArrays,
+            ConstantColumns = ConstantColumns && protocolVersion == ToonProtocolVersion.CustomV4_4
         };
     }
 

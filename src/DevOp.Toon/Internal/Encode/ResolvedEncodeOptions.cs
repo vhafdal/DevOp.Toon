@@ -27,6 +27,8 @@ internal sealed class ResolvedEncodeOptions
     public bool IgnoreNullOrEmpty { get; set; } = false;
     /// <summary>Gets or sets whether empty array properties are omitted.</summary>
     public bool ExcludeEmptyArrays { get; set; } = false;
+    /// <summary>Gets or sets whether CustomV4_4 tables write row-invariant columns as header constants.</summary>
+    public bool ConstantColumns { get; set; } = false;
     /// <summary>Gets whether annotation keys such as <c>@id</c> and <c>Raven-Clr-Type</c> are written unquoted.</summary>
     public bool AnnotationKeys => ProtocolVersion == ToonProtocolVersion.CustomV4_4;
     /// <summary>Gets whether the options select an official 4.x or custom 4.4 profile.</summary>

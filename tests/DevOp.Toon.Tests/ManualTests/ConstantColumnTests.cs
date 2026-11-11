@@ -1,3 +1,4 @@
+#if NET8_0_OR_GREATER
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -248,6 +249,338 @@ public sealed class ConstantColumnTests
         Assert.NotSame(results[0][0].Customer, results[1][0].Customer);
     }
 
+    public static TheoryData<ToonProtocolVersion> NonCustomV44Versions => new()
+    {
+        ToonProtocolVersion.V3_0, ToonProtocolVersion.V4_0, ToonProtocolVersion.V4_1, ToonProtocolVersion.V4_2,
+        ToonProtocolVersion.V4_3, ToonProtocolVersion.V4_4, ToonProtocolVersion.CustomLegacy
+    };
+
+    private const string AccountsOff =
+        "[3]{CompanyId,IsSystem,CreatedBy,AccountCode,Name,AccountType}:\n" +
+        "  vhafdal,false,system,6900,Other Expenses,Expense\n" +
+        "  vhafdal,false,system,1000,Cash,Asset\n" +
+        "  vhafdal,false,system,2000,Payables,Liability";
+
+    private const string AccountsOn =
+        "[3]{CompanyId=vhafdal,IsSystem=false,CreatedBy=system,AccountCode,Name,AccountType}:\n" +
+        "  6900,Other Expenses,Expense\n" +
+        "  1000,Cash,Asset\n" +
+        "  2000,Payables,Liability";
+
+    [Fact]
+    public void Encode_ConstantColumnsDefault_MatchesPreviousCustomOutput()
+    {
+        var options = Encode(constants: false);
+
+        Assert.False(new ToonEncodeOptions().ConstantColumns);
+        Assert.False(new ToonEncodeOptions { ProtocolVersion = ToonProtocolVersion.CustomV4_4 }.ConstantColumns);
+        Assert.Equal(AccountsOff, ToonEncoder.Encode(Accounts(), options));
+        Assert.Equal(AccountsOff, ToonEncoder.Json2Toon(AccountsJson, options));
+    }
+
+    [Theory]
+    [MemberData(nameof(NonCustomV44Versions))]
+    public void Encode_ConstantColumnsOnOtherVersions_OutputUnchanged(ToonProtocolVersion version)
+    {
+        var off = new ToonEncodeOptions { ProtocolVersion = version, Indent = 2 };
+        var on = new ToonEncodeOptions { ProtocolVersion = version, Indent = 2, ConstantColumns = true };
+        var keyed = new Dictionary<string, object> { ["a"] = new { Id = 1, K = "x" }, ["b"] = new { Id = 2, K = "x" }, ["c"] = new { Id = 3, K = "x" } };
+
+        Assert.Equal(ToonEncoder.Encode(Accounts(), off), ToonEncoder.Encode(Accounts(), on));
+        Assert.Equal(ToonEncoder.Encode(keyed, off), ToonEncoder.Encode(keyed, on));
+        Assert.Equal(ToonEncoder.Json2Toon(AccountsJson, off), ToonEncoder.Json2Toon(AccountsJson, on));
+        Assert.DoesNotContain("=", ToonEncoder.Encode(Accounts(), on));
+    }
+
+    [Fact]
+    public void Encode_ConstantColumn_HoistsInDeclaredOrder()
+    {
+        Assert.Equal(AccountsOn, ToonEncoder.Encode(Accounts(), Encode()));
+        Assert.Equal(AccountsOn, ToonEncoder.Json2Toon(AccountsJson, Encode()));
+
+        var rows = new[] { new Mixed { Id = 1, Kind = "A", Name = "x" }, new Mixed { Id = 2, Kind = "A", Name = "y" }, new Mixed { Id = 3, Kind = "A", Name = "z" } };
+        Assert.Equal("[3]{Id,Kind=A,Name}:\n  1,x\n  2,y\n  3,z", ToonEncoder.Encode(rows, Encode()));
+        var decoded = ToonDecoder.Decode<List<Account>>(AccountsOn, Custom())!;
+        Assert.Equal(Accounts().Select(Describe), decoded.Select(Describe));
+    }
+
+    [Fact]
+    public void Encode_BelowRowThreshold_KeepsCells()
+    {
+        var rows = Accounts().Take(2).ToArray();
+
+        Assert.Equal(
+            "[2]{CompanyId,IsSystem,CreatedBy,AccountCode,Name,AccountType}:\n  vhafdal,false,system,6900,Other Expenses,Expense\n  vhafdal,false,system,1000,Cash,Asset",
+            ToonEncoder.Encode(rows, Encode()));
+    }
+
+    [Fact]
+    public void Encode_AllColumnsConstant_KeepsFirstLeafAsCell()
+    {
+        var flat = Enumerable.Range(0, 3).Select(_ => new { A = 1, B = "x" }).ToArray();
+        var nested = Enumerable.Range(0, 3).Select(_ => new { G = new { X = 1, Y = 2 }, Z = 3 }).ToArray();
+
+        Assert.Equal("[3]{A,B=x}:\n  1\n  1\n  1", ToonEncoder.Encode(flat, Encode()));
+        Assert.Equal("[3]{G{X,Y=2},Z=3}:\n  1\n  1\n  1", ToonEncoder.Encode(nested, Encode()));
+        Assert.Equal(3, ToonDecoder.Toon2Json(ToonEncoder.Encode(nested, Encode()), Custom()).Split("\"Z\":3").Length - 1);
+    }
+
+    [Fact]
+    public void Encode_NestedGroupConstantLeaf_HoistsInsideGroup()
+    {
+        var rows = new[]
+        {
+            new Order { Id = 1, Customer = new Customer { Country = "IS", Name = "Ada" } },
+            new Order { Id = 2, Customer = new Customer { Country = "IS", Name = "Bob" } },
+            new Order { Id = 3, Customer = new Customer { Country = "IS", Name = "Cy" } }
+        };
+
+        Assert.Equal("[3]{Id,Customer{Country=IS,Name}}:\n  1,Ada\n  2,Bob\n  3,Cy", ToonEncoder.Encode(rows, Encode()));
+    }
+
+    [Fact]
+    public void Encode_KeyedTableConstant_HoistsAndKeepsSpills()
+    {
+        var data = new Dictionary<string, object>
+        {
+            ["sku1"] = new Dictionary<string, object?> { ["Id"] = 1, ["Customer"] = new Dictionary<string, object?> { ["Country"] = "IS", ["Name"] = "Ada" }, ["Tags"] = new[] { "a", "b" } },
+            ["sku2"] = new Dictionary<string, object?> { ["Id"] = 2, ["Customer"] = new Dictionary<string, object?> { ["Country"] = "IS", ["Name"] = "Bob" } },
+            ["sku3"] = new Dictionary<string, object?> { ["Id"] = 3, ["Customer"] = new Dictionary<string, object?> { ["Country"] = "IS", ["Name"] = "Cy" } }
+        };
+
+        const string expected = "[3:]{Id,Customer{Country=IS,Name}}:\n  sku1: 1,Ada\n    Tags[2]: a,b\n  sku2: 2,Bob\n  sku3: 3,Cy";
+        Assert.Equal(expected, ToonEncoder.Encode(data, Encode()));
+        AssertJson(System.Text.Json.JsonSerializer.Serialize(data), ToonDecoder.Toon2Json(expected, Custom()));
+    }
+
+    [Fact]
+    public void Encode_ColumnAbsentInOneRow_SpillsInsteadOfHoisting()
+    {
+        var rows = new[]
+        {
+            new Dictionary<string, object?> { ["Id"] = 1, ["Kind"] = "A" },
+            new Dictionary<string, object?> { ["Id"] = 2, ["Kind"] = "A" },
+            new Dictionary<string, object?> { ["Id"] = 3 }
+        };
+
+        Assert.Equal("[3]{Id}:\n  1\n    Kind: A\n  2\n    Kind: A\n  3", ToonEncoder.Encode(rows, Encode()));
+    }
+
+    [Fact]
+    public void Encode_AllNullColumn_OmittedWhenIgnoringElseHoistedAsNull()
+    {
+        var rows = Enumerable.Range(1, 3).Select(i => new Noted { Id = i, Note = null, Tag = "", G = new NullLeaf { X = null, Y = i } }).ToArray();
+
+        Assert.Equal("[3]{Id,Note=null,Tag=\"\",G{X=null,Y}}:\n  1,1\n  2,2\n  3,3", ToonEncoder.Encode(rows, Encode()));
+        var ignoring = Encode();
+        ignoring.IgnoreNullOrEmpty = true;
+        Assert.Equal("[3]{Id,G{X=null,Y}}:\n  1,1\n  2,2\n  3,3", ToonEncoder.Encode(rows, ignoring));
+    }
+
+    [Fact]
+    public void Encode_MixedNullAndEmptyString_NotConstant()
+    {
+        var rows = new[] { new Noted { Id = 1, Tag = null }, new Noted { Id = 2, Tag = "" }, new Noted { Id = 3, Tag = null } };
+
+        var text = ToonEncoder.Encode(rows, Encode());
+
+        Assert.StartsWith("[3]{Id,Note=null,Tag,G=null}:", text);
+        Assert.Contains("  2,\"\"", text);
+    }
+
+    [Fact]
+    public void Encode_NumberAndNumericString_NotConstant()
+    {
+        Assert.Equal("[3]{Id,V}:\n  1,1\n  2,\"1\"\n  3,1", ToonEncoder.Json2Toon("[{\"Id\":1,\"V\":1},{\"Id\":2,\"V\":\"1\"},{\"Id\":3,\"V\":1}]", Encode()));
+        Assert.Equal("[3]{Id,V}:\n  1,1\n  2,1\n  3,1", ToonEncoder.Json2Toon("[{\"Id\":1,\"V\":1},{\"Id\":2,\"V\":1.0},{\"Id\":3,\"V\":1}]", Encode()));
+        Assert.Equal("[3]{Id,V=1}:\n  1\n  2\n  3", ToonEncoder.Json2Toon("[{\"Id\":1,\"V\":1},{\"Id\":2,\"V\":1},{\"Id\":3,\"V\":1}]", Encode()));
+    }
+
+    [Theory]
+    [InlineData("a=b", ToonDelimiter.COMMA, "\"a=b\"")]
+    [InlineData("x,y", ToonDelimiter.PIPE, "\"x,y\"")]
+    [InlineData("x,y", ToonDelimiter.TAB, "\"x,y\"")]
+    [InlineData("x|y", ToonDelimiter.COMMA, "\"x|y\"")]
+    [InlineData("x|y", ToonDelimiter.TAB, "\"x|y\"")]
+    [InlineData("x\ty", ToonDelimiter.COMMA, "\"x\\ty\"")]
+    [InlineData("true", ToonDelimiter.COMMA, "\"true\"")]
+    [InlineData("12", ToonDelimiter.COMMA, "\"12\"")]
+    [InlineData("", ToonDelimiter.COMMA, "\"\"")]
+    [InlineData("-a", ToonDelimiter.COMMA, "\"-a\"")]
+    [InlineData("a:b", ToonDelimiter.COMMA, "\"a:b\"")]
+    [InlineData("{a}", ToonDelimiter.COMMA, "\"{a}\"")]
+    [InlineData("[a]", ToonDelimiter.PIPE, "\"[a]\"")]
+    [InlineData("plain text", ToonDelimiter.COMMA, "plain text")]
+    public void Encode_ConstantNeedingHeaderQuotes_IsQuoted(string value, ToonDelimiter delimiter, string expected)
+    {
+        var options = Encode();
+        options.Delimiter = delimiter;
+        var d = delimiter switch { ToonDelimiter.PIPE => "|", ToonDelimiter.TAB => "\t", _ => "," };
+        var marker = delimiter == ToonDelimiter.COMMA ? "" : d;
+        var rows = Enumerable.Range(1, 3).Select(i => new Mixed { Id = i, Kind = value, Name = "n" + i }).ToArray();
+
+        var text = ToonEncoder.Encode(rows, options);
+
+        Assert.Equal($"[3{marker}]{{Id{d}Kind={expected}{d}Name}}:\n  1{d}n1\n  2{d}n2\n  3{d}n3", text);
+        var decoded = ToonDecoder.Decode<List<Mixed>>(text, Custom())!;
+        Assert.All(decoded, row => Assert.Equal(value, row.Kind));
+        Assert.Equal(ToonProtocolVersion.CustomV4_4, ToonDecoder.DetectVersion(text).SelectedVersion);
+        Assert.All(ToonDecoder.Decode<List<Mixed>>(text)!, row => Assert.Equal(value, row.Kind));
+    }
+
+    [Fact]
+    public void Encode_CellContainingEquals_StaysUnquoted()
+    {
+        var rows = new[] { new Mixed { Id = 1, Kind = "a=b" }, new Mixed { Id = 2, Kind = "c=d" }, new Mixed { Id = 3, Kind = "e=f" } };
+
+        Assert.Equal("[3]{Id,Kind,Name=null}:\n  1,a=b\n  2,c=d\n  3,e=f", ToonEncoder.Encode(rows, Encode()));
+    }
+
+    [Fact]
+    public void Encode_DateTimeDifferingOnlyInKind_NotConstant()
+    {
+        var instant = new DateTime(2026, 1, 2, 17, 3, 15);
+        var utc = DateTime.SpecifyKind(instant, DateTimeKind.Utc);
+        var rows = new[] { new Stamped { Id = 1, At = utc }, new Stamped { Id = 2, At = instant }, new Stamped { Id = 3, At = utc } };
+        var same = new[] { new Stamped { Id = 1, At = utc }, new Stamped { Id = 2, At = utc }, new Stamped { Id = 3, At = utc } };
+
+        AssertCellsRoundTrip(rows, "At", row => row.At, (left, right) => left.Ticks == right.Ticks && left.Kind == right.Kind);
+        Assert.Contains("At=", ToonEncoder.Encode(same, Encode()));
+    }
+
+    [Fact]
+    public void Encode_DateTimeOffsetSameInstantDifferentOffset_NotConstant()
+    {
+        var utc = new DateTimeOffset(2026, 1, 2, 17, 3, 15, TimeSpan.Zero);
+        var rows = new[] { new Stamped { Id = 1, When = utc }, new Stamped { Id = 2, When = utc.ToOffset(TimeSpan.FromHours(2)) }, new Stamped { Id = 3, When = utc } };
+
+        AssertCellsRoundTrip(rows, "When", row => row.When, (left, right) => left.EqualsExact(right));
+    }
+
+    [Fact]
+    public void Encode_UriDifferingOnlyInFragment_NotConstant()
+    {
+        var rows = new[] { new Stamped { Id = 1, Link = new Uri("https://example.com/a#one") }, new Stamped { Id = 2, Link = new Uri("https://example.com/a#two") }, new Stamped { Id = 3, Link = new Uri("https://example.com/a#one") } };
+
+        AssertCellsRoundTrip(rows, "Link", row => row.Link, (left, right) => left?.ToString() == right?.ToString());
+    }
+
+    [Fact]
+    public void Encode_ToBytesAndStream_MatchStringOutput()
+    {
+        var text = ToonEncoder.Encode(Accounts(), Encode());
+        using var stream = new MemoryStream();
+
+        ToonEncoder.EncodeToStream(Accounts(), stream, Encode());
+
+        Assert.Equal(AccountsOn, text);
+        Assert.Equal(text, Encoding.UTF8.GetString(ToonEncoder.EncodeToBytes(Accounts(), Encode())));
+        Assert.Equal(text, Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    [Fact]
+    public void RoundTrip_EveryScalarTypeAsConstant_ReproducesValues()
+    {
+        var sample = Scalars.Sample();
+        var rows = Enumerable.Range(1, 3).Select(i => Scalars.Sample() with { Id = i }).ToArray();
+
+        var text = ToonEncoder.Encode(rows, Encode());
+        var decoded = ToonDecoder.Decode<List<Scalars>>(text, Custom())!;
+
+        Assert.StartsWith("[3]{Id,Text=", text);
+        Assert.Equal(1, text.Split('\n').Skip(1).First().Trim().Length);
+        Assert.Equal(rows, decoded);
+        Assert.All(decoded, row => Assert.Equal(sample.Utc.Kind, row.Utc.Kind));
+        Assert.All(decoded, row => Assert.Equal(sample.Offset.Offset, row.Offset.Offset));
+        Assert.Equal(ToonEncoder.Encode(rows, Encode(constants: false)), ToonEncoder.Encode(decoded, Encode(constants: false)));
+    }
+
+    [Fact]
+    public void RoundTrip_JsonWithConstants_PreservesKeyOrderAndTypes()
+    {
+        const string json = "[{\"id\":1,\"kind\":\"A\",\"n\":1,\"s\":\"1\",\"b\":true,\"z\":null,\"e\":\"\",\"d\":1.5,\"g\":{\"x\":\"IS\",\"y\":1}}," +
+            "{\"id\":2,\"kind\":\"A\",\"n\":1,\"s\":\"1\",\"b\":true,\"z\":null,\"e\":\"\",\"d\":1.5,\"g\":{\"x\":\"IS\",\"y\":2}}," +
+            "{\"id\":3,\"kind\":\"A\",\"n\":1,\"s\":\"1\",\"b\":true,\"z\":null,\"e\":\"\",\"d\":1.5,\"g\":{\"x\":\"IS\",\"y\":3}}]";
+
+        var text = ToonEncoder.Json2Toon(json, Encode());
+
+        Assert.Equal("[3]{id,kind=A,n=1,s=\"1\",b=true,z=null,e=\"\",d=1.5,g{x=IS,y}}:\n  1,1\n  2,2\n  3,3", text);
+        Assert.Equal(json, ToonDecoder.Toon2Json(text, Custom()));
+    }
+
+    private const string AccountsJson =
+        "[{\"CompanyId\":\"vhafdal\",\"IsSystem\":false,\"CreatedBy\":\"system\",\"AccountCode\":6900,\"Name\":\"Other Expenses\",\"AccountType\":\"Expense\"}," +
+        "{\"CompanyId\":\"vhafdal\",\"IsSystem\":false,\"CreatedBy\":\"system\",\"AccountCode\":1000,\"Name\":\"Cash\",\"AccountType\":\"Asset\"}," +
+        "{\"CompanyId\":\"vhafdal\",\"IsSystem\":false,\"CreatedBy\":\"system\",\"AccountCode\":2000,\"Name\":\"Payables\",\"AccountType\":\"Liability\"}]";
+
+    private static Account[] Accounts() =>
+    [
+        new() { CompanyId = "vhafdal", IsSystem = false, CreatedBy = "system", AccountCode = 6900, Name = "Other Expenses", AccountType = "Expense" },
+        new() { CompanyId = "vhafdal", IsSystem = false, CreatedBy = "system", AccountCode = 1000, Name = "Cash", AccountType = "Asset" },
+        new() { CompanyId = "vhafdal", IsSystem = false, CreatedBy = "system", AccountCode = 2000, Name = "Payables", AccountType = "Liability" }
+    ];
+
+    private static string Describe(Account account)
+        => $"{account.CompanyId}|{account.IsSystem}|{account.CreatedBy}|{account.AccountCode}|{account.Name}|{account.AccountType}";
+
+    private static void AssertCellsRoundTrip<T>(Stamped[] rows, string column, Func<Stamped, T> select, Func<T, T, bool> same)
+    {
+        var text = ToonEncoder.Encode(rows, Encode());
+        Assert.DoesNotContain(column + "=", text);
+        var decoded = ToonDecoder.Decode<List<Stamped>>(text, Custom())!;
+        for (var i = 0; i < rows.Length; i++) Assert.True(same(select(rows[i]), select(decoded[i])), text);
+    }
+
+    internal static ToonEncodeOptions Encode(bool constants = true) => new()
+    {
+        ProtocolVersion = ToonProtocolVersion.CustomV4_4,
+        Indent = 2,
+        IgnoreNullOrEmpty = false,
+        ExcludeEmptyArrays = false,
+        ConstantColumns = constants
+    };
+
+    public sealed class Mixed
+    {
+        public int Id { get; set; }
+        public string? Kind { get; set; }
+        public string? Name { get; set; }
+    }
+
+    public sealed class NullLeaf
+    {
+        public string? X { get; set; }
+        public int Y { get; set; }
+    }
+
+    public sealed class Noted
+    {
+        public int Id { get; set; }
+        public string? Note { get; set; }
+        public string? Tag { get; set; }
+        public NullLeaf? G { get; set; }
+    }
+
+    public sealed class Stamped
+    {
+        public int Id { get; set; }
+        public DateTime At { get; set; }
+        public DateTimeOffset When { get; set; }
+        public Uri? Link { get; set; }
+    }
+
+    public sealed record Scalars(
+        int Id, string Text, bool Flag, char Letter, byte U8, sbyte S8, short S16, ushort U16, int S32, uint U32, long S64, ulong U64,
+        decimal Money, double Ratio, float Single, Guid Key, TimeSpan Span, Version Ver, Uri Link, LineKind Kind,
+        DateTime Utc, DateTime Local, DateTimeOffset Offset, DateOnly Day, TimeOnly Time, int? Missing, string? Absent)
+    {
+        public static Scalars Sample() => new(
+            0, "Other Expenses", true, 'x', 200, -5, -300, 60000, -70000, 4000000000, -9000000000, 18000000000000000000,
+            1234.5600m, 0.1, 1.5f, new Guid("8f1e1f9e-2f7d-4a52-9f0e-0f5f3f8c2b11"), TimeSpan.FromMinutes(90), new Version(1, 2, 3), new Uri("https://example.com/a?b=c#d"), LineKind.Credit,
+            new DateTime(2026, 1, 2, 17, 3, 15, DateTimeKind.Utc), new DateTime(2026, 1, 2, 17, 3, 15, DateTimeKind.Unspecified), new DateTimeOffset(2026, 1, 2, 17, 3, 15, TimeSpan.FromHours(2)),
+            new DateOnly(2026, 1, 2), new TimeOnly(17, 3, 15), null, null);
+    }
+
     internal static ToonDecodeOptions Custom(bool strict = true)
         => new() { ProtocolVersion = ToonProtocolVersion.CustomV4_4, Indent = 2, Strict = strict };
 
@@ -323,3 +656,4 @@ public sealed class ConstantColumnTests
         public List<IntCode>? Third { get; set; }
     }
 }
+#endif

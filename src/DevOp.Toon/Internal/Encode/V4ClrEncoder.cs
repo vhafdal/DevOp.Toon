@@ -26,6 +26,7 @@ internal static class V4ClrEncoder
     internal static bool TryEncodeToBuffer(object? value, ResolvedEncodeOptions options, out CompactBufferWriter writer)
     {
         writer = null!;
+        if (options.ConstantColumns) return false;
         if (value == null || NativeNormalize.IsPrimitiveOrNull(value) || value is not IList && !NativeNormalize.IsPlainObjectType(value.GetType()) || value is IList { Count: 0 } || options.ByteArrayFormat == ToonByteArrayFormat.Base64String && value is IEnumerable<byte>) return false;
         writer = new CompactBufferWriter(options.Indent, newLine: "\n");
         try
