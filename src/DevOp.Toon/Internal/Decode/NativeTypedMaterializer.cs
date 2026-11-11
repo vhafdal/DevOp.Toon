@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 using DevOp.Toon.Internal.Encode;
+using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Decode;
 
@@ -24,11 +25,15 @@ internal static class NativeTypedMaterializer
     /// </summary>
     /// <typeparam name="T">The target CLR type.</typeparam>
     /// <param name="node">The native node to convert.</param>
+    /// <param name="legacyDocument">
+    /// <see langword="true"/> when the node was decoded from legacy TOON text, where an object under the extension data property's
+    /// own name is merged into the extension data as earlier releases wrote it; <see langword="false"/> for JSON input.
+    /// </param>
     /// <param name="value">The converted value when conversion succeeds.</param>
     /// <returns><see langword="true"/> when the node can be materialized as <typeparamref name="T"/>; otherwise, <see langword="false"/>.</returns>
-    public static bool TryConvert<T>(NativeNode? node, out T? value)
+    public static bool TryConvert<T>(NativeNode? node, bool legacyDocument, out T? value)
     {
-        if (!TryConvert(node, typeof(T), out var boxed))
+        if (!TryConvert(node, typeof(T), legacyDocument, out var boxed))
         {
             value = default;
             return false;
@@ -43,12 +48,13 @@ internal static class NativeTypedMaterializer
     /// </summary>
     /// <param name="node">The native node to convert.</param>
     /// <param name="type">The target runtime type.</param>
+    /// <param name="legacyDocument"><see langword="true"/> when the node was decoded from legacy TOON text; see <see cref="TryConvert{T}(NativeNode?, bool, out T)"/>.</param>
     /// <param name="value">The converted value when conversion succeeds.</param>
     /// <returns><see langword="true"/> when the node can be materialized as <paramref name="type"/>; otherwise, <see langword="false"/>.</returns>
-    public static bool TryConvert(NativeNode? node, Type type, out object? value)
+    public static bool TryConvert(NativeNode? node, Type type, bool legacyDocument, out object? value)
     {
         var plan = GetPlan(type);
-        return TryConvert(node, plan, out value);
+        return TryConvert(node, plan, legacyDocument, out value);
     }
 
     private static TypePlan GetPlan(Type type)
@@ -144,11 +150,23 @@ internal static class NativeTypedMaterializer
                 factory = CreateFactory(ctor);
             }
 
+            var extension = ExtensionDataAccessor.Find(type);
             var propertyPlans = new Dictionary<string, PropertyPlan>(StringComparer.Ordinal);
+            HashSet<string>? unboundMembers = null;
             foreach (var property in publicProperties)
             {
-                if (!property.CanWrite || property.GetIndexParameters().Length != 0)
+                if (property.GetIndexParameters().Length != 0 || extension?.IsExtension(property) == true)
                 {
+                    continue;
+                }
+
+                if (!property.CanWrite)
+                {
+                    if (extension != null)
+                    {
+                        AddMemberNames(unboundMembers ??= new HashSet<string>(StringComparer.Ordinal), property);
+                    }
+
                     continue;
                 }
 
@@ -168,7 +186,7 @@ internal static class NativeTypedMaterializer
                 }
             }
 
-            return TypePlan.Object(type, factory, propertyPlans);
+            return TypePlan.Object(type, factory, propertyPlans).WithExtension(extension, -1, unboundMembers, StringComparer.Ordinal);
         }
         finally
         {
@@ -227,12 +245,38 @@ internal static class NativeTypedMaterializer
             return false;
         }
 
+        var extension = ExtensionDataAccessor.Find(type);
+        var extensionArgument = -1;
+        HashSet<string>? unboundMembers = null;
+        if (extension != null)
+        {
+            extensionArgument = extension.FindConstructorArgument(bestConstructor.GetParameters());
+            foreach (var property in properties)
+            {
+                if (property.GetIndexParameters().Length == 0 && !extension.IsExtension(property) &&
+                    !bestLookup.ContainsKey(property.Name))
+                {
+                    AddMemberNames(unboundMembers ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase), property);
+                }
+            }
+        }
+
         plan = TypePlan.Object(
             type,
             CreateConstructorFactory(bestConstructor),
             bestParameters,
-            bestLookup);
+            bestLookup).WithExtension(extension, extensionArgument, unboundMembers, StringComparer.OrdinalIgnoreCase);
         return true;
+    }
+
+    private static void AddMemberNames(HashSet<string> names, PropertyInfo property)
+    {
+        names.Add(property.Name);
+        var toonName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
+        if (toonName is { Length: > 0 })
+        {
+            names.Add(toonName);
+        }
     }
 
     private static bool TryBuildConstructorParameters(
@@ -245,6 +289,7 @@ internal static class NativeTypedMaterializer
         var parameters = constructor.GetParameters();
         parameterPlans = new ConstructorParameterPlan[parameters.Length];
         lookup = new Dictionary<string, ConstructorParameterPlan>(StringComparer.OrdinalIgnoreCase);
+        var extensionArgument = ExtensionDataAccessor.Find(constructor.DeclaringType!)?.FindConstructorArgument(parameters) ?? -1;
 
         for (int i = 0; i < parameters.Length; i++)
         {
@@ -266,6 +311,11 @@ internal static class NativeTypedMaterializer
                 parameterPlan,
                 GetParameterDefaultValue(parameter));
             parameterPlans[i] = parameterEntry;
+            if (i == extensionArgument)
+            {
+                continue;
+            }
+
             AddConstructorAlias(lookup, parameter.Name!, parameterEntry);
 
             var property = FindPropertyForParameter(properties, parameter.Name!);
@@ -427,7 +477,7 @@ internal static class NativeTypedMaterializer
         return true;
     }
 
-    private static bool TryConvert(NativeNode? node, TypePlan plan, out object? value)
+    private static bool TryConvert(NativeNode? node, TypePlan plan, bool legacy, out object? value)
     {
         if (node == null || node is NativePrimitiveNode { Value: null })
         {
@@ -447,23 +497,23 @@ internal static class NativeTypedMaterializer
                 value = ConvertUntyped(node);
                 return true;
             case PlanKind.Nullable:
-                return TryConvert(node, plan.UnderlyingPlan!, out value);
+                return TryConvert(node, plan.UnderlyingPlan!, legacy, out value);
             case PlanKind.Primitive:
                 return TryConvertPrimitive(node, plan.Type, out value);
             case PlanKind.Object:
-                return TryConvertObject(node, plan, out value);
+                return TryConvertObject(node, plan, legacy, out value);
             case PlanKind.Collection:
             case PlanKind.Array:
-                return TryConvertCollection(node, plan, out value);
+                return TryConvertCollection(node, plan, legacy, out value);
             case PlanKind.Dictionary:
-                return TryConvertDictionary(node, plan, out value);
+                return TryConvertDictionary(node, plan, legacy, out value);
             default:
                 value = null;
                 return false;
         }
     }
 
-    private static bool TryConvertObject(NativeNode? node, TypePlan plan, out object? value)
+    private static bool TryConvertObject(NativeNode? node, TypePlan plan, bool legacy, out object? value)
     {
         if (node is not NativeObjectNode objectNode)
         {
@@ -473,18 +523,24 @@ internal static class NativeTypedMaterializer
 
         if (plan.Factory == null || plan.Properties == null)
         {
-            return TryConvertConstructorObject(objectNode, plan, out value);
+            return TryConvertConstructorObject(objectNode, plan, legacy, out value);
         }
 
         var instance = plan.Factory();
+        ExtensionDataEntries? extensionEntries = null;
         foreach (var kvp in objectNode)
         {
             if (!plan.Properties.TryGetValue(kvp.Key, out var property))
             {
+                if (plan.Extension != null)
+                {
+                    CaptureExtension(plan, kvp.Key, kvp.Value, legacy, ref extensionEntries);
+                }
+
                 continue;
             }
 
-            if (!TryConvert(kvp.Value, property.Plan, out var propertyValue))
+            if (!TryConvert(kvp.Value, property.Plan, legacy, out var propertyValue))
             {
                 value = null;
                 return false;
@@ -493,11 +549,47 @@ internal static class NativeTypedMaterializer
             property.Setter(instance, propertyValue);
         }
 
+        if (extensionEntries != null)
+        {
+            plan.Extension!.Populate(instance, extensionEntries);
+        }
+
         value = instance;
         return true;
     }
 
-    private static bool TryConvertConstructorObject(NativeObjectNode objectNode, TypePlan plan, out object? value)
+    private static void CaptureExtension(TypePlan plan, string key, NativeNode? node, bool legacy, ref ExtensionDataEntries? entries)
+    {
+        if (plan.UnboundMembers?.Contains(key) == true)
+        {
+            return;
+        }
+
+        entries ??= new ExtensionDataEntries();
+        if (legacy && node is NativeObjectNode nested && plan.Extension!.IsNestedKey(key, plan.MemberNameComparer!))
+        {
+            foreach (var entry in nested)
+            {
+                if (!NamesMember(plan, entry.Key))
+                {
+                    entries.AddNested(entry.Key, ExtensionDataAccessor.ToValue(entry.Value));
+                }
+            }
+
+            return;
+        }
+
+        entries.Add(key, ExtensionDataAccessor.ToValue(node));
+    }
+
+    private static bool NamesMember(TypePlan plan, string key)
+    {
+        return plan.Properties?.ContainsKey(key) == true ||
+               plan.ConstructorParameterLookup?.ContainsKey(key) == true ||
+               plan.UnboundMembers?.Contains(key) == true;
+    }
+
+    private static bool TryConvertConstructorObject(NativeObjectNode objectNode, TypePlan plan, bool legacy, out object? value)
     {
         if (plan.ConstructorFactory == null || plan.ConstructorParameters == null || plan.ConstructorParameterLookup == null)
         {
@@ -507,14 +599,20 @@ internal static class NativeTypedMaterializer
 
         var arguments = new object?[plan.ConstructorParameters.Length];
         var assigned = new bool[plan.ConstructorParameters.Length];
+        ExtensionDataEntries? extensionEntries = null;
         foreach (var kvp in objectNode)
         {
             if (!plan.ConstructorParameterLookup.TryGetValue(kvp.Key, out var parameter))
             {
+                if (plan.Extension != null)
+                {
+                    CaptureExtension(plan, kvp.Key, kvp.Value, legacy, ref extensionEntries);
+                }
+
                 continue;
             }
 
-            if (!TryConvert(kvp.Value, parameter.Plan, out var parameterValue))
+            if (!TryConvert(kvp.Value, parameter.Plan, legacy, out var parameterValue))
             {
                 value = null;
                 return false;
@@ -532,11 +630,21 @@ internal static class NativeTypedMaterializer
             }
         }
 
+        if (extensionEntries != null && plan.ExtensionArgument >= 0)
+        {
+            arguments[plan.ExtensionArgument] = extensionEntries.Entries;
+        }
+
         value = plan.ConstructorFactory(arguments);
+        if (extensionEntries != null && plan.ExtensionArgument < 0)
+        {
+            plan.Extension!.Populate(value, extensionEntries);
+        }
+
         return true;
     }
 
-    private static bool TryConvertCollection(NativeNode? node, TypePlan plan, out object? value)
+    private static bool TryConvertCollection(NativeNode? node, TypePlan plan, bool legacy, out object? value)
     {
         if (plan.ElementPlan?.Type == typeof(byte) &&
             node is NativePrimitiveNode { Value: string base64Text })
@@ -575,7 +683,7 @@ internal static class NativeTypedMaterializer
         var list = plan.CreateList(arrayNode.Count);
         foreach (var item in arrayNode)
         {
-            if (!TryConvert(item, plan.ElementPlan, out var elementValue))
+            if (!TryConvert(item, plan.ElementPlan, legacy, out var elementValue))
             {
                 value = null;
                 return false;
@@ -588,7 +696,7 @@ internal static class NativeTypedMaterializer
         return true;
     }
 
-    private static bool TryConvertDictionary(NativeNode? node, TypePlan plan, out object? value)
+    private static bool TryConvertDictionary(NativeNode? node, TypePlan plan, bool legacy, out object? value)
     {
         if (plan.ElementPlan == null || plan.CreateDictionary == null)
         {
@@ -598,7 +706,7 @@ internal static class NativeTypedMaterializer
 
         if (node is NativeArrayNode pairArray)
         {
-            return TryConvertDictionaryPairs(pairArray, plan, out value);
+            return TryConvertDictionaryPairs(pairArray, plan, legacy, out value);
         }
 
         if (node is not NativeObjectNode objectNode)
@@ -610,7 +718,7 @@ internal static class NativeTypedMaterializer
         var dictionary = plan.CreateDictionary();
         foreach (var kvp in objectNode)
         {
-            if (!TryConvert(kvp.Value, plan.ElementPlan, out var elementValue))
+            if (!TryConvert(kvp.Value, plan.ElementPlan, legacy, out var elementValue))
             {
                 value = null;
                 return false;
@@ -623,7 +731,7 @@ internal static class NativeTypedMaterializer
         return true;
     }
 
-    private static bool TryConvertDictionaryPairs(NativeArrayNode arrayNode, TypePlan plan, out object? value)
+    private static bool TryConvertDictionaryPairs(NativeArrayNode arrayNode, TypePlan plan, bool legacy, out object? value)
     {
         var dictionary = plan.CreateDictionary!();
         foreach (var item in arrayNode)
@@ -631,9 +739,9 @@ internal static class NativeTypedMaterializer
             if (item is not NativeObjectNode pair ||
                 !TryGetObjectValue(pair, "Key", out var keyNode) ||
                 !TryGetObjectValue(pair, "Value", out var valueNode) ||
-                !TryConvert(keyNode, TypePlan.Primitive(typeof(string)), out var keyValue) ||
+                !TryConvert(keyNode, TypePlan.Primitive(typeof(string)), legacy, out var keyValue) ||
                 keyValue is not string key ||
-                !TryConvert(valueNode, plan.ElementPlan!, out var elementValue))
+                !TryConvert(valueNode, plan.ElementPlan!, legacy, out var elementValue))
             {
                 value = null;
                 return false;
@@ -1379,6 +1487,27 @@ internal static class NativeTypedMaterializer
 
         /// <summary>Gets the factory used to create dictionary instances.</summary>
         public Func<IDictionary>? CreateDictionary { get; private set; }
+
+        /// <summary>Gets the accessor of the object's extension data property, when it declares one.</summary>
+        public ExtensionDataAccessor? Extension { get; private set; }
+
+        /// <summary>Gets the constructor argument index that receives extension data, or -1.</summary>
+        public int ExtensionArgument { get; private set; } = -1;
+
+        /// <summary>Gets the names of declared members the object cannot bind, which are never captured as extension data.</summary>
+        public HashSet<string>? UnboundMembers { get; private set; }
+
+        /// <summary>Gets the comparer the object plan uses for member names.</summary>
+        public StringComparer? MemberNameComparer { get; private set; }
+
+        public TypePlan WithExtension(ExtensionDataAccessor? extension, int argument, HashSet<string>? unboundMembers, StringComparer comparer)
+        {
+            Extension = extension;
+            ExtensionArgument = argument;
+            UnboundMembers = unboundMembers;
+            MemberNameComparer = comparer;
+            return this;
+        }
 
         public static TypePlan Unsupported(Type type) => new TypePlan(type, PlanKind.Unsupported);
 

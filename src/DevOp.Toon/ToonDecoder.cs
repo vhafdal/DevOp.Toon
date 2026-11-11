@@ -207,7 +207,7 @@ public static class ToonDecoder
 
         if (scanResult.Lines.Count == 0)
         {
-            if (NativeTypedMaterializer.TryConvert<T>(new NativeObjectNode(), out var emptyValue))
+            if (NativeTypedMaterializer.TryConvert<T>(new NativeObjectNode(), legacyDocument: true, out var emptyValue))
             {
                 return emptyValue;
             }
@@ -224,7 +224,7 @@ public static class ToonDecoder
             nativeResult = NativePathExpansion.ExpandPaths(nativeObject, decodeOptions.Strict, quotedKeys);
         }
 
-        if (NativeTypedMaterializer.TryConvert<T>(nativeResult, out var typedValue))
+        if (NativeTypedMaterializer.TryConvert<T>(nativeResult, legacyDocument: true, out var typedValue))
         {
             return typedValue;
         }
