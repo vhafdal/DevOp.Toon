@@ -46,17 +46,17 @@ internal static class CustomerShapeProfiler
         var listDecodeOptions = CreateProfilingDecodeOptions(listToonText);
         var batchDecodeOptions = CreateProfilingDecodeOptions(batchToonText);
 
-        var listHarness = DecodeReflectionHarness<List<KanCustomerDto>>.Create(listDecodeOptions);
-        var arrayHarness = DecodeReflectionHarness<KanCustomerDto[]>.Create(listDecodeOptions);
-        var readOnlyListHarness = DecodeReflectionHarness<IReadOnlyList<KanCustomerDto>>.Create(listDecodeOptions);
-        var batchHarness = DecodeReflectionHarness<KanCustomerBatch>.Create(batchDecodeOptions);
+        var listHarness = DecodeReflectionHarness<List<CustomerDto>>.Create(listDecodeOptions);
+        var arrayHarness = DecodeReflectionHarness<CustomerDto[]>.Create(listDecodeOptions);
+        var readOnlyListHarness = DecodeReflectionHarness<IReadOnlyList<CustomerDto>>.Create(listDecodeOptions);
+        var batchHarness = DecodeReflectionHarness<CustomerBatch>.Create(batchDecodeOptions);
 
-        ValidateCustomers(JsonSerializer.Deserialize<List<KanCustomerDto>>(listJsonText, JsonOptions), customerCount);
-        ValidateCustomers(ToonDecoder.Decode<List<KanCustomerDto>>(listToonText, listDecodeOptions), customerCount);
-        ValidateCustomers(ToonDecoder.Decode<KanCustomerDto[]>(listToonText, listDecodeOptions), customerCount);
-        ValidateCustomers(ToonDecoder.Decode<IReadOnlyList<KanCustomerDto>>(listToonText, listDecodeOptions), customerCount);
-        ValidateBatch(JsonSerializer.Deserialize<KanCustomerBatch>(batchJsonText, JsonOptions), customerCount);
-        ValidateBatch(ToonDecoder.Decode<KanCustomerBatch>(batchToonText, batchDecodeOptions), customerCount);
+        ValidateCustomers(JsonSerializer.Deserialize<List<CustomerDto>>(listJsonText, JsonOptions), customerCount);
+        ValidateCustomers(ToonDecoder.Decode<List<CustomerDto>>(listToonText, listDecodeOptions), customerCount);
+        ValidateCustomers(ToonDecoder.Decode<CustomerDto[]>(listToonText, listDecodeOptions), customerCount);
+        ValidateCustomers(ToonDecoder.Decode<IReadOnlyList<CustomerDto>>(listToonText, listDecodeOptions), customerCount);
+        ValidateBatch(JsonSerializer.Deserialize<CustomerBatch>(batchJsonText, JsonOptions), customerCount);
+        ValidateBatch(ToonDecoder.Decode<CustomerBatch>(batchToonText, batchDecodeOptions), customerCount);
 
         var warmListScan = listHarness.Scan(listToonText);
         listHarness.DirectDecode(warmListScan);
@@ -68,10 +68,10 @@ internal static class CustomerShapeProfiler
         batchHarness.DirectDecode(warmBatchScan);
         batchHarness.TypedDecode(batchToonText);
 
-        var jsonListMeasurements = Measure(iterations, () => JsonSerializer.Deserialize<List<KanCustomerDto>>(listJsonText, JsonOptions));
-        var publicListMeasurements = Measure(iterations, () => ToonDecoder.Decode<List<KanCustomerDto>>(listToonText, listDecodeOptions));
-        var publicArrayMeasurements = Measure(iterations, () => ToonDecoder.Decode<KanCustomerDto[]>(listToonText, listDecodeOptions));
-        var publicReadOnlyListMeasurements = Measure(iterations, () => ToonDecoder.Decode<IReadOnlyList<KanCustomerDto>>(listToonText, listDecodeOptions));
+        var jsonListMeasurements = Measure(iterations, () => JsonSerializer.Deserialize<List<CustomerDto>>(listJsonText, JsonOptions));
+        var publicListMeasurements = Measure(iterations, () => ToonDecoder.Decode<List<CustomerDto>>(listToonText, listDecodeOptions));
+        var publicArrayMeasurements = Measure(iterations, () => ToonDecoder.Decode<CustomerDto[]>(listToonText, listDecodeOptions));
+        var publicReadOnlyListMeasurements = Measure(iterations, () => ToonDecoder.Decode<IReadOnlyList<CustomerDto>>(listToonText, listDecodeOptions));
         var scanListMeasurements = Measure(iterations, () => listHarness.Scan(listToonText));
 
         bool directListSucceeded = true;
@@ -97,8 +97,8 @@ internal static class CustomerShapeProfiler
 
         var typedListMeasurements = Measure(iterations, () => listHarness.TypedDecode(listToonText));
 
-        var jsonBatchMeasurements = Measure(iterations, () => JsonSerializer.Deserialize<KanCustomerBatch>(batchJsonText, JsonOptions));
-        var publicBatchMeasurements = Measure(iterations, () => ToonDecoder.Decode<KanCustomerBatch>(batchToonText, batchDecodeOptions));
+        var jsonBatchMeasurements = Measure(iterations, () => JsonSerializer.Deserialize<CustomerBatch>(batchJsonText, JsonOptions));
+        var publicBatchMeasurements = Measure(iterations, () => ToonDecoder.Decode<CustomerBatch>(batchToonText, batchDecodeOptions));
         var scanBatchMeasurements = Measure(iterations, () => batchHarness.Scan(batchToonText));
 
         bool directBatchSucceeded = true;
@@ -110,7 +110,7 @@ internal static class CustomerShapeProfiler
 
         var typedBatchMeasurements = Measure(iterations, () => batchHarness.TypedDecode(batchToonText));
 
-        Console.WriteLine("KAN typed decode profile");
+        Console.WriteLine("Customer shape typed decode profile");
         Console.WriteLine($"Customers  : {customerCount}");
         Console.WriteLine($"Iterations : {iterations}");
         Console.WriteLine($"List TOON  : {listToonText.Length:N0} chars");
@@ -145,22 +145,22 @@ internal static class CustomerShapeProfiler
         Console.WriteLine($"Direct batch succeeded on all iterations: {directBatchSucceeded}");
     }
 
-    private static List<KanCustomerDto> CreateCustomers(int customerCount)
+    private static List<CustomerDto> CreateCustomers(int customerCount)
     {
-        var customers = new List<KanCustomerDto>(customerCount);
+        var customers = new List<CustomerDto>(customerCount);
         for (int i = 0; i < customerCount; i++)
         {
             var id = $"C-{i + 1:000000}";
-            var billingAddress = new KanAddressDto(
+            var billingAddress = new AddressDto(
                 $"City-{i % 31:00}",
                 Country: i % 3 == 0 ? "Iceland" : "Norway",
                 PostalCode: $"{100 + (i % 900):000}");
-            var shippingAddress = new KanAddressDto(
+            var shippingAddress = new AddressDto(
                 $"ShipCity-{i % 17:00}",
                 Country: i % 2 == 0 ? "Iceland" : "Denmark",
                 PostalCode: $"{200 + (i % 800):000}");
 
-            customers.Add(new KanCustomerDto(
+            customers.Add(new CustomerDto(
                 id,
                 $"Customer {i + 1:000000}",
                 new[] { billingAddress, shippingAddress },
@@ -171,7 +171,7 @@ internal static class CustomerShapeProfiler
                     ["size"] = i % 2 == 0 ? "medium" : "large",
                     ["region"] = $"R{i % 7}"
                 },
-                new Dictionary<string, KanAddressDto>(StringComparer.Ordinal)
+                new Dictionary<string, AddressDto>(StringComparer.Ordinal)
                 {
                     ["billing"] = billingAddress,
                     ["shipping"] = shippingAddress
@@ -181,25 +181,25 @@ internal static class CustomerShapeProfiler
         return customers;
     }
 
-    private static KanCustomerBatch CreateBatch(IReadOnlyList<KanCustomerDto> customers)
+    private static CustomerBatch CreateBatch(IReadOnlyList<CustomerDto> customers)
     {
-        var primaryAddresses = new Dictionary<string, KanAddressDto>(StringComparer.Ordinal);
+        var primaryAddresses = new Dictionary<string, AddressDto>(StringComparer.Ordinal);
         for (int i = 0; i < customers.Count; i++)
         {
             primaryAddresses[customers[i].Id] = customers[i].Addresses[0];
         }
 
-        return new KanCustomerBatch(
+        return new CustomerBatch(
             customers,
             primaryAddresses,
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["source"] = "kan-profile",
+                ["source"] = "customer-shape-profile",
                 ["schema"] = "constructor-record-dictionaries"
             });
     }
 
-    private static void ValidateCustomers(IReadOnlyList<KanCustomerDto>? customers, int expectedCount)
+    private static void ValidateCustomers(IReadOnlyList<CustomerDto>? customers, int expectedCount)
     {
         if (customers == null || customers.Count != expectedCount)
         {
@@ -213,18 +213,18 @@ internal static class CustomerShapeProfiler
             first.DefaultDimensions["currency"].Length == 0 ||
             first.AddressBook["billing"].City.Length == 0)
         {
-            throw new InvalidOperationException("The KAN profile decoded invalid customer data.");
+            throw new InvalidOperationException("The customer shape profile decoded invalid customer data.");
         }
     }
 
-    private static void ValidateBatch(KanCustomerBatch? batch, int expectedCount)
+    private static void ValidateBatch(CustomerBatch? batch, int expectedCount)
     {
         if (batch == null ||
             batch.Customers.Count != expectedCount ||
             batch.PrimaryAddresses.Count != expectedCount ||
-            batch.DefaultDimensions["source"] != "kan-profile")
+            batch.DefaultDimensions["source"] != "customer-shape-profile")
         {
-            throw new InvalidOperationException("The KAN profile decoded invalid batch data.");
+            throw new InvalidOperationException("The customer shape profile decoded invalid batch data.");
         }
     }
 
@@ -309,20 +309,20 @@ internal static class CustomerShapeProfiler
 
     private readonly record struct MeasurementResult(TimeSpan Elapsed, long AllocatedBytes);
 
-    private sealed record KanCustomerBatch(
-        IReadOnlyList<KanCustomerDto> Customers,
-        IReadOnlyDictionary<string, KanAddressDto> PrimaryAddresses,
+    private sealed record CustomerBatch(
+        IReadOnlyList<CustomerDto> Customers,
+        IReadOnlyDictionary<string, AddressDto> PrimaryAddresses,
         Dictionary<string, string> DefaultDimensions);
 
-    private sealed record KanCustomerDto(
+    private sealed record CustomerDto(
         string Id,
         string Name,
-        IReadOnlyList<KanAddressDto> Addresses,
+        IReadOnlyList<AddressDto> Addresses,
         IReadOnlyList<string> Aliases,
         Dictionary<string, string> DefaultDimensions,
-        IReadOnlyDictionary<string, KanAddressDto> AddressBook);
+        IReadOnlyDictionary<string, AddressDto> AddressBook);
 
-    private sealed record KanAddressDto(
+    private sealed record AddressDto(
         string City,
         string Country,
         string PostalCode);
