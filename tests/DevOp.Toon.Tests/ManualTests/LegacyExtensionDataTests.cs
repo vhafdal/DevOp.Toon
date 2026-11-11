@@ -244,59 +244,66 @@ public sealed class LegacyExtensionDataTests
 
     [Theory]
     [MemberData(nameof(LegacyRoutes))]
-    public void Decode_Legacy040NestedExtensionObject_MergedIntoBag(ToonProtocolVersion version, Route route)
+    public void Decode_Legacy040NestedExtensionObject_StaysEntry(ToonProtocolVersion version, Route route)
     {
         const string text = "Name: Other Expenses\nAnnotations:\n  \"@id\": accounts/6900\n  \"@metadata\":\n    \"@collection\": Accounts";
 
         var decoded = DecodeObject<Account>(text, version, route, a => a.Annotations);
 
         Assert.Equal("Other Expenses", decoded.Name);
-        Assert.Equal(["@id", "@metadata"], decoded.Annotations!.Keys);
-        Assert.Equal("Accounts", Assert.IsType<Dictionary<string, object?>>(decoded.Annotations["@metadata"])["@collection"]);
+        Assert.Equal(["Annotations"], decoded.Annotations!.Keys);
+        var nested = Assert.IsType<Dictionary<string, object?>>(decoded.Annotations["Annotations"]);
+        Assert.Equal(["@id", "@metadata"], nested.Keys);
+        Assert.Equal("Accounts", Assert.IsType<Dictionary<string, object?>>(nested["@metadata"])["@collection"]);
     }
 
     [Theory]
     [MemberData(nameof(LegacyRoutes))]
-    public void Decode_Legacy040NestedAndSiblingSameKey_SiblingWins(ToonProtocolVersion version, Route route)
+    public void Decode_LegacyEntryNamedLikePropertyBesideSibling_BothKept(ToonProtocolVersion version, Route route)
     {
-        var siblingFirst = DecodeObject<Account>("Name: Cash\n\"@id\": sibling\nAnnotations:\n  \"@id\": nested\n  Name: member\n  Kept: 1", version, route, a => a.Annotations);
-        var nestedFirst = DecodeObject<Account>("Name: Cash\nAnnotations:\n  \"@id\": nested\n  Kept: 1\n\"@id\": sibling", version, route, a => a.Annotations);
+        var decoded = DecodeObject<Account>("Name: Cash\n\"@id\": sibling\nAnnotations:\n  \"@id\": nested\n  Name: member", version, route, a => a.Annotations);
 
-        Assert.Equal("Cash", siblingFirst.Name);
-        Assert.Equal(["@id", "Kept"], siblingFirst.Annotations!.Keys);
-        Assert.Equal("sibling", siblingFirst.Annotations["@id"]);
-        Assert.Equal("sibling", nestedFirst.Annotations!["@id"]);
-        Assert.Equal(1d, nestedFirst.Annotations["Kept"]);
+        Assert.Equal("Cash", decoded.Name);
+        Assert.Equal(["@id", "Annotations"], decoded.Annotations!.Keys);
+        Assert.Equal("sibling", decoded.Annotations["@id"]);
+        var nested = Assert.IsType<Dictionary<string, object?>>(decoded.Annotations["Annotations"]);
+        Assert.Equal("nested", nested["@id"]);
+        Assert.Equal("member", nested["Name"]);
     }
 
     [Theory]
     [MemberData(nameof(LegacyRoutes))]
-    public void Decode_Legacy040NestedUnderAliasedName_Merged(ToonProtocolVersion version, Route route)
+    public void Decode_LegacyKeyNamedLikeAliasedProperty_StaysEntry(ToonProtocolVersion version, Route route)
     {
         var byAlias = DecodeObject<AliasedExtensionAccount>("Name: Cash\nmeta:\n  \"@id\": a/1", version, route, a => a.Extra);
         var byClrName = DecodeObject<AliasedExtensionAccount>("Name: Cash\nExtra:\n  \"@id\": a/2", version, route, a => a.Extra);
 
-        Assert.Equal("a/1", byAlias.Extra!["@id"]);
-        Assert.Equal("a/2", byClrName.Extra!["@id"]);
+        Assert.Equal(["meta"], byAlias.Extra!.Keys);
+        Assert.Equal("a/1", Assert.IsType<Dictionary<string, object?>>(byAlias.Extra["meta"])["@id"]);
+        Assert.Equal(["Extra"], byClrName.Extra!.Keys);
+        Assert.Equal("a/2", Assert.IsType<Dictionary<string, object?>>(byClrName.Extra["Extra"])["@id"]);
     }
 
     [Theory]
     [MemberData(nameof(LegacyRoutes))]
-    public void Decode_Legacy040NestedRecord_Merged(ToonProtocolVersion version, Route route)
+    public void Decode_LegacyRecordKeyNamedLikeProperty_StaysEntry(ToonProtocolVersion version, Route route)
     {
-        var record = DecodeObject<AccountRecord>("Name: Cash\nannotations:\n  \"@id\": a/1\n  name: dropped", version, route, a => a.Annotations);
+        var record = DecodeObject<AccountRecord>("Name: Cash\nannotations:\n  \"@id\": a/1\n  name: kept", version, route, a => a.Annotations);
 
         Assert.Equal("Cash", record.Name);
-        Assert.Equal(["@id"], record.Annotations!.Keys);
+        Assert.Equal(["annotations"], record.Annotations!.Keys);
+        var nested = Assert.IsType<Dictionary<string, object?>>(record.Annotations["annotations"]);
+        Assert.Equal(["@id", "name"], nested.Keys);
     }
 
     [Theory]
     [MemberData(nameof(LegacyVersions))]
-    public void Decode_Legacy040NestedStruct_Merged(ToonProtocolVersion version)
+    public void Decode_LegacyStructKeyNamedLikeProperty_StaysEntry(ToonProtocolVersion version)
     {
         var decoded = ToonDecoder.Decode<AccountStruct>("Name: Cash\nAnnotations:\n  \"@id\": a/2", Options(version, Route.Direct));
 
-        Assert.Equal("a/2", decoded.Annotations!["@id"]);
+        Assert.Equal(["Annotations"], decoded.Annotations!.Keys);
+        Assert.Equal("a/2", Assert.IsType<Dictionary<string, object?>>(decoded.Annotations["Annotations"])["@id"]);
     }
 
     [Theory]

@@ -132,7 +132,7 @@ Omission settings trade data preservation for compactness. `IgnoreNullOrEmpty` c
 
 **Constant columns (after 0.4.0):** with `CustomV4_4`, the opt-in `ConstantColumns` option writes a column that has the same value in every row once in the table header (`Name=value`); other versions ignore it, and readers from 0.4.0 and earlier cannot decode that output. With `Auto` decoding, an unquoted `=` inside a table header's field list now selects `CustomV4_4`, so hand-written official input that uses such an unquoted field name must be decoded with an explicit official `ProtocolVersion`.
 
-**Extension data on the legacy profiles (after 0.4.0):** `V3_0` and `CustomLegacy` now honour `[ToonExtensionData]` like the 4.x profiles: entries are written as sibling keys instead of a nested object, and typed decoding captures unmatched keys. Documents written by 0.4.0 with the dictionary as a nested object still decode into the bag. `ToonService.Deserialize<T>(body, "application/json")` also captures unmatched keys. See [extension data](https://github.com/vhafdal/DevOp.Toon/blob/main/Documentation/ProtocolVersions.md#extension-data).
+**Extension data on the legacy profiles (after 0.4.0):** `V3_0` and `CustomLegacy` now honour `[ToonExtensionData]` like the 4.x profiles: entries are written as sibling keys instead of a nested object, and typed decoding captures unmatched keys. A document written by 0.4.0 with the dictionary as a nested object now decodes as a single entry named after the property. `ToonService.Deserialize<T>(body, "application/json")` also captures unmatched keys. See [extension data](https://github.com/vhafdal/DevOp.Toon/blob/main/Documentation/ProtocolVersions.md#extension-data).
 
 ## Performance evidence
 

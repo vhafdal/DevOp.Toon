@@ -195,8 +195,9 @@ Name: Other Expenses
 
 - In 0.4.0 it applies to the 4.x profiles only (official 4.0 to 4.4 and custom 4.4); `V3_0` and
   `CustomLegacy` write the dictionary as a nested object and capture nothing. After 0.4.0 the
-  legacy profiles flatten and capture too, and still read that nested object back into the bag;
-  see [extension data in the protocol guide](ProtocolVersions.md#extension-data).
+  legacy profiles flatten and capture too. A 0.4.0 legacy document's nested dictionary now decodes
+  as a single entry named after the property; see
+  [extension data in the protocol guide](ProtocolVersions.md#extension-data).
 - A member wins: an entry whose key equals a member's TOON name or CLR name is not written.
   For constructor-bound types such as positional records the match ignores case, as decoding does.
 - Captured objects become `Dictionary<string, object?>`, arrays `List<object?>`, and numbers

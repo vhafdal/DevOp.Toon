@@ -143,12 +143,12 @@ and key folding folds entry chains such as `meta.collection: Accounts`. Types wi
 encode exactly as before.
 
 Typed legacy decoding captures unmatched keys on every route, including path expansion (an
-expanded dotted key is captured as a nested entry) and structs. For documents written by 0.4.0,
-a legacy decoder still reads the dictionary when it was written as a nested object under the
-property's TOON name or CLR name: the object's entries are merged into the bag, and a sibling
-entry with the same key wins. A key under that name holding anything other than an object, such
-as the `Annotations[2]{Key}:` rows that 0.4.0 `CustomLegacy` wrote, stays one ordinary entry. The
-4.x profiles and the JSON route do not merge; there such an object is an ordinary entry.
+expanded dotted key is captured as a nested entry) and structs. As on the 4.x profiles and the
+JSON route, a key named like the extension data property (its TOON name or CLR name) is an
+ordinary entry whatever its value. A document written by 0.4.0 with the dictionary as a nested
+object therefore decodes as a single entry named after the property, holding that object; the
+`Annotations[2]{Key}:` rows that 0.4.0 `CustomLegacy` wrote likewise stay one entry. Code that
+must still read such documents takes the original entries from that one entry.
 
 On every profile, a key naming a declared member that the decoder cannot bind (a computed
 getter-only property, a 4.x property without a public setter, or an extra member of a

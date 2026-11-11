@@ -38,7 +38,7 @@ namespace DevOp.Toon.Internal.Decode
         {
             if (scanResult.Lines.Count == 0)
             {
-                if (NativeTypedMaterializer.TryConvert<T>(new NativeObjectNode(), legacyDocument: true, out var emptyValue))
+                if (NativeTypedMaterializer.TryConvert<T>(new NativeObjectNode(), out var emptyValue))
                 {
                     return emptyValue;
                 }
@@ -56,7 +56,7 @@ namespace DevOp.Toon.Internal.Decode
 
             cursor = new LineCursor(scanResult.Lines, scanResult.BlankLines);
             var nativeResult = NativeDecoders.DecodeValueFromLines(cursor, options);
-            if (NativeTypedMaterializer.TryConvert<T>(nativeResult, legacyDocument: true, out typedValue))
+            if (NativeTypedMaterializer.TryConvert<T>(nativeResult, out typedValue))
             {
                 return typedValue;
             }

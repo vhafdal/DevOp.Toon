@@ -278,6 +278,27 @@ public sealed class LegacyExtensionDataEncodeTests
 
     [Theory]
     [MemberData(nameof(LegacyVersions))]
+    public void RoundTrip_LegacyEntryNamedLikeExtensionPropertyWithObjectValue_Preserved(ToonProtocolVersion version)
+    {
+        var source = new Account
+        {
+            Name = "Cash",
+            Annotations = new Dictionary<string, object?> { ["Annotations"] = new Dictionary<string, object?> { ["x"] = 1 } }
+        };
+
+        var text = ToonEncoder.Encode(source, Encode(version));
+        var decoded = ToonDecoder.Decode<Account>(text, Decode(version))!;
+
+        Assert.Equal("Name: Cash\nAnnotations:\n  x: 1", text);
+        Assert.Equal("Cash", decoded.Name);
+        Assert.Equal(["Annotations"], decoded.Annotations!.Keys);
+        var nested = Assert.IsType<Dictionary<string, object?>>(decoded.Annotations["Annotations"]);
+        Assert.Equal(["x"], nested.Keys);
+        Assert.Equal(1d, nested["x"]);
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
     public void RoundTrip_LegacyDocumentWithMetadata_PreservesValues(ToonProtocolVersion version)
     {
         var source = new BillingAccount

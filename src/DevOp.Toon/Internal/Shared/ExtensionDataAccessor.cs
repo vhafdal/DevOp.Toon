@@ -23,7 +23,6 @@ internal sealed class ExtensionDataAccessor
     {
         Property = property;
         ClrName = property.Name;
-        WireName = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name is { Length: > 0 } alias ? alias : property.Name;
         DisplayName = $"{type}.{property.Name}";
         var target = Expression.Parameter(typeof(object), "instance");
         Expression typedTarget = type.IsValueType ? Expression.Unbox(target, type) : Expression.Convert(target, type);
@@ -41,9 +40,6 @@ internal sealed class ExtensionDataAccessor
 
     /// <summary>Gets the CLR name of the extension data property.</summary>
     internal string ClrName { get; }
-
-    /// <summary>Gets the name the property was written under before entries were flattened: its TOON alias, or its CLR name.</summary>
-    internal string WireName { get; }
 
     /// <summary>Gets the type-qualified property name used in error messages.</summary>
     internal string DisplayName { get; }
@@ -63,12 +59,6 @@ internal sealed class ExtensionDataAccessor
     internal bool IsExtension(PropertyInfo property) => ExtensionDataMetadata.IsExtension(property, Property);
 
     /// <summary>
-    /// Returns whether <paramref name="key"/> names the extension data property itself, the key under which earlier releases
-    /// wrote the dictionary as a nested object on the legacy profiles.
-    /// </summary>
-    internal bool IsNestedKey(string key, StringComparer comparer) => comparer.Equals(key, WireName) || comparer.Equals(key, ClrName);
-
-    /// <summary>
     /// Returns the index of the constructor parameter that receives the extension data, or -1 when none does.
     /// </summary>
     internal int FindConstructorArgument(ParameterInfo[] parameters)
@@ -85,17 +75,17 @@ internal sealed class ExtensionDataAccessor
     /// Adds the captured entries to the instance's dictionary, creating and assigning one when the property is null.
     /// </summary>
     /// <exception cref="NotSupportedException">The property is null and has no public setter.</exception>
-    internal void Populate(object instance, ExtensionDataEntries entries)
+    internal void Populate(object instance, Dictionary<string, object?> entries)
     {
         if (getter(instance) is IDictionary<string, object?> existing)
         {
-            foreach (var entry in entries.Entries) existing[entry.Key] = entry.Value;
+            foreach (var entry in entries) existing[entry.Key] = entry.Value;
             return;
         }
 
         if (setter == null)
             throw new NotSupportedException($"TOON cannot store extension data in '{DisplayName}': it has no public setter and is not initialised.");
-        setter(instance, entries.Entries);
+        setter(instance, entries);
     }
 
     /// <summary>

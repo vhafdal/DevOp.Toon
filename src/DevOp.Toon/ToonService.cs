@@ -246,7 +246,7 @@ public sealed class ToonService : IToonService
         if (IsJsonContentType(contentType))
         {
             var native = ToonNodeConverter.ToNativeNode(ToonNode.Parse(body));
-            if (NativeTypedMaterializer.TryConvert<T>(native, legacyDocument: false, out var value)) return value;
+            if (NativeTypedMaterializer.TryConvert<T>(native, out var value)) return value;
             throw new NotSupportedException($"JSON deserialization does not support target type '{typeof(T).FullName}'.");
         }
 
