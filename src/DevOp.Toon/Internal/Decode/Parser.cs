@@ -498,7 +498,9 @@ namespace DevOp.Toon.Internal.Decode
                 return new NativePrimitiveNode(parsedNumber, numberText);
             }
 
-            return new NativePrimitiveNode(trimmed);
+            // A bare number the literal rules keep as text (0e-2, 007, 1e400) stays a string, but typed decoding of a numeric
+            // member reads it from the kept text as the direct route does.
+            return NumericUtils.IsNumberShaped(trimmed) ? new NativePrimitiveNode(trimmed, trimmed) : new NativePrimitiveNode(trimmed);
         }
 
         /// <summary>

@@ -125,6 +125,55 @@ namespace DevOp.Toon.Internal.Shared
         }
 
         /// <summary>
+        /// Returns whether text has the shape of a decimal number (<c>-12</c>, <c>0e-2</c>, <c>007</c>, <c>1e400</c>), whatever
+        /// its magnitude or leading zeros.
+        /// </summary>
+        public static bool IsNumberShaped(string text)
+        {
+            var i = text.Length > 0 && text[0] == '-' ? 1 : 0;
+            if (SkipDigits(text, ref i) == 0)
+            {
+                return false;
+            }
+
+            if (i < text.Length && text[i] == '.')
+            {
+                i++;
+                if (SkipDigits(text, ref i) == 0)
+                {
+                    return false;
+                }
+            }
+
+            if (i < text.Length && (text[i] == 'e' || text[i] == 'E'))
+            {
+                i++;
+                if (i < text.Length && (text[i] == '+' || text[i] == '-'))
+                {
+                    i++;
+                }
+
+                if (SkipDigits(text, ref i) == 0)
+                {
+                    return false;
+                }
+            }
+
+            return i == text.Length;
+        }
+
+        private static int SkipDigits(string text, ref int index)
+        {
+            var start = index;
+            while (index < text.Length && text[index] >= '0' && text[index] <= '9')
+            {
+                index++;
+            }
+
+            return index - start;
+        }
+
+        /// <summary>
         /// Returns whether a decimal number literal such as <c>1e2</c>, <c>-2.50e1</c> or <c>1e-29</c> denotes an integer,
         /// judged from its digits: parsing first can round a fraction such as <c>1e-29</c> or
         /// <c>1.00000000000000000000000000001</c> to an integer.
@@ -183,7 +232,8 @@ namespace DevOp.Toon.Internal.Shared
                 }
             }
 
-            return lastNonZero < integerDigits + exponent;
+            // Every digit zero is exactly zero, whatever the exponent.
+            return lastNonZero < 0 || lastNonZero < integerDigits + exponent;
         }
 
         /// <summary>

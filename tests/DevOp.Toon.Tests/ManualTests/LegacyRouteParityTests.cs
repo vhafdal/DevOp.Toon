@@ -487,6 +487,65 @@ public sealed class LegacyRouteParityTests
         }
     }
 
+    public static TheoryData<string, string> ZeroWithExponentCases
+    {
+        get
+        {
+            var data = new TheoryData<string, string>();
+            foreach (var token in new[] { "0e-2", "-0e-5", "0.000e-10", "0.0" })
+            foreach (var member in new[] { "Int", "NInt", "Lng", "NLng" })
+                data.Add(member, token);
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(ZeroWithExponentCases))]
+    public void Decode_ZeroWithFractionOrExponentForIntegerMember_DecodesAsZeroOnEveryRoute(string member, string token)
+    {
+        var property = typeof(Numbers).GetProperty(member)!;
+
+        foreach (var route in AllRoutes(member, token))
+        {
+            Assert.Equal("0", Convert.ToString(property.GetValue(route()), System.Globalization.CultureInfo.InvariantCulture));
+        }
+    }
+
+    [Theory]
+    [InlineData("Flt", "1.000000059604644775400625")]
+    [InlineData("NFlt", "1.000000059604644775400625")]
+    [InlineData("Flt", "16777217.000000001")]
+    [InlineData("Dbl", "9007199254740993.0000001")]
+    [InlineData("NDbl", "1234567.1234567891")]
+    [InlineData("Dbl", "1.00000000000000011102230246251565404236316680908203126")]
+    public void Decode_FloatingNumberNearRoundingMidpoint_RoundsOnceOnEveryRoute(string member, string token)
+    {
+        var property = typeof(Numbers).GetProperty(member)!;
+        var single = member.EndsWith("Flt", StringComparison.Ordinal);
+        object expected = single
+            ? (object)float.Parse(token, System.Globalization.CultureInfo.InvariantCulture)
+            : double.Parse(token, System.Globalization.CultureInfo.InvariantCulture);
+
+        Assert.Equal(expected, property.GetValue(ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V4_4))));
+        foreach (var route in AllRoutes(member, token))
+        {
+            Assert.Equal(expected, property.GetValue(route()));
+        }
+    }
+
+    private static Func<Numbers?>[] AllRoutes(string member, string token)
+    {
+        var native = new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V3_0, Indent = 2, ExpandPaths = ToonPathExpansion.Safe };
+        return
+        [
+            () => ToonDecoder.Decode<Numbers>($"{member}: {token}", Options(ToonProtocolVersion.V3_0)),
+            () => ToonDecoder.Decode<List<Numbers>>($"[1]{{{member}}}:\n  {token}", Options(ToonProtocolVersion.CustomLegacy))![0],
+            () => ToonDecoder.Decode<Numbers>($"{member}: {token}\nz.q: 1", native),
+            () => ToonDecoder.Decode<List<Numbers>>($"[1]:\n  - {member}: {token}\n    z.q: 1", native)![0],
+            () => new ToonService().Deserialize<Numbers>($"{{\"{member}\":{token}}}", "application/json")
+        ];
+    }
+
     private static void AssertRangeError(string message, Func<object?> decode)
     {
         var error = Assert.Throws<ToonFormatException>(decode);
@@ -512,7 +571,9 @@ public sealed class LegacyRouteParityTests
         public double Dbl { get; set; }
         public double? NDbl { get; set; }
         public float Flt { get; set; }
+        public float? NFlt { get; set; }
         public int Int { get; set; }
+        public long Lng { get; set; }
         public long? NLng { get; set; }
         public byte Byt { get; set; }
         public short Sht { get; set; }

@@ -552,6 +552,12 @@ internal static class NativeTypedMaterializer
             case PlanKind.Nullable:
                 return TryConvert(node, plan.UnderlyingPlan!, out value);
             case PlanKind.Primitive:
+                if (node is NativePrimitiveNode { NumberText: { } floatingText } && (plan.Type == typeof(double) || plan.Type == typeof(float)))
+                {
+                    value = ParseFloatingText(floatingText, plan.Type);
+                    return true;
+                }
+
                 if (node is NativePrimitiveNode number && IntegerRange(plan.Type) is { } integerRange &&
                     (TryConvertIntegerFromText(number, plan.Type, integerRange, out value) || TryConvertFraction(number, plan.Type, out value)))
                 {
@@ -1229,6 +1235,30 @@ internal static class NativeTypedMaterializer
         }
 
         throw ToonFormatException.Syntax($"Number {number.ToString("R", CultureInfo.InvariantCulture)} is outside the range of {type.FullName}");
+    }
+
+    /// <summary>
+    /// Reads a double or float target from a number's kept source text, rounding once: the parsed value is a double, or a
+    /// decimal built from one, and converting it again can round a second time.
+    /// </summary>
+    private static object ParseFloatingText(string text, Type type)
+    {
+        if (type == typeof(float))
+        {
+            if (!float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var single) || float.IsInfinity(single))
+            {
+                throw ToonFormatException.Syntax(OutsideFiniteRange);
+            }
+
+            return FloatUtils.NormalizeSignedZero(single);
+        }
+
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) || double.IsInfinity(number))
+        {
+            throw ToonFormatException.Syntax(OutsideFiniteRange);
+        }
+
+        return FloatUtils.NormalizeSignedZero(number);
     }
 
     /// <summary>
