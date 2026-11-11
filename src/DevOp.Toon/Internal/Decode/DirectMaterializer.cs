@@ -2309,8 +2309,8 @@ namespace DevOp.Toon.Internal.Decode
 
         /// <summary>
         /// Converts a token to an enum member as 4.x decoding does: a number by the integer rule of the underlying type, a
-        /// name, a list of flag names or a number in text by <see cref="Enum.Parse(Type, string, bool)"/>, and <c>null</c>
-        /// to the default. Any other token throws a format error instead of leaving the member at its default.
+        /// name, a list of flag names or a number in text by <see cref="Enum.Parse(Type, string, bool)"/>, <c>true</c> and
+        /// <c>false</c> as one and zero, and <c>null</c> to the default. Any other token throws a format error instead of leaving the member at its default.
         /// </summary>
         private static object ConvertEnum(Type enumType, string source, int start, int endExclusive)
         {
@@ -2318,6 +2318,11 @@ namespace DevOp.Toon.Internal.Decode
             if (token.SequenceEqual(Constants.NULL_LITERAL))
             {
                 return Activator.CreateInstance(enumType)!;
+            }
+
+            if (token.SequenceEqual(Constants.TRUE_LITERAL) || token.SequenceEqual(Constants.FALSE_LITERAL))
+            {
+                return Enum.ToObject(enumType, token.SequenceEqual(Constants.TRUE_LITERAL) ? 1 : 0);
             }
 
             var underlying = Enum.GetUnderlyingType(enumType);

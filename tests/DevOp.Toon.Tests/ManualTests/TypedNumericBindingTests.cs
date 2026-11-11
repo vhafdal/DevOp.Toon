@@ -80,7 +80,7 @@ public sealed class TypedNumericBindingTests
         {
             var data = new TheoryData<ToonProtocolVersion, string, string>();
             foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
-            foreach (var (token, expected) in new[] { ("42", "C"), ("7", "7"), ("C", "C"), ("\"C\"", "C"), ("\"42\"", "C"), ("null", "A"), ("4.2e1", "C"), ("-0", "A") })
+            foreach (var (token, expected) in new[] { ("42", "C"), ("7", "7"), ("C", "C"), ("\"C\"", "C"), ("\"42\"", "C"), ("null", "A"), ("4.2e1", "C"), ("-0", "A"), ("true", "B"), ("false", "A") })
                 data.Add(version, token, expected);
             return data;
         }
