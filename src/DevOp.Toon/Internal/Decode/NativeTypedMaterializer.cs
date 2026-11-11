@@ -552,6 +552,11 @@ internal static class NativeTypedMaterializer
             case PlanKind.Nullable:
                 return TryConvert(node, plan.UnderlyingPlan!, out value);
             case PlanKind.Primitive:
+                if (node is NativePrimitiveNode number && IntegerRange(plan.Type) != null && TryConvertFraction(number, plan.Type, out value))
+                {
+                    return true;
+                }
+
                 if (TryConvertPrimitive(node, plan.Type, out value))
                 {
                     if (value is float single && float.IsInfinity(single))
@@ -1222,6 +1227,30 @@ internal static class NativeTypedMaterializer
         }
 
         throw ToonFormatException.Syntax($"Number {number.ToString("R", CultureInfo.InvariantCulture)} is outside the range of {type.FullName}");
+    }
+
+    /// <summary>
+    /// Handles a number with a fractional part for an integer <paramref name="type"/> as the direct route and 4.x do. The
+    /// fraction is judged from the kept source text when there is one, because the parse can round <c>1e-29</c> to zero.
+    /// </summary>
+    private static bool TryConvertFraction(NativePrimitiveNode primitive, Type type, out object? value)
+    {
+        value = null;
+        if (!TryGetNumber(primitive, out var number, out var exact) || exact is not { } amount)
+        {
+            return false;
+        }
+
+        var fractional = primitive.NumberText is { } text
+            ? !NumericUtils.IsIntegralNumberText(text)
+            : decimal.Truncate(amount) != amount;
+        if (!fractional)
+        {
+            return false;
+        }
+
+        value = NumericUtils.ConvertFractionToInteger(type, amount, primitive.NumberText ?? number.ToString("R", CultureInfo.InvariantCulture));
+        return true;
     }
 
     private static bool TryGetNumber(NativePrimitiveNode primitive, out double number, out decimal? exact)

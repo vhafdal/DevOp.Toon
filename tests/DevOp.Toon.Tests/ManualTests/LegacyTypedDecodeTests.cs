@@ -44,7 +44,6 @@ public sealed class LegacyTypedDecodeTests
     }
 
     [Theory]
-    [InlineData("Small: 1.5")]
     [InlineData("Wide: 1000000000000001")]
     [InlineData("Wide: 9007199254740994")]
     public void Decode_ExpandPathsNumberNotExactForIntegralMember_Throws(string text)
@@ -53,11 +52,13 @@ public sealed class LegacyTypedDecodeTests
             ToonDecoder.Decode<Counters>(text + "\nUnit.Name: u", Decode(ToonProtocolVersion.V3_0, ToonPathExpansion.Safe)));
     }
 
-    [Fact]
-    public void Decode_ExpandPathsNumberOutsideIntegralRange_ThrowsFormatException()
+    [Theory]
+    [InlineData("Small: 1.5")]
+    [InlineData("Large: 3000000000")]
+    public void Decode_ExpandPathsNumberOutsideIntegralRange_ThrowsFormatException(string text)
     {
         var error = Assert.Throws<ToonFormatException>(() =>
-            ToonDecoder.Decode<Counters>("Large: 3000000000\nUnit.Name: u", Decode(ToonProtocolVersion.V3_0, ToonPathExpansion.Safe)));
+            ToonDecoder.Decode<Counters>(text + "\nUnit.Name: u", Decode(ToonProtocolVersion.V3_0, ToonPathExpansion.Safe)));
 
         Assert.Contains("outside the range of System.Int32", error.Message);
     }

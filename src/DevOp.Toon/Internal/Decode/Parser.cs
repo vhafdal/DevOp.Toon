@@ -46,6 +46,8 @@ namespace DevOp.Toon.Internal.Decode
     /// </summary>
     internal static class Parser
     {
+        private static readonly char[] FractionOrExponent = { '.', 'e', 'E' };
+
         internal readonly struct TokenRange
         {
             /// <summary>
@@ -482,15 +484,17 @@ namespace DevOp.Toon.Internal.Decode
             {
                 var parsedNumber = double.Parse(trimmed, CultureInfo.InvariantCulture);
                 parsedNumber = FloatUtils.NormalizeSignedZero(parsedNumber);
+                // A fraction or exponent can round in the parse; typed decoding judges and reads such a number from its text.
+                var numberText = trimmed.IndexOfAny(FractionOrExponent) >= 0 ? trimmed : null;
                 if (parsedNumber < 1e-6 || parsedNumber > 1e6)
                 {
                     if (NumericUtils.TryEmitCanonicalDecimalForm(parsedNumber, out var decimalValue))
                     {
-                        return new NativePrimitiveNode(decimalValue);
+                        return new NativePrimitiveNode(decimalValue, numberText);
                     }
                 }
 
-                return new NativePrimitiveNode(parsedNumber);
+                return new NativePrimitiveNode(parsedNumber, numberText);
             }
 
             return new NativePrimitiveNode(trimmed);

@@ -2398,9 +2398,9 @@ namespace DevOp.Toon.Internal.Decode
 
             if (type != typeof(decimal) && decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var exact))
             {
-                if (exact != decimal.Truncate(exact))
+                if (!NumericUtils.IsIntegralNumberText(text))
                 {
-                    value = RoundIntoSmallInteger(type, exact, number);
+                    value = NumericUtils.ConvertFractionToInteger(type, exact, text);
                     return true;
                 }
 
@@ -2408,22 +2408,6 @@ namespace DevOp.Toon.Internal.Decode
                 if (value != null)
                 {
                     return true;
-                }
-            }
-
-            throw ToonFormatException.Syntax($"Number {number.ToString("R", CultureInfo.InvariantCulture)} is outside the range of {type.FullName}");
-        }
-
-        private static object RoundIntoSmallInteger(Type type, decimal value, double number)
-        {
-            if (type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort))
-            {
-                try
-                {
-                    return Convert.ChangeType(value, type, CultureInfo.InvariantCulture);
-                }
-                catch (OverflowException)
-                {
                 }
             }
 
