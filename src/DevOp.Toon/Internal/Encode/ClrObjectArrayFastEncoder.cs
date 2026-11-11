@@ -486,6 +486,12 @@ internal static class ClrObjectArrayFastEncoder
             return;
         }
 
+        if (IsJsonDomValue(rawValue))
+        {
+            NativeEncoders.EncodeNamedValue(key, rawValue, writer, depth, options);
+            return;
+        }
+
         if (DictionaryEntries.Get(rawValue) is { } dictionary)
         {
             EncodeDictionary(key, dictionary, writer, depth, options);
@@ -528,6 +534,12 @@ internal static class ClrObjectArrayFastEncoder
             sb.Append(Constants.COLON);
             sb.Append(Constants.SPACE);
             NativePrimitives.AppendPrimitiveRaw(sb, rawValue, options.Delimiter);
+            return;
+        }
+
+        if (IsJsonDomValue(rawValue))
+        {
+            NativeEncoders.EncodeNamedValue(property.Name, rawValue, writer, depth, options);
             return;
         }
 
@@ -578,6 +590,12 @@ internal static class ClrObjectArrayFastEncoder
             return;
         }
 
+        if (IsJsonDomValue(rawValue))
+        {
+            PushNamedValue(key, rawValue, writer, depth, options);
+            return;
+        }
+
         if (DictionaryEntries.Get(rawValue) is { } dictionary)
         {
             EncodeDictionary(key, dictionary, writer, depth, options);
@@ -595,7 +613,7 @@ internal static class ClrObjectArrayFastEncoder
             return;
         }
 
-        writer.PushRawBlock(NativeEncoders.EncodeNamedValue(key, rawValue, depth, options));
+        PushNamedValue(key, rawValue, writer, depth, options);
     }
 
     private static void EncodeClrNamedValue(NativeNormalize.PropertyMetadata property, object instance, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
@@ -617,6 +635,12 @@ internal static class ClrObjectArrayFastEncoder
             writer.Append(Constants.COLON);
             writer.Append(Constants.SPACE);
             NativePrimitives.AppendPrimitiveRaw(writer, rawValue, options.Delimiter);
+            return;
+        }
+
+        if (IsJsonDomValue(rawValue))
+        {
+            PushNamedValue(property.Name, rawValue, writer, depth, options);
             return;
         }
 
@@ -642,7 +666,19 @@ internal static class ClrObjectArrayFastEncoder
             return;
         }
 
-        writer.PushRawBlock(NativeEncoders.EncodeNamedValue(property.Name, rawValue, depth, options));
+        PushNamedValue(property.Name, rawValue, writer, depth, options);
+    }
+
+    private static bool IsJsonDomValue(object? value)
+        => value is not null && NativeNormalize.IsJsonDomType(value.GetType());
+
+    // A value the options omit (null or empty under IgnoreNullOrEmpty, an empty array under ExcludeEmptyArrays)
+    // encodes to nothing and must not leave a blank line behind.
+    private static void PushNamedValue(string key, object? rawValue, CompactBufferWriter writer, int depth, ResolvedEncodeOptions options)
+    {
+        var block = NativeEncoders.EncodeNamedValue(key, rawValue, depth, options);
+        if (block.Length != 0)
+            writer.PushRawBlock(block);
     }
 
     private static void EncodeClrObject(string key, object value, LineWriter writer, int depth, ResolvedEncodeOptions options)

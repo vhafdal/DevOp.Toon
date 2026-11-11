@@ -15,7 +15,11 @@ namespace DevOp.Toon.Internal.Encode;
 /// </summary>
 internal static class NativeNormalize
 {
+    private const string JsonElementTypeName = "System.Text.Json.JsonElement";
+    private const string JsonDocumentTypeName = "System.Text.Json.JsonDocument";
+    private const string JsonNodeTypeName = "System.Text.Json.Nodes.JsonNode";
     private static readonly ConcurrentDictionary<Type, PropertyMetadata[]> PropertyCache = new();
+    private static readonly ConcurrentDictionary<Type, Func<object, string>?> JsonNodeWriters = new();
     [ThreadStatic]
     private static HashSet<Type>? propertyBuildTypes;
 
@@ -319,13 +323,25 @@ internal static class NativeNormalize
     private static bool TryNormalizeJsonValue(object value, out NativeNode? node)
     {
         var type = value.GetType();
-        if (string.Equals(type.FullName, "System.Text.Json.JsonElement", StringComparison.Ordinal))
+        if (!IsJsonNamespace(type))
+        {
+            node = null;
+            return false;
+        }
+
+        if (GetJsonNodeToJsonString(type) is { } toJsonString)
+        {
+            node = ToonNodeConverter.ToNativeNode(ToonNode.Parse(toJsonString(value)));
+            return true;
+        }
+
+        if (string.Equals(type.FullName, JsonElementTypeName, StringComparison.Ordinal))
         {
             node = NormalizeJsonElement(value, type);
             return true;
         }
 
-        if (string.Equals(type.FullName, "System.Text.Json.JsonDocument", StringComparison.Ordinal))
+        if (string.Equals(type.FullName, JsonDocumentTypeName, StringComparison.Ordinal))
         {
             var rootElement = type.GetProperty("RootElement")?.GetValue(value);
             if (rootElement is null)
@@ -340,6 +356,64 @@ internal static class NativeNormalize
 
         node = null;
         return false;
+    }
+
+    /// <summary>
+    /// Returns whether <paramref name="type"/> is a System.Text.Json DOM type (<c>JsonElement</c>, <c>JsonDocument</c>
+    /// or a <c>JsonNode</c>), which encodes as its JSON text rather than as a CLR object.
+    /// </summary>
+    internal static bool IsJsonDomType(Type type)
+    {
+        if (!IsJsonNamespace(type))
+            return false;
+
+        return type.FullName is JsonElementTypeName or JsonDocumentTypeName || FindJsonNodeType(type) is not null;
+    }
+
+    // The library does not reference System.Text.Json on netstandard2.0, so its DOM types are matched by name.
+    // JsonNode subclasses cannot be declared outside System.Text.Json, so the namespace check is exact for them.
+    private static bool IsJsonNamespace(Type type)
+        => type.Namespace is "System.Text.Json" or "System.Text.Json.Nodes";
+
+    private static Type? FindJsonNodeType(Type type)
+    {
+        for (var current = type; current is not null; current = current.BaseType)
+        {
+            if (string.Equals(current.FullName, JsonNodeTypeName, StringComparison.Ordinal))
+                return current;
+        }
+
+        return null;
+    }
+
+    private static Func<object, string>? GetJsonNodeToJsonString(Type type)
+        => JsonNodeWriters.GetOrAdd(type, static t => CreateJsonNodeToJsonString(t));
+
+    private static Func<object, string>? CreateJsonNodeToJsonString(Type type)
+    {
+        var jsonNodeType = FindJsonNodeType(type);
+        if (jsonNodeType is null)
+            return null;
+
+        MethodInfo? toJsonString = null;
+        foreach (var method in jsonNodeType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (method.Name == "ToJsonString" && method.ReturnType == typeof(string) && method.GetParameters().Length == 1)
+            {
+                toJsonString = method;
+                break;
+            }
+        }
+
+        if (toJsonString is null)
+            return null;
+
+        var instance = Expression.Parameter(typeof(object), "node");
+        var call = Expression.Call(
+            Expression.Convert(instance, jsonNodeType),
+            toJsonString,
+            Expression.Constant(null, toJsonString.GetParameters()[0].ParameterType));
+        return Expression.Lambda<Func<object, string>>(call, instance).Compile();
     }
 
     private static NativeNode? NormalizeJsonElement(object value, Type type)
@@ -386,8 +460,7 @@ internal static class NativeNormalize
 
     internal static bool IsPlainObjectType(Type type)
     {
-        if (typeof(ToonNode).IsAssignableFrom(type) || typeof(NativeNode).IsAssignableFrom(type)
-            || type.FullName is "System.Text.Json.JsonElement" or "System.Text.Json.JsonDocument") return false;
+        if (typeof(ToonNode).IsAssignableFrom(type) || typeof(NativeNode).IsAssignableFrom(type) || IsJsonDomType(type)) return false;
         if (type.IsPrimitive || type == typeof(string) || type == typeof(DateTime) || type == typeof(DateTimeOffset))
             return false;
 
