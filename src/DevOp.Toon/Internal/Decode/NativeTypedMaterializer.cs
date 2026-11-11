@@ -21,6 +21,7 @@ internal static class NativeTypedMaterializer
     // (double)decimal.MaxValue rounds up past decimal.MaxValue, so every double at or above it overflows the conversion.
     private const double MaxDecimalAsDouble = (double)decimal.MaxValue;
     private const decimal MaxExactParsedDecimalInteger = 1000000000000000m;
+    private const string OutsideFiniteRange = "Number outside supported finite range";
 
     /// <summary>
     /// Attempts to convert a native node into the requested CLR type.
@@ -551,7 +552,17 @@ internal static class NativeTypedMaterializer
             case PlanKind.Nullable:
                 return TryConvert(node, plan.UnderlyingPlan!, out value);
             case PlanKind.Primitive:
-                return TryConvertPrimitive(node, plan.Type, out value);
+                if (TryConvertPrimitive(node, plan.Type, out value))
+                {
+                    if (value is float single && float.IsInfinity(single))
+                    {
+                        throw ToonFormatException.Syntax(OutsideFiniteRange);
+                    }
+
+                    return true;
+                }
+
+                return node is NativePrimitiveNode primitive && TryConvertNumberOutsideType(primitive, plan.Type, out value);
             case PlanKind.Object:
                 return TryConvertObject(node, plan, out value);
             case PlanKind.Collection:
@@ -1168,6 +1179,120 @@ internal static class NativeTypedMaterializer
 
         value = null;
         return false;
+    }
+
+    /// <summary>
+    /// Handles a number the primitive conversion refused for a numeric <paramref name="type"/>: a value the type cannot hold
+    /// throws the format error the direct route reports, rather than surfacing as an unsupported target type, and a double
+    /// target converts a number read as a decimal, and an integer type converts an integral value it can hold that is known
+    /// exactly. A number the type could hold but that does not convert exactly, such as a fraction for an integer type or a
+    /// text number past the exact double and parsed-decimal limits, and any non-number are still refused.
+    /// </summary>
+    private static bool TryConvertNumberOutsideType(NativePrimitiveNode primitive, Type type, out object? value)
+    {
+        value = null;
+        var range = IntegerRange(type);
+        if ((range == null && type != typeof(double) && type != typeof(float) && type != typeof(decimal)) ||
+            !TryGetNumber(primitive, out var number, out var exact))
+        {
+            return false;
+        }
+
+        if (double.IsInfinity(number) || double.IsNaN(number) || (type == typeof(float) && float.IsInfinity((float)number)))
+        {
+            throw ToonFormatException.Syntax(OutsideFiniteRange);
+        }
+
+        if (type == typeof(double) || type == typeof(float))
+        {
+            value = type == typeof(double) ? (object)number : (float)number;
+            return true;
+        }
+
+        if (exact is { } inRange && (range == null || (inRange >= range.Value.Min && inRange <= range.Value.Max)))
+        {
+            // An integral value that fits converts when it is known exactly; text numbers past the exact limits stay refused.
+            if (range != null && decimal.Truncate(inRange) == inRange && IsExactNumber(primitive))
+            {
+                value = Convert.ChangeType(inRange, type, CultureInfo.InvariantCulture);
+                return true;
+            }
+
+            return false;
+        }
+
+        throw ToonFormatException.Syntax($"Number {number.ToString("R", CultureInfo.InvariantCulture)} is outside the range of {type.FullName}");
+    }
+
+    private static bool TryGetNumber(NativePrimitiveNode primitive, out double number, out decimal? exact)
+    {
+        exact = null;
+        switch (primitive.Value)
+        {
+            case int intValue:
+                number = intValue;
+                exact = intValue;
+                return true;
+            case long longValue:
+                number = longValue;
+                exact = longValue;
+                return true;
+            case ulong ulongValue:
+                number = ulongValue;
+                exact = ulongValue;
+                return true;
+            case decimal decimalValue:
+                number = (double)decimalValue;
+                exact = decimalValue;
+                return true;
+            case double doubleValue:
+                number = doubleValue;
+                if (primitive.NumberText is { } numberText && decimal.TryParse(numberText, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    exact = parsed;
+                }
+                else if (!double.IsNaN(doubleValue) && Math.Abs(doubleValue) < MaxDecimalAsDouble)
+                {
+                    exact = (decimal)doubleValue;
+                }
+
+                return true;
+            // The legacy parser keeps a number beyond the double range as text.
+            case string word when LooksLikeNumber(word) &&
+                                  double.TryParse(word, NumberStyles.Float, CultureInfo.InvariantCulture, out var huge) && double.IsInfinity(huge):
+                number = huge;
+                return true;
+            default:
+                number = 0;
+                return false;
+        }
+    }
+
+    private static bool IsExactNumber(NativePrimitiveNode primitive) => primitive.NumberText != null || primitive.Value switch
+    {
+        int or long or ulong => true,
+        decimal decimalValue => Math.Abs(decimalValue) < MaxExactParsedDecimalInteger,
+        double doubleValue => Math.Abs(doubleValue) <= MaxExactDoubleInteger,
+        _ => false
+    };
+
+    private static bool LooksLikeNumber(string text)
+    {
+        var i = text.Length > 0 && text[0] == '-' ? 1 : 0;
+        return i < text.Length && text[i] >= '0' && text[i] <= '9';
+    }
+
+    private static (decimal Min, decimal Max)? IntegerRange(Type type)
+    {
+        if (type == typeof(int)) return (int.MinValue, int.MaxValue);
+        if (type == typeof(long)) return (long.MinValue, long.MaxValue);
+        if (type == typeof(short)) return (short.MinValue, short.MaxValue);
+        if (type == typeof(byte)) return (byte.MinValue, byte.MaxValue);
+        if (type == typeof(sbyte)) return (sbyte.MinValue, sbyte.MaxValue);
+        if (type == typeof(ushort)) return (ushort.MinValue, ushort.MaxValue);
+        if (type == typeof(uint)) return (uint.MinValue, uint.MaxValue);
+        if (type == typeof(ulong)) return (ulong.MinValue, ulong.MaxValue);
+        return null;
     }
 
     private static bool TryConvertIntegerPrimitive<TInteger>(object? primitiveValue, long minValue, long maxValue, Func<long, TInteger> converter, out object? value)
