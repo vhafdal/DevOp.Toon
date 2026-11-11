@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Text;
 using DevOp.Toon.Core;
 using DevOp.Toon.Internal.Encode;
+using DevOp.Toon.Internal.Shared;
 using Line = DevOp.Toon.Internal.Decode.V4SourceLine;
 
 namespace DevOp.Toon.Internal.Decode;
@@ -714,32 +715,7 @@ internal static class V4Decoder
             }
         }
 
-        internal static bool NumberGrammar(ReadOnlySpan<char> text)
-        {
-            var p = 0;
-            if (p < text.Length && text[p] == '-') p++;
-            if (p == text.Length) return false;
-            if (text[p] == '0') p++;
-            else
-            {
-                if (text[p] < '1' || text[p] > '9') return false;
-                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
-            }
-            if (p < text.Length && text[p] == '.')
-            {
-                var start = ++p;
-                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
-                if (p == start) return false;
-            }
-            if (p < text.Length && (text[p] == 'e' || text[p] == 'E'))
-            {
-                p++; if (p < text.Length && (text[p] == '+' || text[p] == '-')) p++;
-                var start = p;
-                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
-                if (p == start) return false;
-            }
-            return p == text.Length;
-        }
+        internal static bool NumberGrammar(ReadOnlySpan<char> text) => NumericUtils.IsNumberGrammar(text);
 
         private List<string> Split(string text, char delimiter)
         {

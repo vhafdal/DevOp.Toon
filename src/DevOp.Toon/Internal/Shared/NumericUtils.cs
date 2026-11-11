@@ -247,6 +247,37 @@ namespace DevOp.Toon.Internal.Shared
         }
 
         /// <summary>
+        /// Returns whether text is a number in the official TOON 4.x grammar: an optional minus, no leading zeros, an optional
+        /// fraction and exponent. <c>007</c>, <c>+1</c> and <c>.5</c> are text.
+        /// </summary>
+        public static bool IsNumberGrammar(ReadOnlySpan<char> text)
+        {
+            var p = 0;
+            if (p < text.Length && text[p] == '-') p++;
+            if (p == text.Length) return false;
+            if (text[p] == '0') p++;
+            else
+            {
+                if (text[p] < '1' || text[p] > '9') return false;
+                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
+            }
+            if (p < text.Length && text[p] == '.')
+            {
+                var start = ++p;
+                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
+                if (p == start) return false;
+            }
+            if (p < text.Length && (text[p] == 'e' || text[p] == 'E'))
+            {
+                p++; if (p < text.Length && (text[p] == '+' || text[p] == '-')) p++;
+                var start = p;
+                while (p < text.Length && text[p] >= '0' && text[p] <= '9') p++;
+                if (p == start) return false;
+            }
+            return p == text.Length;
+        }
+
+        /// <summary>
         /// Returns whether number-shaped text such as <c>1e400</c> or <c>-12.5</c> has a magnitude of at least one, judged
         /// from its digits so that it holds beyond the range of every numeric type.
         /// </summary>

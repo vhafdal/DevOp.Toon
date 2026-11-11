@@ -249,7 +249,7 @@ public sealed class TypedNumericBindingTests
             var data = new TheoryData<ToonProtocolVersion, string, string>();
             foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
             foreach (var (type, token) in new[] { ("bool", "abc"), ("bool", "\"yes\""), ("Guid", "abc"), ("Guid", "42"), ("Guid", "true"), ("DateTime", "abc"), ("DateTime", "42"),
-                         ("TimeSpan", "abc"), ("TimeSpan", "true"), ("DateTimeOffset", "abc"), ("char", "ab") })
+                         ("TimeSpan", "abc"), ("TimeSpan", "true"), ("DateTimeOffset", "abc"), ("char", "ab"), ("bool", "007"), ("bool", "+1") })
                 data.Add(version, type, token);
             return data;
         }

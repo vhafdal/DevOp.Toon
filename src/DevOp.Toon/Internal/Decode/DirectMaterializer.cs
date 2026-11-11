@@ -1944,7 +1944,8 @@ namespace DevOp.Toon.Internal.Decode
         /// <summary>
         /// Converts a token the legacy parsers rejected for a boolean, date, time, <see cref="Guid"/> or <see cref="char"/>
         /// member as 4.x decoding converts it, instead of leaving the member at its default: <c>null</c> to the default, text
-        /// by the invariant parse of the type, a number to a boolean as nonzero; anything else throws a format error.
+        /// by the invariant parse of the type, a number in the 4.x grammar to a boolean as nonzero; anything else throws a
+        /// format error.
         /// </summary>
         private static object? ConvertScalarAsV4(Type type, string source, int start, int endExclusive)
         {
@@ -1954,7 +1955,7 @@ namespace DevOp.Toon.Internal.Decode
             else if (token.SequenceEqual(Constants.TRUE_LITERAL)) decoded = true;
             else if (token.SequenceEqual(Constants.FALSE_LITERAL)) decoded = false;
             else if (token[0] == Constants.DOUBLE_QUOTE) decoded = Parser.ParseStringLiteral(source, start, endExclusive);
-            else if (IsNumberToken(token) && double.TryParse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && NumericUtils.IsFinite(number)) decoded = number;
+            else if (NumericUtils.IsNumberGrammar(token) && double.TryParse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && NumericUtils.IsFinite(number)) decoded = number;
             else decoded = token.ToString();
             var value = V4Materialization.Scalar(decoded, type, out var error);
             if (error != null)
