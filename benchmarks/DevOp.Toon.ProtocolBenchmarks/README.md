@@ -24,6 +24,12 @@ dotnet build benchmarks/DevOp.Toon.ProtocolBenchmarks/DevOp.Toon.ProtocolBenchma
 dotnet benchmarks/DevOp.Toon.ProtocolBenchmarks/bin/candidate/Debug/net10.0/DevOp.Toon.ProtocolBenchmarks.dll --data /absolute/TestData --output artifacts/toon-candidate.json
 ```
 
+Candidate builds also run `custom4.4-constants-lossless` and `custom4.4-constants-compact`, the
+custom 4.4 profiles with `ConstantColumns` enabled. After the product profiles, the harness encodes a
+deterministic synthetic chart of accounts (`--synthetic-accounts <rows>`, default 1000, `0` skips it)
+with each 4.4 profile and reports UTF-8, gzip and Brotli sizes plus a typed round-trip check under
+`SyntheticAccounts`; these entries are not timed.
+
 Default measurement uses five warmups and five samples per operation. Override with
 `--warmups`, `--repeats`, or restrict profiles with comma-separated `--profiles`.
 Add `--measure-auto` to measure default protocol detection plus decode for the new official/custom
