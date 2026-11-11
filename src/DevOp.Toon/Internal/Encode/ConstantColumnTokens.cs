@@ -70,14 +70,13 @@ internal static class ConstantColumnTokens
     /// </summary>
     internal static void WriteHeaderValue<TState>(CompactBufferWriter writer, TState state, Action<CompactBufferWriter, TState> writeCell)
     {
-        string token;
-        using (var scratch = new CompactBufferWriter(1, 64))
-        {
-            writeCell(scratch, state);
-            token = scratch.ToString();
-        }
-        if (token.Length > 0 && token[0] != '"' && token.IndexOfAny(HeaderSpecial) >= 0) V4Encoder.Quote(writer, token);
-        else writer.Append(token);
+        var start = writer.Length;
+        writeCell(writer, state);
+        var (buffer, end) = writer.GetCharBuffer();
+        if (end == start || buffer[start] == '"' || buffer.AsSpan(start, end - start).IndexOfAny(HeaderSpecial.AsSpan()) < 0) return;
+        var token = new string(buffer, start, end - start);
+        writer.Truncate(start);
+        V4Encoder.Quote(writer, token);
     }
 
     private static readonly char[] HeaderSpecial = { '=', ',', '|', '\t', '{', '}', ':', '[', ']', '"', '\\' };

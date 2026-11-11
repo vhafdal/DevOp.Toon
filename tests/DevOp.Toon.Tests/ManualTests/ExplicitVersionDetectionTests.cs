@@ -62,10 +62,10 @@ public sealed class ExplicitVersionDetectionTests
     [Fact]
     public void Decode_AutoConstantHeaderWithoutSpill_RoundTrips()
     {
-        const string source = "rows[3]{CompanyId=vhafdal,AccountCode}:\n  6900\n  6910\n  6920";
+        const string source = "rows[3]{CompanyId=acme,AccountCode}:\n  6900\n  6910\n  6920";
 
         var json = System.Text.Json.Nodes.JsonNode.Parse(ToonDecoder.Toon2Json(source))!["rows"]!.AsArray();
-        Assert.All(json, row => Assert.Equal("vhafdal", (string?)row!["CompanyId"]));
+        Assert.All(json, row => Assert.Equal("acme", (string?)row!["CompanyId"]));
         Assert.Equal(ToonProtocolVersion.CustomV4_4, ToonDecoder.DetectOptions(source).ProtocolVersion);
     }
 

@@ -135,6 +135,12 @@ internal sealed class CompactBufferWriter : IDisposable
     /// </summary>
     internal (char[] buffer, int length) GetCharBuffer() => (_buffer, _position);
 
+    /// <summary>Gets the number of characters written so far.</summary>
+    internal int Length => _position;
+
+    /// <summary>Discards every character written after <paramref name="length"/>.</summary>
+    internal void Truncate(int length) => _position = length;
+
     /// <summary>
     /// Appends an integer using invariant-culture formatting.
     /// </summary>

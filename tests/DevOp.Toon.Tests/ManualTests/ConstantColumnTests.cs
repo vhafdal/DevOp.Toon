@@ -15,19 +15,19 @@ public sealed class ConstantColumnTests
     [Fact]
     public void Decode_ConstantHeaderField_AssignsValueToEveryRow()
     {
-        const string source = "[3]{CompanyId=vhafdal,IsSystem=false,AccountCode,Name}:\n  6900,Other Expenses\n  6910,Rent\n  6920,Power";
+        const string source = "[3]{CompanyId=acme,IsSystem=false,AccountCode,Name}:\n  6900,Other Expenses\n  6910,Rent\n  6920,Power";
 
         var rows = ToonDecoder.Decode<List<Account>>(source, Custom())!;
 
         Assert.Equal(3, rows.Count);
-        Assert.All(rows, row => Assert.Equal("vhafdal", row.CompanyId));
+        Assert.All(rows, row => Assert.Equal("acme", row.CompanyId));
         Assert.All(rows, row => Assert.False(row.IsSystem));
         Assert.Equal([6900, 6910, 6920], rows.Select(row => row.AccountCode));
         Assert.Equal(["Other Expenses", "Rent", "Power"], rows.Select(row => row.Name));
         const string expected =
-            "[{\"CompanyId\":\"vhafdal\",\"IsSystem\":false,\"AccountCode\":6900,\"Name\":\"Other Expenses\"}," +
-            "{\"CompanyId\":\"vhafdal\",\"IsSystem\":false,\"AccountCode\":6910,\"Name\":\"Rent\"}," +
-            "{\"CompanyId\":\"vhafdal\",\"IsSystem\":false,\"AccountCode\":6920,\"Name\":\"Power\"}]";
+            "[{\"CompanyId\":\"acme\",\"IsSystem\":false,\"AccountCode\":6900,\"Name\":\"Other Expenses\"}," +
+            "{\"CompanyId\":\"acme\",\"IsSystem\":false,\"AccountCode\":6910,\"Name\":\"Rent\"}," +
+            "{\"CompanyId\":\"acme\",\"IsSystem\":false,\"AccountCode\":6920,\"Name\":\"Power\"}]";
         AssertJson(expected, ToonDecoder.Toon2Json(source, Custom()));
         Assert.True(ToonNode.DeepEquals(ToonNode.Parse(expected), ToonDecoder.Decode(source, Custom())));
     }
@@ -257,12 +257,12 @@ public sealed class ConstantColumnTests
 
     private const string AccountsOff =
         "[3]{CompanyId,IsSystem,CreatedBy,AccountCode,Name,AccountType}:\n" +
-        "  vhafdal,false,system,6900,Other Expenses,Expense\n" +
-        "  vhafdal,false,system,1000,Cash,Asset\n" +
-        "  vhafdal,false,system,2000,Payables,Liability";
+        "  acme,false,system,6900,Other Expenses,Expense\n" +
+        "  acme,false,system,1000,Cash,Asset\n" +
+        "  acme,false,system,2000,Payables,Liability";
 
     private const string AccountsOn =
-        "[3]{CompanyId=vhafdal,IsSystem=false,CreatedBy=system,AccountCode,Name,AccountType}:\n" +
+        "[3]{CompanyId=acme,IsSystem=false,CreatedBy=system,AccountCode,Name,AccountType}:\n" +
         "  6900,Other Expenses,Expense\n" +
         "  1000,Cash,Asset\n" +
         "  2000,Payables,Liability";
@@ -310,7 +310,7 @@ public sealed class ConstantColumnTests
         var rows = Accounts().Take(2).ToArray();
 
         Assert.Equal(
-            "[2]{CompanyId,IsSystem,CreatedBy,AccountCode,Name,AccountType}:\n  vhafdal,false,system,6900,Other Expenses,Expense\n  vhafdal,false,system,1000,Cash,Asset",
+            "[2]{CompanyId,IsSystem,CreatedBy,AccountCode,Name,AccountType}:\n  acme,false,system,6900,Other Expenses,Expense\n  acme,false,system,1000,Cash,Asset",
             ToonEncoder.Encode(rows, Encode()));
     }
 
@@ -630,15 +630,15 @@ public sealed class ConstantColumnTests
     }
 
     private const string AccountsJson =
-        "[{\"CompanyId\":\"vhafdal\",\"IsSystem\":false,\"CreatedBy\":\"system\",\"AccountCode\":6900,\"Name\":\"Other Expenses\",\"AccountType\":\"Expense\"}," +
-        "{\"CompanyId\":\"vhafdal\",\"IsSystem\":false,\"CreatedBy\":\"system\",\"AccountCode\":1000,\"Name\":\"Cash\",\"AccountType\":\"Asset\"}," +
-        "{\"CompanyId\":\"vhafdal\",\"IsSystem\":false,\"CreatedBy\":\"system\",\"AccountCode\":2000,\"Name\":\"Payables\",\"AccountType\":\"Liability\"}]";
+        "[{\"CompanyId\":\"acme\",\"IsSystem\":false,\"CreatedBy\":\"system\",\"AccountCode\":6900,\"Name\":\"Other Expenses\",\"AccountType\":\"Expense\"}," +
+        "{\"CompanyId\":\"acme\",\"IsSystem\":false,\"CreatedBy\":\"system\",\"AccountCode\":1000,\"Name\":\"Cash\",\"AccountType\":\"Asset\"}," +
+        "{\"CompanyId\":\"acme\",\"IsSystem\":false,\"CreatedBy\":\"system\",\"AccountCode\":2000,\"Name\":\"Payables\",\"AccountType\":\"Liability\"}]";
 
     private static Account[] Accounts() =>
     [
-        new() { CompanyId = "vhafdal", IsSystem = false, CreatedBy = "system", AccountCode = 6900, Name = "Other Expenses", AccountType = "Expense" },
-        new() { CompanyId = "vhafdal", IsSystem = false, CreatedBy = "system", AccountCode = 1000, Name = "Cash", AccountType = "Asset" },
-        new() { CompanyId = "vhafdal", IsSystem = false, CreatedBy = "system", AccountCode = 2000, Name = "Payables", AccountType = "Liability" }
+        new() { CompanyId = "acme", IsSystem = false, CreatedBy = "system", AccountCode = 6900, Name = "Other Expenses", AccountType = "Expense" },
+        new() { CompanyId = "acme", IsSystem = false, CreatedBy = "system", AccountCode = 1000, Name = "Cash", AccountType = "Asset" },
+        new() { CompanyId = "acme", IsSystem = false, CreatedBy = "system", AccountCode = 2000, Name = "Payables", AccountType = "Liability" }
     ];
 
     private static string Describe(Account account)

@@ -301,25 +301,23 @@ internal static class V4ClrEncoder
     private static bool[] MarkConstants(IList rows, Plan plan, bool[]? suppressed)
     {
         var constants = new bool[plan.LeafCount];
-        var level = new object[rows.Count];
-        for (var r = 0; r < rows.Count; r++) level[r] = rows[r]!;
         var leaf = 0;
         var firstWritten = -1;
         var cells = 0;
-        MarkConstants(level, plan, suppressed, constants, ref leaf, ref firstWritten, ref cells);
+        MarkConstants(rows, plan, suppressed, constants, ref leaf, ref firstWritten, ref cells);
         if (cells == 0 && firstWritten >= 0) constants[firstWritten] = false;
         return constants;
     }
 
-    private static void MarkConstants(object[] rows, Plan plan, bool[]? suppressed, bool[] constants, ref int leaf, ref int firstWritten, ref int cells)
+    private static void MarkConstants(IList rows, Plan plan, bool[]? suppressed, bool[] constants, ref int leaf, ref int firstWritten, ref int cells)
     {
         for (var i = 0; i < plan.Columns.Length; i++)
         {
             var column = plan.Columns[i];
             if (column.Nested != null)
             {
-                var children = new object[rows.Length];
-                for (var r = 0; r < rows.Length; r++) children[r] = column.Property.Getter(rows[r])!;
+                var children = new object[rows.Count];
+                for (var r = 0; r < rows.Count; r++) children[r] = column.Property.Getter(rows[r]!)!;
                 MarkConstants(children, column.Nested, null, constants, ref leaf, ref firstWritten, ref cells);
                 continue;
             }
@@ -328,13 +326,14 @@ internal static class V4ClrEncoder
             if (firstWritten < 0) firstWritten = index;
             var compare = column.SameToken.Value;
             var same = compare != null;
-            for (var r = 1; same && r < rows.Length; r++) same = compare!(rows[0], rows[r]);
+            var first = rows[0]!;
+            for (var r = 1; same && r < rows.Count; r++) same = compare!(first, rows[r]!);
             constants[index] = same;
             if (!same) cells++;
         }
     }
 
-    private static void Fields(CompactBufferWriter writer, Plan plan, object sample, char delimiter, bool[]? suppressed, bool[]? constants, ref int leaf, bool annotationKeys)
+    private static void Fields(CompactBufferWriter writer, Plan plan, object? sample, char delimiter, bool[]? suppressed, bool[]? constants, ref int leaf, bool annotationKeys)
     {
         writer.Append('{');
         var first = true;
@@ -344,11 +343,11 @@ internal static class V4ClrEncoder
             if (suppressed != null && suppressed[i]) { leaf++; continue; }
             if (!first) writer.Append(delimiter);
             column.Key.Write(writer, annotationKeys);
-            if (column.Nested != null) Fields(writer, column.Nested, column.Property.Getter(sample)!, delimiter, null, constants, ref leaf, annotationKeys);
+            if (column.Nested != null) Fields(writer, column.Nested, constants != null ? column.Property.Getter(sample!) : null, delimiter, null, constants, ref leaf, annotationKeys);
             else if (constants != null && constants[leaf++])
             {
                 writer.Append('=');
-                ConstantColumnTokens.WriteHeaderValue(writer, (column, sample, delimiter), static (target, cell) => cell.column.Emit(target, cell.sample, cell.delimiter));
+                ConstantColumnTokens.WriteHeaderValue(writer, (column, sample!, delimiter), static (target, cell) => cell.column.Emit(target, cell.Item2, cell.delimiter));
             }
             first = false;
         }
