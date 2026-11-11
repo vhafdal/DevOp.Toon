@@ -210,7 +210,7 @@ public sealed class V4DecoderTests
 
     [Fact]
     public void Decode_QuotedNullDate_IsNotConvertedToNull()
-        => Assert.Throws<FormatException>(() => ToonDecoder.Decode<TextScalarRow>("Maybe: \"null\"", new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V4_4 }));
+        => Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode<TextScalarRow>("Maybe: \"null\"", new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V4_4 }));
 
     public sealed class TextScalarRow
     {

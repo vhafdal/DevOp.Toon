@@ -300,6 +300,11 @@ public sealed class LegacyRouteParityTests
                 data.Add(version, "Dbl", "abc", "Value abc is not a valid System.Double");
                 data.Add(version, "Flt", "0x10", "Value 0x10 is not a valid System.Single");
                 data.Add(version, "Sht", "1_000", "Value 1_000 is not a valid System.Int16");
+                data.Add(version, "Flt", "\"Infinity\"", "Value Infinity is not a valid System.Single");
+                data.Add(version, "Dbl", "Infinity", "Value Infinity is not a valid System.Double");
+                data.Add(version, "NDbl", "-Infinity", "Value -Infinity is not a valid System.Double");
+                data.Add(version, "Dbl", "NaN", "Value NaN is not a valid System.Double");
+                data.Add(version, "Flt", "\"NaN\"", "Value NaN is not a valid System.Single");
             }
 
             return data;
@@ -329,7 +334,6 @@ public sealed class LegacyRouteParityTests
                 data.Add(version, "NInt", "\"-7\"");
                 data.Add(version, "Dbl", "\"1.5\"");
                 data.Add(version, "Dec", "\"0.1234567890123456789012345678\"");
-                data.Add(version, "Flt", "\"Infinity\"");
                 data.Add(version, "Int", "true");
                 data.Add(version, "Dec", "false");
                 data.Add(version, "Int", "null");

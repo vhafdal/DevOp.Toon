@@ -156,6 +156,39 @@ constructor-bound legacy type) is skipped rather than captured; 0.4.0 captured s
 `ToonService.Deserialize<T>(body, "application/json")` now captures unmatched keys too, with
 numbers as `double`.
 
+## Typed numeric binding
+
+**After 0.4.0**, typed decoding (`ToonDecoder.Decode<T>` and `ToonService.Deserialize<T>`) binds a
+token to a numeric or enum member by one rule on every profile and every shape: a settable
+property, a constructor parameter, a table row, an array or list item, a dictionary value, the root
+and a nested object. Untyped decoding (`ToonNode`, `Toon2Json`, `object` members and extension data)
+is unchanged and still reads numbers as `double`.
+
+- An integer member (`byte` to `ulong`, their nullable forms, and enums by their underlying type)
+  takes any number whose value is an integer in range, in any form: `42`, `1e3`, `2.0`, `100e-2`,
+  `-0.0` (also into unsigned types). A number with a fractional part, such as `1.5`, `0.5` or
+  `1e-29`, is never rounded or truncated; 0.4.0 rounded it half to even into `byte`, `sbyte`,
+  `short` and `ushort` and failed for the wider types.
+- A `float` member is read from the token text with a single rounding; a `double` member is read
+  once. Neither ever receives an infinity or NaN: a number beyond the range of the member and text
+  such as `Infinity` or `NaN` fail. Negative zero binds as zero.
+- A `decimal` member keeps the scale of the token (`1.10`, `0.0`) and fails beyond `decimal` range.
+- Text is still accepted where it was: a quoted number (`"42"`), `007`, `+42`, `" 42 "`, `"1,000"`
+  into `double`, an enum name, a flags list (`"X, Y"`) or an undefined enum value such as `7`.
+  `true` and `false` bind to numeric members as 1 and 0, and `null` into a non-nullable member
+  binds as its default: TOON writes NaN and infinities as `null`, so the library's own output
+  stays decodable into the same type.
+- An unquoted number bound to a `string` member keeps its token text (`1.50`, `9007199254740993`);
+  0.4.0 rounded it through a `double` on the 4.x profiles.
+
+A token that does not fit throws `ToonFormatException` with `Kind` `Syntax` and a message naming
+the token and the CLR type, for example `Number 1.5 is not an integer (System.Int16)` or
+`Number 300 is outside the range of System.Byte`. On the 4.x profiles `LineNumber` is the line of
+the token, and the same applies to `bool`, `Guid`, date and time members given text they cannot
+parse. 0.4.0 let `OverflowException`, `FormatException` or `ArgumentException` escape on the 4.x
+profiles, so code that caught those types must catch `ToonFormatException` instead. The binding rule does not depend
+on `Strict`. Exceptions thrown by a member's own setter or constructor still propagate unchanged.
+
 ## Detection and ambiguity
 
 `ToonDecoder.DetectVersion(text)` returns a `ToonVersionDetectionResult`. `DetectedVersion` is nullable because many documents share syntax. `SelectedVersion` is the compatible decoder choice, not evidence of the producer's exact version. `RequiresVersionHint` means decoding could change the meaning and requires explicit `ToonDecodeOptions.ProtocolVersion`.

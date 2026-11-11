@@ -525,6 +525,8 @@ internal static class V4Materialization
         if (type == null || type == typeof(void) || type == typeof(object)) return Scalar(parsed, type, out error);
         var effective = Nullable.GetUnderlyingType(type) ?? type;
         var numberType = effective.IsEnum ? Enum.GetUnderlyingType(effective) : effective;
+        // A number bound to text keeps its token: going through the double would round 9007199254740993 and drop 1.50's zero.
+        if (effective == typeof(string)) return token.ToString();
         if (!IsNumeric(numberType)) return Scalar(parsed, type, out error);
         object value;
         NumberBinding result;
@@ -561,14 +563,16 @@ internal static class V4Materialization
         if (value == null) return nullable != null || !type.IsValueType ? null : Activator.CreateInstance(type);
         type = nullable ?? type;
         if (type.IsInstanceOfType(value)) return value;
-        if (!type.IsEnum && !IsNumeric(type)) return Convert(value, type);
         try
         {
             var converted = Convert(value, type);
-            if (converted is double number && (double.IsInfinity(number) || double.IsNaN(number)) && value is string numberText && NumericUtils.IsNumberShaped(numberText.Trim()))
-            { error = NumericUtils.OutsideRange(numberText, type); return null; }
-            if (converted is float single && (float.IsInfinity(single) || float.IsNaN(single)) && value is string singleText && NumericUtils.IsNumberShaped(singleText.Trim()))
-            { error = NumericUtils.OutsideRange(singleText, type); return null; }
+            // Typed decode never yields NaN or an infinity: TOON cannot encode them, so text such as "Infinity" is not a number.
+            if ((converted is double number && !NumericUtils.IsFinite(number)) || (converted is float single && !NumericUtils.IsFinite(single)))
+            {
+                var text = Text(value);
+                error = NumericUtils.IsNumberShaped(text.Trim().AsSpan()) ? NumericUtils.OutsideRange(text, type) : NotValid(text, type);
+                return null;
+            }
             return converted;
         }
         catch (OverflowException) { error = NumericUtils.OutsideRange(Text(value), type); }

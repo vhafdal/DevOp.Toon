@@ -63,6 +63,91 @@ public sealed class TypedNumericBindingTests
     }
 
     [Theory]
+    [InlineData("9007199254740993")]
+    [InlineData("1.50")]
+    [InlineData("-0")]
+    [InlineData("1e3")]
+    [InlineData("0.1000000000000000055511151231257827")]
+    public void Decode_NumberTokenIntoStringMember_KeepsTokenTextOnEveryShape(string token)
+    {
+        foreach (var (shape, decode, _) in ShapesFor("string", token, Strict()))
+            Assert.True(token == (string?)decode(), $"{shape}: expected {token}, got {decode()}");
+    }
+
+    public static TheoryData<ToonProtocolVersion, string, string> LegacyEnumAcceptedCases
+    {
+        get
+        {
+            var data = new TheoryData<ToonProtocolVersion, string, string>();
+            foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
+            foreach (var (token, expected) in new[] { ("42", "C"), ("7", "7"), ("C", "C"), ("\"C\"", "C"), ("\"42\"", "C"), ("null", "A"), ("4.2e1", "C"), ("-0", "A") })
+                data.Add(version, token, expected);
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyEnumAcceptedCases))]
+    public void Decode_LegacyEnumMember_BindsAsV4(ToonProtocolVersion version, string token, string expected)
+    {
+        Assert.Equal(expected, Format(ToonDecoder.Decode<Holder<ByteEnum>>($"V: {token}", Strict())!.V));
+        Assert.Equal(expected, Format(ToonDecoder.Decode<Holder<ByteEnum>>($"V: {token}", Strict(version))!.V));
+        Assert.Equal(expected, Format(ToonDecoder.Decode<List<Holder<ByteEnum>>>($"[1]{{V}}:\n  {token}", Strict(version))![0].V));
+        Assert.Equal(expected, Format(ToonDecoder.Decode<List<Holder<ByteEnum>>>($"[1]:\n  - V: {token}", Strict(version))![0].V));
+    }
+
+    public static TheoryData<ToonProtocolVersion, string> LegacyEnumRejectedCases
+    {
+        get
+        {
+            var data = new TheoryData<ToonProtocolVersion, string>();
+            foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy })
+            foreach (var token in new[] { "256", "-1", "9007199254740993", "1.5", "0.5", "1e-29", "abc", "\"abc\"", "\"\"", "\"300\"" })
+                data.Add(version, token);
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyEnumRejectedCases))]
+    public void Decode_LegacyEnumMemberTokenThatDoesNotFit_ThrowsFormatException(ToonProtocolVersion version, string token)
+    {
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode<Holder<ByteEnum>>($"V: {token}", Strict()));
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode<Holder<ByteEnum>>($"V: {token}", Strict(version)));
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode<List<Holder<ByteEnum>>>($"[1]{{V}}:\n  {token}", Strict(version)));
+        Assert.Throws<ToonFormatException>(() => ToonDecoder.Decode<List<Holder<ByteEnum>>>($"[1]:\n  - V: {token}", Strict(version)));
+    }
+
+    [Theory]
+    [InlineData(ToonProtocolVersion.V3_0)]
+    [InlineData(ToonProtocolVersion.CustomLegacy)]
+    public void Decode_LegacyNegativeZeroIntoFloatingMember_BindsPositiveZeroAsV4(ToonProtocolVersion version)
+    {
+        foreach (var options in new[] { Strict(), Strict(version) })
+        {
+            Assert.Equal(0L, BitConverter.DoubleToInt64Bits(ToonDecoder.Decode<Holder<double>>("V: -0.0", options)!.V));
+            Assert.Equal(0L, BitConverter.DoubleToInt64Bits(ToonDecoder.Decode<Holder<double?>>("V: -0", options)!.V!.Value));
+            Assert.Equal(0L, BitConverter.DoubleToInt64Bits(ToonDecoder.Decode<List<Holder<float>>>("[1]{V}:\n  -0.0", options)![0].V));
+            Assert.Equal(0L, BitConverter.DoubleToInt64Bits(ToonDecoder.Decode<List<Holder<float?>>>("[1]:\n  - V: -0", options)![0].V!.Value));
+        }
+    }
+
+    [Theory]
+    [InlineData("1e400", double.PositiveInfinity)]
+    [InlineData("-1e400", double.NegativeInfinity)]
+    [InlineData("1e-400", 0d)]
+    public void Parse_JsonNumberBeyondDoubleRange_GivesTheSameValueOnEveryRuntime(string token, double expected)
+    {
+        Assert.Equal(expected, ToonNode.Parse($"{{\"a\":{token}}}")!["a"]!.GetValue<double>());
+        Assert.Equal(expected, ToonNode.Parse($"[{token}]")![0]!.GetValue<double>());
+        Assert.Throws<ToonFormatException>(() => new ToonService().Deserialize<Holder<double>>($"{{\"V\":{token.Replace("-400", "400")}}}", "application/json"));
+    }
+
+    [Fact]
+    public void Parse_MalformedJsonNumber_StillThrowsFormatException()
+        => Assert.Throws<FormatException>(() => ToonNode.Parse("{\"a\":1e}"));
+
+    [Theory]
     [InlineData(ToonProtocolVersion.V4_0)]
     [InlineData(ToonProtocolVersion.V4_1)]
     [InlineData(ToonProtocolVersion.V4_2)]
@@ -97,7 +182,10 @@ public sealed class TypedNumericBindingTests
     public static TheoryData<string, string> InvalidTokenCases => Cases(
         ("int", "abc"), ("int", "\"abc\""), ("int", "\"\""), ("int?", "abc"), ("long", "\"1.5\""), ("byte", "\"300\""),
         ("double", "abc"), ("double", "\"\""), ("float", "\"x\""), ("decimal", "abc"), ("decimal", "\"\""),
-        ("IntEnum", "abc"), ("IntEnum", "\"abc\""), ("IntEnum", "\"\""), ("ByteEnum", "D"), ("ByteEnum?", "\"300\""));
+        ("IntEnum", "abc"), ("IntEnum", "\"abc\""), ("IntEnum", "\"\""), ("ByteEnum", "D"), ("ByteEnum?", "\"300\""),
+        ("double", "Infinity"), ("double", "\"Infinity\""), ("double", "NaN"), ("double?", "\"NaN\""), ("float", "\"-Infinity\""),
+        ("float?", "NaN"), ("double", "\"1e400\""), ("bool", "abc"), ("bool?", "\"yes\""), ("Guid", "abc"), ("Guid?", "\"x\""),
+        ("DateTime", "abc"), ("DateTime?", "\"null\""), ("TimeSpan", "\"x\""));
 
     [Theory]
     [MemberData(nameof(InvalidTokenCases))]
@@ -274,7 +362,8 @@ public sealed class TypedNumericBindingTests
         "float" => typeof(float), "float?" => typeof(float?), "double" => typeof(double), "double?" => typeof(double?),
         "decimal" => typeof(decimal), "decimal?" => typeof(decimal?), "string" => typeof(string),
         "ByteEnum" => typeof(ByteEnum), "ByteEnum?" => typeof(ByteEnum?), "IntEnum" => typeof(IntEnum), "IntEnum?" => typeof(IntEnum?),
-        "LongEnum" => typeof(LongEnum), "FlagEnum" => typeof(FlagEnum),
+        "LongEnum" => typeof(LongEnum), "FlagEnum" => typeof(FlagEnum), "bool" => typeof(bool), "bool?" => typeof(bool?),
+        "Guid" => typeof(Guid), "Guid?" => typeof(Guid?), "DateTime" => typeof(DateTime), "DateTime?" => typeof(DateTime?), "TimeSpan" => typeof(TimeSpan),
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 

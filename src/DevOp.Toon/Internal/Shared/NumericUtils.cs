@@ -247,6 +247,45 @@ namespace DevOp.Toon.Internal.Shared
         }
 
         /// <summary>
+        /// Returns whether number-shaped text such as <c>1e400</c> or <c>-12.5</c> has a magnitude of at least one, judged
+        /// from its digits so that it holds beyond the range of every numeric type.
+        /// </summary>
+        public static bool IsAtLeastOne(ReadOnlySpan<char> text)
+        {
+            var i = text.Length > 0 && text[0] == '-' ? 1 : 0;
+            long leading = long.MinValue;
+            long position = 0;
+            for (; i < text.Length && text[i] >= '0' && text[i] <= '9'; i++)
+            {
+                if (leading == long.MinValue && text[i] != '0') leading = 0;
+                else if (leading != long.MinValue) leading++;
+            }
+
+            if (i < text.Length && text[i] == '.')
+            {
+                for (i++; i < text.Length && text[i] >= '0' && text[i] <= '9'; i++)
+                {
+                    position--;
+                    if (leading == long.MinValue && text[i] != '0') leading = position;
+                }
+            }
+
+            if (leading == long.MinValue) return false;
+            long exponent = 0;
+            if (i < text.Length && (text[i] == 'e' || text[i] == 'E'))
+            {
+                i++;
+                var negative = i < text.Length && text[i] == '-';
+                if (i < text.Length && (text[i] == '-' || text[i] == '+')) i++;
+                for (; i < text.Length && text[i] >= '0' && text[i] <= '9'; i++)
+                    exponent = Math.Min(exponent * 10 + (text[i] - '0'), 1_000_000_000L);
+                if (negative) exponent = -exponent;
+            }
+
+            return leading + exponent >= 0;
+        }
+
+        /// <summary>
         /// The message for a number with a fractional part bound to an integer or enum type.
         /// </summary>
         public static string NotAnInteger(string numberText, Type type) => $"Number {numberText} is not an integer ({type.FullName})";
