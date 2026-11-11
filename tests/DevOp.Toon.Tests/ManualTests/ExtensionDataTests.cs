@@ -456,12 +456,12 @@ public sealed class ExtensionDataTests
     [Theory]
     [InlineData(ToonProtocolVersion.V3_0)]
     [InlineData(ToonProtocolVersion.CustomLegacy)]
-    public void Decode_LegacyProfiles_DoNotCapture(ToonProtocolVersion version)
+    public void Decode_LegacyProfiles_Capture(ToonProtocolVersion version)
     {
         var decoded = ToonDecoder.Decode<Account>("Name: Cash\nExtra: 1", Decode(version))!;
 
         Assert.Equal("Cash", decoded.Name);
-        Assert.Null(decoded.Annotations);
+        Assert.Equal(1d, decoded.Annotations!["Extra"]);
     }
 
     [Theory]

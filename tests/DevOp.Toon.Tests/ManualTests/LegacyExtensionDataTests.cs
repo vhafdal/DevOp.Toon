@@ -16,8 +16,16 @@ public sealed class LegacyExtensionDataTests
 
     public static TheoryData<ToonProtocolVersion, Route> LegacyRoutes => new()
     {
+        { ToonProtocolVersion.V3_0, Route.Direct },
         { ToonProtocolVersion.V3_0, Route.ExpandPaths },
+        { ToonProtocolVersion.CustomLegacy, Route.Direct },
         { ToonProtocolVersion.CustomLegacy, Route.ExpandPaths }
+    };
+
+    public static TheoryData<ToonProtocolVersion> V4Versions => new()
+    {
+        ToonProtocolVersion.V4_0, ToonProtocolVersion.V4_1, ToonProtocolVersion.V4_2,
+        ToonProtocolVersion.V4_3, ToonProtocolVersion.V4_4, ToonProtocolVersion.CustomV4_4
     };
 
     [Theory]
@@ -291,6 +299,216 @@ public sealed class LegacyExtensionDataTests
         Assert.Equal("a/2", decoded.Annotations!["@id"]);
     }
 
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_LegacyNestedMemberWithExtensionData_Captures(ToonProtocolVersion version)
+    {
+        const string text = "Title: Main\nPrimary:\n  Name: Cash\n  \"@id\": a/1\n  \"@meta\":\n    rev: 2\nAccounts[1]:\n  - Name: Bank\n    \"@id\": a/2";
+
+        var decoded = ToonDecoder.Decode<Ledger>(text, Options(version, Route.Direct))!;
+
+        Assert.Equal("Main", decoded.Title);
+        Assert.Equal(["@id", "@meta"], decoded.Primary!.Annotations!.Keys);
+        Assert.Equal(2d, Assert.IsType<Dictionary<string, object?>>(decoded.Primary.Annotations["@meta"])["rev"]);
+        Assert.Equal("a/2", decoded.Accounts![0].Annotations!["@id"]);
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyRoutes))]
+    public void Decode_LegacyDictionaryOfAttributedValues_CapturesPerValue(ToonProtocolVersion version, Route route)
+    {
+        var text = "Name: Book\nMap:\n  cash:\n    Name: Cash\n    \"@id\": a/1\n  bank:\n    Name: Bank\n    \"@id\": a/2" +
+                   (route == Route.ExpandPaths ? "\nroute.marker: 1" : string.Empty);
+
+        var decoded = ToonDecoder.Decode<AccountDirectory>(text, Options(version, route))!;
+
+        Assert.Equal("a/1", decoded.Map!["cash"].Annotations!["@id"]);
+        Assert.Equal("a/2", decoded.Map["bank"].Annotations!["@id"]);
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_LegacyTableRows_UnmatchedColumnsCaptured(ToonProtocolVersion version)
+    {
+        const string text = "[2]{Name,\"@id\",n}:\n  Cash,a/1,1\n  Bank,a/2,2000000";
+
+        var decoded = ToonDecoder.Decode<List<Account>>(text, Options(version, Route.Direct))!;
+        var records = ToonDecoder.Decode<List<AccountRecord>>(text, Options(version, Route.Direct))!;
+
+        Assert.Equal("Bank", decoded[1].Name);
+        Assert.Equal(["@id", "n"], decoded[0].Annotations!.Keys);
+        Assert.Equal("a/2", decoded[1].Annotations!["@id"]);
+        Assert.Equal(2000000d, Assert.IsType<double>(decoded[1].Annotations!["n"]));
+        Assert.Equal("Bank", records[1].Name);
+        Assert.Equal(["@id", "n"], records[1].Annotations!.Keys);
+    }
+
+    [Fact]
+    public void Decode_CustomLegacyRowContinuation_CapturedPerRow()
+    {
+        const string text = "[2]{Name,\"@id\"}:\n  Cash,a/1\n    \"@flags\": x\n  Bank,a/2\n    \"@metadata\":\n      \"@collection\": Accounts\n    Tags[2]: a,b";
+        var options = Options(ToonProtocolVersion.CustomLegacy, Route.Direct);
+
+        var decoded = ToonDecoder.Decode<List<Account>>(text, options)!;
+        var records = ToonDecoder.Decode<List<AccountRecord>>(text, options)!;
+
+        Assert.Equal(["@id", "@flags"], decoded[0].Annotations!.Keys);
+        Assert.Equal(["@id", "@metadata", "Tags"], decoded[1].Annotations!.Keys);
+        Assert.Equal("Accounts", Assert.IsType<Dictionary<string, object?>>(decoded[1].Annotations!["@metadata"])["@collection"]);
+        Assert.Equal(["@id", "@flags"], records[0].Annotations!.Keys);
+        Assert.Equal(["@id", "@metadata", "Tags"], records[1].Annotations!.Keys);
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_LegacyListItems_CapturedPerItem(ToonProtocolVersion version)
+    {
+        const string text = "[3]:\n  - Name: Cash\n    \"@id\": a/1\n    \"@flags\": x\n  - \"@id\": a/2\n    Name: Bank\n  - Tags[2]: a,b\n    Name: Third";
+        var options = Options(version, Route.Direct);
+
+        var decoded = ToonDecoder.Decode<List<Account>>(text, options)!;
+        var records = ToonDecoder.Decode<List<AccountRecord>>(text, options)!;
+
+        Assert.Equal(["@id", "@flags"], decoded[0].Annotations!.Keys);
+        Assert.Equal("Bank", decoded[1].Name);
+        Assert.Equal(["@id"], decoded[1].Annotations!.Keys);
+        Assert.Equal("Third", decoded[2].Name);
+        Assert.Equal(["a", "b"], Assert.IsType<List<object?>>(decoded[2].Annotations!["Tags"]));
+        Assert.Equal(["@id"], records[1].Annotations!.Keys);
+        Assert.Equal("Third", records[2].Name);
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_LegacyListItemFirstFieldNestedValues_MatchUntypedDecode(ToonProtocolVersion version)
+    {
+        var source = new List<Dictionary<string, object?>>
+        {
+            new()
+            {
+                ["Rows"] = new List<Dictionary<string, object?>> { new() { ["K"] = "a", ["V"] = 1 }, new() { ["K"] = "b", ["V"] = 2 } },
+                ["Name"] = "Cash"
+            },
+            new() { ["Meta"] = new Dictionary<string, object?> { ["rev"] = 3 }, ["Name"] = "Bank" }
+        };
+        var text = ToonEncoder.Encode(source, new ToonEncodeOptions { ProtocolVersion = version, Indent = 2 });
+        var options = Options(version, Route.Direct);
+
+        var decoded = ToonDecoder.Decode<List<Account>>(text, options)!;
+        var untyped = ToonDecoder.Decode<List<Dictionary<string, object?>>>(text, options)!;
+
+        Assert.Equal("Cash", decoded[0].Name);
+        var rows = Assert.IsType<List<object?>>(decoded[0].Annotations!["Rows"]);
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(2d, Assert.IsType<Dictionary<string, object?>>(rows[1])["V"]);
+        Assert.Equal("Bank", decoded[1].Name);
+        Assert.Equal(3d, Assert.IsType<Dictionary<string, object?>>(decoded[1].Annotations!["Meta"])["rev"]);
+        Assert.Equal("Cash", untyped[0]["Name"]);
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_LegacyTypeWithoutAttribute_UnmatchedKeysStillIgnored(ToonProtocolVersion version)
+    {
+        const string text = "Name: Cash\nExtra:\n  A: 1\nTags[2]: a,b\n\"@id\": a/1\nNumber: 7";
+
+        var decoded = ToonDecoder.Decode<PlainAccount>(text, Options(version, Route.Direct))!;
+
+        Assert.Equal("Cash", decoded.Name);
+        Assert.Equal(7, decoded.Number);
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_LegacyEmptyDocument_ExtensionStaysNull(ToonProtocolVersion version)
+    {
+        var empty = ToonDecoder.Decode<Account>(string.Empty, Options(version, Route.Direct))!;
+        var matchedOnly = ToonDecoder.Decode<Account>("Name: Cash", Options(version, Route.Direct))!;
+        var record = ToonDecoder.Decode<AccountRecord>("Name: Cash", Options(version, Route.Direct))!;
+
+        Assert.Null(empty.Annotations);
+        Assert.Null(matchedOnly.Annotations);
+        Assert.Null(record.Annotations);
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_LegacyAttributedTypeFirstUseInParallel_CapturesOnEveryThread(ToonProtocolVersion version)
+    {
+        var text = version == ToonProtocolVersion.V3_0
+            ? "Name: Cash\n\"@id\": a/1\nItems[1]:\n  - Name: x\n    \"@k\": 1"
+            : "Name: Cash\n\"@id\": a/1\nItems[1]{Name,\"@k\"}:\n  x,1";
+        var results = new ParallelFirstUse[16];
+
+        Parallel.For(0, results.Length, i =>
+            results[i] = version == ToonProtocolVersion.V3_0
+                ? ToonDecoder.Decode<ParallelFirstUse>(text, Options(version, Route.Direct))!
+                : ToonDecoder.Decode<ParallelFirstUseCustom>(text, Options(version, Route.Direct))!);
+
+        Assert.All(results, r =>
+        {
+            Assert.Equal("a/1", r.Annotations!["@id"]);
+            Assert.Equal(1d, r.Items![0].Annotations!["@k"]);
+        });
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_Legacy040KeyValueRows_StayListEntry(ToonProtocolVersion version)
+    {
+        const string text = "Name: Other Expenses\nAnnotations[2]{Key}:\n  \"@id\"\n    Value: accounts/6900\n  \"@metadata\"\n    Value:\n      \"@collection\": Accounts";
+
+        var decoded = ToonDecoder.Decode<Account>(text, Options(version, Route.Direct))!;
+
+        Assert.Equal(["Annotations"], decoded.Annotations!.Keys);
+        var rows = Assert.IsType<List<object?>>(decoded.Annotations["Annotations"]);
+        Assert.Equal("@id", Assert.IsType<Dictionary<string, object?>>(rows[0])["Key"]);
+    }
+
+    [Theory]
+    [MemberData(nameof(V4Versions))]
+    public void Decode_V4NestedObjectNamedLikeProperty_StaysEntry(ToonProtocolVersion version)
+    {
+        var key = version == ToonProtocolVersion.CustomV4_4 ? "@id" : "\"@id\"";
+
+        var decoded = ToonDecoder.Decode<Account>($"Name: Cash\nAnnotations:\n  {key}: a/1", new ToonDecodeOptions { ProtocolVersion = version, Indent = 2 })!;
+
+        Assert.Equal(["Annotations"], decoded.Annotations!.Keys);
+        Assert.Equal("a/1", Assert.IsType<Dictionary<string, object?>>(decoded.Annotations["Annotations"])["@id"]);
+    }
+
+    [Theory]
+    [MemberData(nameof(V4Versions))]
+    public void Decode_V4DeclaredReadOnlyMemberKey_NotCaptured(ToonProtocolVersion version)
+    {
+        var options = new ToonDecodeOptions { ProtocolVersion = version, Indent = 2 };
+
+        var decoded = ToonDecoder.Decode<ReadOnlyMemberAccount>("Name: Cash\nUpper: X\nsum: 2\nTotal: 3\nOther: 1", options)!;
+        var table = ToonDecoder.Decode<List<ReadOnlyMemberAccount>>("[1]{Name,Upper,Other}:\n  Cash,X,1", options)!;
+        var record = ToonDecoder.Decode<RecordWithComputed>("Name: Cash\nShout: X\nOther: 1", options)!;
+
+        Assert.Equal(["Other"], decoded.Annotations!.Keys);
+        Assert.Equal(0, decoded.Total);
+        Assert.Equal(["Other"], table[0].Annotations!.Keys);
+        Assert.Equal(["Other"], record.Annotations!.Keys);
+    }
+
+    [Fact]
+    public void Deserialize_JsonThreeArgumentLegacyOptions_Captures()
+    {
+        var service = new ToonService();
+        const string json = "{\"Name\":\"Cash\",\"@id\":\"a/1\",\"n\":3}";
+
+        foreach (var version in new[] { ToonProtocolVersion.V3_0, ToonProtocolVersion.CustomLegacy, ToonProtocolVersion.V4_4 })
+        {
+            var decoded = service.Deserialize<Account>(json, "application/json", new ToonDecodeOptions { ProtocolVersion = version })!;
+
+            Assert.Equal("Cash", decoded.Name);
+            Assert.Equal(["@id", "n"], decoded.Annotations!.Keys);
+            Assert.Equal(3d, Assert.IsType<double>(decoded.Annotations["n"]));
+        }
+    }
+
     [Fact]
     public void Deserialize_JsonTwoArgument_CapturesUnmatchedKeys()
     {
@@ -386,6 +604,38 @@ public sealed class LegacyExtensionDataTests
     public sealed record RecordWithExtra(string Name, [property: ToonExtensionData] IDictionary<string, object?>? Annotations)
     {
         public string? Note { get; set; }
+    }
+
+    public sealed class AccountDirectory
+    {
+        public string? Name { get; set; }
+        public Dictionary<string, Account>? Map { get; set; }
+    }
+
+    public sealed record RecordWithComputed(string Name, [property: ToonExtensionData] IDictionary<string, object?>? Annotations)
+    {
+        public string Shout => Name.ToUpperInvariant();
+    }
+
+    public class ParallelFirstUse
+    {
+        public string? Name { get; set; }
+        public List<ParallelFirstUseItem>? Items { get; set; }
+
+        [ToonExtensionData]
+        public IDictionary<string, object?>? Annotations { get; set; }
+    }
+
+    public sealed class ParallelFirstUseCustom : ParallelFirstUse
+    {
+    }
+
+    public sealed class ParallelFirstUseItem
+    {
+        public string? Name { get; set; }
+
+        [ToonExtensionData]
+        public IDictionary<string, object?>? Annotations { get; set; }
     }
 
     public sealed class Ledger<TAccount>

@@ -63,6 +63,7 @@ internal static class V4Materialization
         internal Action<object, object?>? ExtensionSetter;
         internal int ExtensionArgument = -1;
         internal string? ExtensionName;
+        internal HashSet<string>? UnboundMembers;
     }
 
     private static Plan BuildPlan(Type type)
@@ -143,6 +144,14 @@ internal static class V4Materialization
                 plan.Members[property.Name] = member;
                 var alias = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
                 if (alias != null && alias != property.Name) plan.Members[alias] = new Member { Type = member.Type, Name = member.Name, WireName = alias, Index = index++, Argument = member.Argument, Setter = member.Setter, SimpleSetter = member.SimpleSetter, TextSetter = member.TextSetter };
+            }
+            else if (extension != null)
+            {
+                // A declared member the decoder cannot bind is never captured as extension data.
+                var unbound = plan.UnboundMembers ??= new HashSet<string>(plan.Members.Comparer);
+                unbound.Add(property.Name);
+                var alias = property.GetCustomAttribute<ToonPropertyNameAttribute>()?.Name;
+                if (alias is { Length: > 0 }) unbound.Add(alias);
             }
         }
         return plan;
@@ -380,7 +389,7 @@ internal static class V4Materialization
             pending = null; seen = 0; overflow = null; extension = null;
         }
 
-        internal Type? FieldType(string name) => type == null ? null : type == typeof(void) ? typeof(void) : plan!.ValueType ?? (plan.Members.TryGetValue(name, out var member) ? member.Type : plan.ExtensionName != null ? typeof(object) : typeof(void));
+        internal Type? FieldType(string name) => type == null ? null : type == typeof(void) ? typeof(void) : plan!.ValueType ?? (plan.Members.TryGetValue(name, out var member) ? member.Type : plan.ExtensionName != null && plan.UnboundMembers?.Contains(name) != true ? typeof(object) : typeof(void));
         internal Member? FindMember(string name) => plan != null && plan.Members.TryGetValue(name, out var member) ? member : null;
         internal bool Contains(string name, Member? boundMember = null)
         {
@@ -413,7 +422,7 @@ internal static class V4Materialization
             else
             {
                 (overflow ??= new HashSet<string>(StringComparer.Ordinal)).Add(name);
-                if (plan?.ExtensionName != null) Extension()[name] = value;
+                if (plan?.ExtensionName != null && plan.UnboundMembers?.Contains(name) != true) Extension()[name] = value;
             }
         }
 
