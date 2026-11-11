@@ -184,7 +184,7 @@ internal static class V4ClrEncoder
             {
                 if (property.EnumerableElementType == null) continue;
                 var value = property.Getter(rows[row]!);
-                if (value is IEnumerable && value is not string && value is not IDictionary &&
+                if (value is IEnumerable && value is not string && !DictionaryEntries.IsDictionaryType(value.GetType()) &&
                     !(options.ByteArrayFormat == ToonByteArrayFormat.Base64String && value is IEnumerable<byte>)) return true;
             }
         return false;

@@ -31,7 +31,8 @@
 - Adds ToonEncodeOptions.ConstantColumns (default false): with CustomV4_4, a column whose value is identical in every row of a table with at least three rows is written once in the table header as Name=value; other protocol versions ignore the option and their output is unchanged; readers from 0.4.0 and earlier cannot decode output written with it, so enable it only after every reader is updated
 - Adds CustomV4_4 decoding of header constants, applied to every row exactly like a cell value for typed, ToonNode and JSON targets; empty or malformed constants, constants on field groups, duplicate fields and headers without a cell column are rejected
 - Improves automatic version detection: an unquoted '=' inside a table header field list now selects CustomV4_4 without a version hint, so hand-written official input that uses such an unquoted field name, which Auto decoded in 0.4.0, now fails with a row width error and needs an explicit official ProtocolVersion
-- Fixes V3_0 and CustomLegacy encoding of a dictionary passed as the root value: it is now written as an object (k: v) instead of a [N]{Key,Value} table, so it decodes back to a dictionary</PackageReleaseNotes>
+- Fixes V3_0 and CustomLegacy encoding of a root dictionary and of properties declared as IDictionary&lt;TKey,TValue&gt; or IReadOnlyDictionary&lt;TKey,TValue&gt;: they are now written as objects (k: v) instead of [N]{Key,Value} tables, so they decode back to dictionaries
+- Fixes encoding, on every protocol version, of types that implement only the generic IDictionary&lt;TKey,TValue&gt; or IReadOnlyDictionary&lt;TKey,TValue&gt;, such as ExpandoObject: they are now written as objects at the root, in properties and in lists</PackageReleaseNotes>
 		<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
 

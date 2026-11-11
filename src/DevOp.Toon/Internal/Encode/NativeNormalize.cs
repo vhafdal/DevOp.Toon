@@ -43,10 +43,10 @@ internal static class NativeNormalize
         if (value is object jsonValue && TryNormalizeJsonValue(jsonValue, out var jsonNode))
             return jsonNode;
 
-        if (value is IDictionary dict)
+        if (DictionaryEntries.Get(value) is { } entries)
         {
             var objectNode = new NativeObjectNode();
-            foreach (DictionaryEntry entry in dict)
+            foreach (var entry in entries)
             {
                 objectNode[entry.Key?.ToString() ?? string.Empty] = Normalize(entry.Value, options);
             }
@@ -96,10 +96,10 @@ internal static class NativeNormalize
         if (value is object jsonValue && TryNormalizeJsonValue(jsonValue, out var jsonNode))
             return jsonNode;
 
-        if (value is IDictionary dict)
+        if (DictionaryEntries.Get(value) is { } entries)
         {
             var objectNode = new NativeObjectNode();
-            foreach (DictionaryEntry entry in dict)
+            foreach (var entry in entries)
             {
                 objectNode[entry.Key?.ToString() ?? string.Empty] = Normalize(entry.Value, options);
             }
