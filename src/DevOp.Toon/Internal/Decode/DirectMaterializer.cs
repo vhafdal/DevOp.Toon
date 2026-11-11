@@ -2290,7 +2290,7 @@ namespace DevOp.Toon.Internal.Decode
             var field = parsedField ?? ParseFieldContent(content, contentStart);
             if (field.ArrayHeader != null)
             {
-                obj[field.ArrayHeader.Header.Key!] = ReadUntypedArray(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
+                obj[GetArrayHeaderKey(content, field.ArrayHeader)] = ReadUntypedArray(cursor, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, baseDepth, options);
                 return;
             }
 
@@ -2300,18 +2300,18 @@ namespace DevOp.Toon.Internal.Decode
                 if (!nextLine.IsNone && nextLine.Depth > baseDepth)
                 {
                     TryReadUntypedObject(cursor, baseDepth + 1, options, out var nested);
-                    obj[field.Key!] = nested;
+                    obj[GetFieldKey(content, field)] = nested;
                 }
                 else
                 {
-                    obj[field.Key!] = new Dictionary<string, object?>(StringComparer.Ordinal);
+                    obj[GetFieldKey(content, field)] = new Dictionary<string, object?>(StringComparer.Ordinal);
                 }
 
                 return;
             }
 
             TryConvertUntypedPrimitive(content, field.ValueStart, content.Length, out var primitive);
-            obj[field.Key!] = primitive;
+            obj[GetFieldKey(content, field)] = primitive;
         }
 
         private static bool TryReadUntypedObjectFromListItem(
