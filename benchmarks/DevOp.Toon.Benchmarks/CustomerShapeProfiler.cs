@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace DevOp.Toon.Benchmarks;
 
-internal static class KanShapeProfiler
+internal static class CustomerShapeProfiler
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -22,7 +22,7 @@ internal static class KanShapeProfiler
 
     public static bool TryRun(string[] args)
     {
-        if (!args.Any(static arg => string.Equals(arg, "--profile-kan-shape", StringComparison.OrdinalIgnoreCase)))
+        if (!args.Any(static arg => string.Equals(arg, "--profile-customer-shape", StringComparison.OrdinalIgnoreCase)))
         {
             return false;
         }
