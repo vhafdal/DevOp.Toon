@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -478,6 +477,7 @@ public sealed class ConstantColumnTests
         Assert.Equal(text, Encoding.UTF8.GetString(stream.ToArray()));
     }
 
+#if NET8_0_OR_GREATER
     [Fact]
     public void RoundTrip_EveryScalarTypeAsConstant_ReproducesValues()
     {
@@ -494,6 +494,7 @@ public sealed class ConstantColumnTests
         Assert.All(decoded, row => Assert.Equal(sample.Offset.Offset, row.Offset.Offset));
         Assert.Equal(ToonEncoder.Encode(rows, Encode(constants: false)), ToonEncoder.Encode(decoded, Encode(constants: false)));
     }
+#endif
 
     [Fact]
     public void RoundTrip_JsonWithConstants_PreservesKeyOrderAndTypes()
@@ -512,7 +513,9 @@ public sealed class ConstantColumnTests
     public void Encode_ClrAndNodePaths_ProduceIdenticalBytes()
     {
         AssertSamePaths(Accounts());
+#if NET8_0_OR_GREATER
         AssertSamePaths(Enumerable.Range(1, 4).Select(i => Scalars.Sample() with { Id = i, Missing = i == 2 ? 5 : null }).ToArray());
+#endif
         AssertSamePaths(Enumerable.Range(1, 3).Select(i => new Order { Id = i, Customer = new Customer { Country = "IS", Name = "n" + i } }).ToArray());
         AssertSamePaths(Enumerable.Range(1, 3).Select(i => new Noted { Id = i, Note = null, Tag = "", G = new NullLeaf { X = null, Y = 1 } }).ToArray());
         AssertSamePaths(Enumerable.Range(1, 3).Select(i => new { G = new { X = 1, Y = 2 }, Z = 3 }).ToArray());
@@ -690,6 +693,7 @@ public sealed class ConstantColumnTests
         public Uri? Link { get; set; }
     }
 
+#if NET8_0_OR_GREATER
     public sealed record Scalars(
         int Id, string Text, bool Flag, char Letter, byte U8, sbyte S8, short S16, ushort U16, int S32, uint U32, long S64, ulong U64,
         decimal Money, double Ratio, float Single, Guid Key, TimeSpan Span, Version Ver, Uri Link, LineKind Kind,
@@ -701,6 +705,7 @@ public sealed class ConstantColumnTests
             new DateTime(2026, 1, 2, 17, 3, 15, DateTimeKind.Utc), new DateTime(2026, 1, 2, 17, 3, 15, DateTimeKind.Unspecified), new DateTimeOffset(2026, 1, 2, 17, 3, 15, TimeSpan.FromHours(2)),
             new DateOnly(2026, 1, 2), new TimeOnly(17, 3, 15), null, null);
     }
+#endif
 
     internal static ToonDecodeOptions Custom(bool strict = true)
         => new() { ProtocolVersion = ToonProtocolVersion.CustomV4_4, Indent = 2, Strict = strict };
@@ -777,4 +782,3 @@ public sealed class ConstantColumnTests
         public List<IntCode>? Third { get; set; }
     }
 }
-#endif

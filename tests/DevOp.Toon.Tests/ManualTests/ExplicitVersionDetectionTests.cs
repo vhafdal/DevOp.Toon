@@ -80,4 +80,26 @@ public sealed class ExplicitVersionDetectionTests
         var json = System.Text.Json.Nodes.JsonNode.Parse(ToonDecoder.Toon2Json(constants))!["rows"]!.AsArray();
         Assert.All(json, row => Assert.Equal(".5", (string?)row!["Value"]));
     }
+
+    [Fact]
+    public void Decode_AutoOfficialFieldNameWithEquals_ThrowsRowWidthMismatch()
+    {
+        const string source = "[2]{a=b,c}:\n  1,2\n  3,4";
+
+        var error = Assert.Throws<ToonFormatException>(() => ToonDecoder.Toon2Json(source));
+        Assert.Contains("Row width mismatch", error.Message);
+        var official = ToonDecoder.Toon2Json(source, new ToonDecodeOptions { ProtocolVersion = ToonProtocolVersion.V4_4, Indent = 2 });
+        Assert.Equal("[{\"a=b\":1,\"c\":2},{\"a=b\":3,\"c\":4}]", official);
+    }
+
+    [Fact]
+    public void DetectVersion_ConstantHeaderWithMinorVersionConflict_StillRequiresHint()
+    {
+        const string source = "\ufeffrows[3]{Code=x,Value}:\n  1\n  2\n  3";
+
+        var detection = ToonDecoder.DetectVersion(source);
+        Assert.True(detection.RequiresVersionHint);
+        Assert.Null(detection.SelectedVersion);
+        Assert.Null(detection.DetectedVersion);
+    }
 }

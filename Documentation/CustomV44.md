@@ -135,7 +135,10 @@ row the header value, exactly as if each row had held it in a cell.
 
 The decoders in this release always accept constant columns in `CustomV4_4` input. `Auto`
 detection treats an unquoted `=` inside a header field list as custom 4.4, since no other encoder
-writes one. Readers from DevOp.Toon 0.4.0 and earlier cannot read this output: under `CustomV4_4`,
+writes one. Hand-written official input that uses such an unquoted field name, for example
+`[2]{a=b,c}:` with two cells per row, was decoded by `Auto` in 0.4.0 but now fails with a
+row-width error; decode it with an explicit official `ProtocolVersion`, which still reads `a=b` as a
+field name. Readers from DevOp.Toon 0.4.0 and earlier cannot read this output: under `CustomV4_4`,
 `V4_4` or `Auto` they reject it with a row-width error, and an explicit `V4_0` to `V4_3` non-strict
 reader can bind the cells to the wrong columns. Turn the option on only when every reader has
 been updated.
@@ -382,7 +385,9 @@ Constant columns cut uncompressed size substantially when many columns repeat, b
 Brotli already remove most of that repetition: on the product fixture the compressed payloads
 became slightly larger. Expect the benefit mainly where payloads are not compressed, or for
 wide tables with many row-invariant columns. Encoding with the option on allocated 7,094,544
-bytes for the product fixture against 7,213,952 bytes with it off; timings on the shared
+bytes for the product fixture against 7,213,952 bytes with it off, while decoding allocated
+10,353,880 bytes against 10,243,488 (+1.1%), because more distinct header texts reach the
+header caches; timings on the shared
 measurement machine varied too much between runs to report a speed difference. The
 [protocol benchmark harness](../benchmarks/DevOp.Toon.ProtocolBenchmarks/README.md) reproduces
 these figures with the `custom4.4-constants-lossless` and `custom4.4-constants-compact` profiles.
