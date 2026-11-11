@@ -254,7 +254,8 @@ internal static class ClrObjectArrayFastEncoder
         properties = Array.Empty<NativeNormalize.PropertyMetadata>();
         elementType = null;
 
-        if (data is null or string || data is not IEnumerable enumerable)
+        // A dictionary is an object, not a table of its KeyValuePair entries.
+        if (data is null or string or IDictionary || data is not IEnumerable enumerable)
         {
             rows = new List<object>();
             return false;
