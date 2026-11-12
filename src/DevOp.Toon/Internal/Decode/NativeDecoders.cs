@@ -16,9 +16,8 @@ internal static class NativeDecoders
     /// </summary>
     /// <param name="cursor">The cursor positioned at the first line of the value.</param>
     /// <param name="options">Resolved decode options controlling indentation, strictness, and object-array layout.</param>
-    /// <param name="quotedKeys">Optional set populated with quoted root keys so path expansion can distinguish literal dotted keys.</param>
-    /// <returns>The decoded native node.</returns>
-    public static NativeNode? DecodeValueFromLines(LineCursor cursor, ResolvedDecodeOptions options, HashSet<string>? quotedKeys = null)
+    /// <returns>The decoded native node; object nodes mark their quoted dotted keys so path expansion keeps them literal.</returns>
+    public static NativeNode? DecodeValueFromLines(LineCursor cursor, ResolvedDecodeOptions options)
     {
         var first = cursor.Peek();
         if (first.IsNone)
@@ -37,7 +36,7 @@ internal static class NativeDecoders
         if (cursor.Length == 1 && !IsKeyValueLine(first))
             return Parser.ParsePrimitiveNativeToken(first.Content.Trim());
 
-        return DecodeObject(cursor, 0, options, quotedKeys);
+        return DecodeObject(cursor, 0, options);
     }
 
     private static bool IsKeyValueLine(ParsedLine line)
@@ -55,7 +54,7 @@ internal static class NativeDecoders
         return content.Contains(Constants.COLON);
     }
 
-    private static NativeObjectNode DecodeObject(LineCursor cursor, int baseDepth, ResolvedDecodeOptions options, HashSet<string>? quotedKeys = null)
+    private static NativeObjectNode DecodeObject(LineCursor cursor, int baseDepth, ResolvedDecodeOptions options)
     {
         var obj = new NativeObjectNode();
         int? computedDepth = null;
@@ -72,10 +71,7 @@ internal static class NativeDecoders
             if (line.Depth == computedDepth)
             {
                 var (key, value, wasQuoted) = DecodeKeyValuePair(line, cursor, computedDepth.Value, options);
-                obj[key] = value;
-
-                if (wasQuoted && quotedKeys != null && baseDepth == 0)
-                    quotedKeys.Add(key);
+                SetField(obj, key, value, wasQuoted);
             }
             else
             {
@@ -84,6 +80,13 @@ internal static class NativeDecoders
         }
 
         return obj;
+    }
+
+    private static void SetField(NativeObjectNode obj, string key, NativeNode? value, bool wasQuoted)
+    {
+        obj[key] = value;
+        if (wasQuoted && key.IndexOf(Constants.DOT) >= 0)
+            obj.MarkLiteralKey(key);
     }
 
     private sealed class KeyValueDecodeResult
@@ -110,7 +113,7 @@ internal static class NativeDecoders
                 Key = arrayHeader.Header.Key,
                 Value = value,
                 FollowDepth = baseDepth + 1,
-                WasQuoted = false
+                WasQuoted = arrayHeader.HasKeyRange && content[arrayHeader.KeyStart] == Constants.DOUBLE_QUOTE
             };
         }
 
@@ -270,7 +273,8 @@ internal static class NativeDecoders
                 var obj = new NativeObjectNode();
                 for (int i = 0; i < header.Fields.Count; i++)
                 {
-                    obj[header.Fields[i]] = Parser.ParsePrimitiveNativeToken(values[i]);
+                    var field = header.Fields[i];
+                    SetField(obj, field, Parser.ParsePrimitiveNativeToken(values[i]), header.QuotedDottedFields?.Contains(field) == true);
                 }
 
                 var followDepth = rowDepth + 1;
@@ -282,8 +286,8 @@ internal static class NativeDecoders
 
                     if (continuation.Depth == followDepth && !continuation.Content.StartsWith(Constants.LIST_ITEM_PREFIX, StringComparison.Ordinal))
                     {
-                        var (key, value, _) = DecodeKeyValuePair(continuation, cursor, followDepth, options);
-                        obj[key] = value;
+                        var (key, value, wasQuoted) = DecodeKeyValuePair(continuation, cursor, followDepth, options);
+                        SetField(obj, key, value, wasQuoted);
                         continue;
                     }
 
@@ -345,10 +349,8 @@ internal static class NativeDecoders
         var afterHyphen = firstLine.Content.Substring(Constants.LIST_ITEM_PREFIX.Length);
         var firstField = DecodeKeyValue(afterHyphen, cursor, baseDepth, options, isListItemFirstField: true);
 
-        var obj = new NativeObjectNode
-        {
-            [firstField.Key] = firstField.Value
-        };
+        var obj = new NativeObjectNode();
+        SetField(obj, firstField.Key, firstField.Value, firstField.WasQuoted);
 
         while (!cursor.AtEnd())
         {
@@ -358,8 +360,8 @@ internal static class NativeDecoders
 
             if (line.Depth == firstField.FollowDepth && !line.Content.StartsWith(Constants.LIST_ITEM_PREFIX, StringComparison.Ordinal))
             {
-                var (key, value, _) = DecodeKeyValuePair(line, cursor, firstField.FollowDepth, options);
-                obj[key] = value;
+                var (key, value, wasQuoted) = DecodeKeyValuePair(line, cursor, firstField.FollowDepth, options);
+                SetField(obj, key, value, wasQuoted);
             }
             else
             {

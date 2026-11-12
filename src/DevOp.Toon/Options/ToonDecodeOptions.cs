@@ -51,7 +51,8 @@ public class ToonDecodeOptions
     /// </summary>
     /// <remarks>
     /// The default value is <see cref="ToonPathExpansion.Off"/>, which treats dotted keys as literal property names.
-    /// Use <see cref="ToonPathExpansion.Safe"/> to expand eligible unquoted dotted keys into nested objects.
+    /// Use <see cref="ToonPathExpansion.Safe"/> to expand eligible unquoted dotted keys into nested objects at every depth,
+    /// including objects inside arrays, which matches the keys that key folding writes; quoted dotted keys stay literal.
     /// </remarks>
     public ToonPathExpansion ExpandPaths { get; set; } = ToonPathExpansion.Off;
 

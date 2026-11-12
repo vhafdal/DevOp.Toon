@@ -1,33 +1,46 @@
 #nullable enable
-using System.Collections.Generic;
 using DevOp.Toon.Internal.Encode;
 using DevOp.Toon.Internal.Shared;
 
 namespace DevOp.Toon.Internal.Decode;
 
 /// <summary>
-/// Expands eligible dotted root keys in a native object into nested native objects while preserving quoted dotted keys as literals.
+/// Expands eligible dotted keys at every depth of a native node graph into nested native objects while preserving quoted
+/// dotted keys as literals.
 /// </summary>
 internal static class NativePathExpansion
 {
     /// <summary>
-    /// Expands unquoted dotted keys such as <c>a.b.c</c> into nested object nodes.
+    /// Expands unquoted dotted keys such as <c>a.b.c</c> into nested object nodes, in objects at any depth and in the
+    /// objects inside arrays.
     /// </summary>
-    /// <param name="obj">The root object whose properties should be expanded.</param>
+    /// <param name="node">The decoded node to expand.</param>
     /// <param name="strict">Whether conflicts should throw instead of being overwritten or merged.</param>
-    /// <param name="quotedKeys">Root keys that were quoted in source and must remain literal.</param>
-    /// <returns>A cloned object graph with path expansion applied.</returns>
-    public static NativeObjectNode ExpandPaths(NativeObjectNode obj, bool strict, HashSet<string>? quotedKeys = null)
+    /// <returns>A new node graph with path expansion applied; primitive nodes are shared with the input.</returns>
+    public static NativeNode? ExpandPaths(NativeNode? node, bool strict)
     {
+        if (node is NativeArrayNode array)
+        {
+            var expandedArray = new NativeArrayNode();
+            foreach (var item in array)
+            {
+                expandedArray.Add(ExpandPaths(item, strict));
+            }
+
+            return expandedArray;
+        }
+
+        if (node is not NativeObjectNode obj)
+            return node;
+
         var result = new NativeObjectNode();
 
         foreach (var kvp in obj)
         {
             var key = kvp.Key;
-            var value = kvp.Value;
-            bool wasQuoted = quotedKeys != null && quotedKeys.Contains(key);
+            var value = ExpandPaths(kvp.Value, strict);
 
-            if (!wasQuoted && key.Contains(Constants.DOT))
+            if (key.IndexOf(Constants.DOT) >= 0 && !obj.IsLiteralKey(key))
             {
                 var segments = key.Split(Constants.DOT);
                 bool expandable = true;
@@ -127,7 +140,7 @@ internal static class NativePathExpansion
             }
         }
 
-        target[key] = CloneNode(value);
+        target[key] = value;
     }
 
     private static void DeepMerge(NativeObjectNode target, NativeObjectNode source, bool strict)
@@ -136,41 +149,6 @@ internal static class NativePathExpansion
         {
             SetValue(target, kvp.Key, kvp.Value, strict);
         }
-    }
-
-    private static NativeNode? CloneNode(NativeNode? node)
-    {
-        if (node is null)
-            return null;
-
-        if (node is NativePrimitiveNode primitive)
-            return primitive.NumberText is { } numberText
-                ? new NativePrimitiveNode(primitive.Value!, numberText)
-                : new NativePrimitiveNode(primitive.Value);
-
-        if (node is NativeArrayNode array)
-        {
-            var clone = new NativeArrayNode();
-            foreach (var item in array)
-            {
-                clone.Add(CloneNode(item));
-            }
-
-            return clone;
-        }
-
-        if (node is NativeObjectNode obj)
-        {
-            var clone = new NativeObjectNode();
-            foreach (var kvp in obj)
-            {
-                clone.Add(kvp.Key, CloneNode(kvp.Value));
-            }
-
-            return clone;
-        }
-
-        return null;
     }
 
     private static string GetTypeName(NativeNode? node)

@@ -139,6 +139,7 @@ internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<st
 {
     private readonly List<KeyValuePair<string, NativeNode?>> properties = new();
     private readonly Dictionary<string, int> propertyIndexes = new(StringComparer.Ordinal);
+    private HashSet<string>? literalKeys;
 
     /// <summary>
     /// Gets the number of properties in the object.
@@ -194,6 +195,22 @@ internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<st
     /// <param name="key">The property key to test.</param>
     /// <returns><see langword="true"/> when the key exists; otherwise, <see langword="false"/>.</returns>
     public bool ContainsKey(string key) => propertyIndexes.ContainsKey(key);
+
+    /// <summary>
+    /// Records that <paramref name="key"/> was quoted in source, so path expansion keeps it as a literal key.
+    /// </summary>
+    /// <param name="key">The decoded key.</param>
+    public void MarkLiteralKey(string key)
+    {
+        (literalKeys ??= new HashSet<string>(StringComparer.Ordinal)).Add(key);
+    }
+
+    /// <summary>
+    /// Returns whether <paramref name="key"/> was quoted in source and must not be expanded as a dotted path.
+    /// </summary>
+    /// <param name="key">The property key to test.</param>
+    /// <returns><see langword="true"/> when the key was marked literal.</returns>
+    public bool IsLiteralKey(string key) => literalKeys != null && literalKeys.Contains(key);
 
     /// <summary>
     /// Adds or replaces a property value.

@@ -21,6 +21,8 @@ namespace DevOp.Toon.Internal.Decode
         public char Delimiter { get; set; }
         /// <summary>Gets or sets tabular field names when the array uses row format.</summary>
         public List<string>? Fields { get; set; }
+        /// <summary>Gets or sets the dotted tabular field names that were quoted in source, or <see langword="null"/> when none were.</summary>
+        public HashSet<string>? QuotedDottedFields { get; set; }
     }
 
     /// <summary>
@@ -153,11 +155,20 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             List<string>? fields = null;
+            HashSet<string>? quotedDottedFields = null;
             if (braceStart != -1)
             {
-                fields = ParseDelimitedValues(content.AsSpan(braceStart + 1, braceEnd - braceStart - 1), parsedBracket.Delimiter)
-                    .Select(ParseStringLiteral)
-                    .ToList();
+                var rawFields = ParseDelimitedValues(content.AsSpan(braceStart + 1, braceEnd - braceStart - 1), parsedBracket.Delimiter);
+                fields = new List<string>(rawFields.Count);
+                foreach (var rawField in rawFields)
+                {
+                    var field = ParseStringLiteral(rawField);
+                    fields.Add(field);
+                    if (field.IndexOf(Constants.DOT) >= 0 && rawField.AsSpan().TrimStart().StartsWith("\"".AsSpan(), StringComparison.Ordinal))
+                    {
+                        (quotedDottedFields ??= new HashSet<string>(StringComparer.Ordinal)).Add(field);
+                    }
+                }
             }
 
             var inlineValueStart = FindTrimmedStart(content, colonIndex + 1, content.Length);
@@ -173,6 +184,7 @@ namespace DevOp.Toon.Internal.Decode
                     Length = parsedBracket.Length,
                     Delimiter = parsedBracket.Delimiter,
                     Fields = fields,
+                    QuotedDottedFields = quotedDottedFields,
                 },
                 KeyStart = keyStart,
                 KeyEndExclusive = keyEndExclusive,

@@ -250,6 +250,79 @@ public sealed class LegacyTypedDecodeShapeTests
         AssertNotSupportedOnEveryRoute(new IntKeyedHolder { Name = "a", Map = new Dictionary<int, string> { [1] = "one" } }, version);
     }
 
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_KeyChainsFoldedBelowTheRoot_ExpandOnPathExpansionRoute(ToonProtocolVersion version)
+    {
+        var source = new Settings(
+            "main",
+            new Section(3, new Dictionary<string, AddressDto> { ["home"] = new("Reykjavik", "Iceland") }),
+            [new Section(1, new Dictionary<string, AddressDto> { ["work"] = new("Oslo", "Norway") })]);
+        var encodeOptions = EncodeOptions(version);
+        encodeOptions.KeyFolding = ToonKeyFolding.Safe;
+        var toon = ToonEncoder.Encode(source, encodeOptions);
+        const string rootArray = "[1]:\n  - Size: 1\n    Map.work:\n      City: Oslo\n      Country: Norway";
+        Assert.Contains("\n  Map.home:", toon, StringComparison.Ordinal);
+
+        var decoded = ToonDecoder.Decode<Settings>(toon, DecodeOptions(version, ToonPathExpansion.Safe))!;
+        var decodedArray = ToonDecoder.Decode<List<Section>>(rootArray, DecodeOptions(version, ToonPathExpansion.Safe))!;
+
+        AssertStructurallyEqual(source, decoded);
+        AssertStructurallyEqual(source.History, decodedArray);
+        Assert.Equal(
+            JsonSerializer.Serialize(source),
+            ToonDecoder.Toon2Json(toon, DecodeOptions(version, ToonPathExpansion.Safe)));
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_DottedKeysBelowTheRoot_ExpandUnlessQuoted(ToonProtocolVersion version)
+    {
+        const string text =
+            "Outer:\n" +
+            "  \"a.b\": 1\n" +
+            "  \"q.r\"[2]: 1,2\n" +
+            "  c.d: 2\n" +
+            "  rows[1]{\"x.y\",z.w}:\n" +
+            "    3,4\n" +
+            "  items[1]:\n" +
+            "    - e.f: 5\n" +
+            "      \"g.h\": 6";
+        const string expected =
+            "{\"Outer\":{\"a.b\":1,\"q.r\":[1,2],\"c\":{\"d\":2},\"rows\":[{\"x.y\":3,\"z\":{\"w\":4}}],\"items\":[{\"e\":{\"f\":5},\"g.h\":6}]}}";
+
+        Assert.Equal(expected, ToonDecoder.Toon2Json(text, DecodeOptions(version, ToonPathExpansion.Safe)));
+        Assert.Equal(
+            "{\"q.r\":[1,2],\"c\":{\"d\":2}}",
+            ToonDecoder.Toon2Json("\"q.r\"[2]: 1,2\nc.d: 2", DecodeOptions(version, ToonPathExpansion.Safe)));
+        Assert.Equal(
+            "{\"Outer\":{\"a.b\":1,\"c.d\":2}}",
+            ToonDecoder.Toon2Json("Outer:\n  \"a.b\": 1\n  c.d: 2", DecodeOptions(version)));
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_ConflictingDottedKeysBelowTheRoot_FollowStrictMode(ToonProtocolVersion version)
+    {
+        const string text = "Outer:\n  a.b: 1\n  a: 2";
+        var strict = DecodeOptions(version, ToonPathExpansion.Safe);
+        var lenient = DecodeOptions(version, ToonPathExpansion.Safe);
+        lenient.Strict = false;
+
+        Assert.Throws<ToonPathExpansionException>(() => ToonDecoder.Toon2Json(text, strict));
+        Assert.Equal("{\"Outer\":{\"a\":2}}", ToonDecoder.Toon2Json(text, lenient));
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_ByteArrayTargetWithPathExpansionOff_KeepsDottedKeysLiteral(ToonProtocolVersion version)
+    {
+        var decoded = ToonDecoder.Decode<DottedBlob>("Data: AQID\na.b: x", DecodeOptions(version))!;
+
+        Assert.Equal([1, 2, 3], decoded.Data);
+        Assert.Equal("x", decoded.Dotted);
+    }
+
     private static void AssertNotSupportedOnEveryRoute<T>(T source, ToonProtocolVersion version)
     {
         var toon = ToonEncoder.Encode(source, EncodeOptions(version));
@@ -461,6 +534,18 @@ public sealed class LegacyTypedDecodeShapeTests
 
         public Dictionary<int, string> Map { get; set; } = new();
     }
+
+    private sealed class DottedBlob
+    {
+        public byte[] Data { get; set; } = [];
+
+        [ToonPropertyName("a.b")]
+        public string? Dotted { get; set; }
+    }
+
+    private sealed record Settings(string Name, Section Current, List<Section> History);
+
+    private sealed record Section(int Size, Dictionary<string, AddressDto> Map);
 
     private sealed record FoldedEnvelope<T>(FoldedBox<T> Box);
 
