@@ -862,7 +862,7 @@ namespace DevOp.Toon.Internal.Decode
             var headerLine = cursor.Current().LineNumber;
             object? value;
             bool read;
-            if (header.Header.Fields != null)
+            if (header.Header.Fields != null && header.Header.Length > 0)
             {
                 read = TryReadDictionaryFromHeader(cursor, plan, header.Header, header.InlineValues, arrayDepth, options, out value);
             }
@@ -982,6 +982,11 @@ namespace DevOp.Toon.Internal.Decode
                     var valueRange = tokenRanges[valueIndex];
                     if (!TryReadPrimitiveLikeValue(plan.ElementPlan, line.SourceString, contentOffset + valueRange.Start, contentOffset + valueRange.EndExclusive, out itemValue, alreadyTrimmed: true))
                     {
+                        if (plan.ElementPlan.Kind == PlanKind.Dictionary)
+                        {
+                            throw DictionaryShapeError(plan.ElementPlan, line.LineNumber, line.SourceString.Substring(contentOffset + valueRange.Start, valueRange.EndExclusive - valueRange.Start));
+                        }
+
                         value = null;
                         return false;
                     }

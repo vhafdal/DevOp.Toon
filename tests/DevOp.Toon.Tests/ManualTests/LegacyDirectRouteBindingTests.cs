@@ -93,6 +93,8 @@ public sealed class LegacyDirectRouteBindingTests
         AssertShapeError(3, "5", () => ToonDecoder.Decode<Dictionary<string, Dictionary<string, int>>>("b:\n  x: 1\na: 5", options));
         AssertShapeError(2, "5", () => ToonDecoder.Decode<List<Dictionary<string, Dictionary<string, int>>>>("[1]:\n  - a: 5", options));
         AssertShapeError(3, "5", () => ToonDecoder.Decode<Dictionary<string, Dictionary<string, Dictionary<string, int>>>>("k[1]{Key}:\n  a\n    Value: 5", options));
+        AssertShapeError(3, "7", () => ToonDecoder.Decode<Dictionary<string, Dictionary<string, Dictionary<string, int>>>>("k[2]{Key,Value}:\n  a,null\n  b,7", options));
+        AssertShapeError(4, "7", () => ToonDecoder.Decode<MapRecord<Dictionary<string, Dictionary<string, int>>>>("Id: 1\nV[2]{Key,Value}:\n  a,null\n  b,7", options));
     }
 
     [Theory]
@@ -126,6 +128,7 @@ public sealed class LegacyDirectRouteBindingTests
                      ("Id: 1\nV:\n  a: 1\nName: n", "{\"a\":1}"),
                      ("Id: 1\nV[1]{Key,Value}:\n  a,1\nName: n", "{\"a\":1}"),
                      ("Id: 1\nV[0]:\nName: n", "{}"),
+                     ("Id: 1\nV[0]{X}:\nName: n", "{}"),
                      ("Id: 1\nV[1]:\n  - Key: a\n    Value: 1\nName: n", "{\"a\":1}")
                  })
         {
@@ -212,6 +215,9 @@ public sealed class LegacyDirectRouteBindingTests
     }
 
     public sealed record MapRecord(int Id, Dictionary<string, int>? V = null, string? Name = null);
+
+    public sealed record MapRecord<TMap>(int Id, TMap? V = null)
+        where TMap : class;
 
     public sealed record CtorHolder(int Id)
     {
