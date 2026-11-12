@@ -88,6 +88,11 @@ public sealed class LegacyDirectRouteBindingTests
         AssertShapeError(3, "5", () => ToonDecoder.Decode<MapOuter>("Inner:\n  Id: 1\n  V: 5", options));
         AssertShapeError(2, "5", () => ToonDecoder.Decode<MapRecord>("Id: 1\nV: 5\nName: n", options));
         AssertShapeError(3, "5", () => ToonDecoder.Decode<List<MapRecord>>("[1]:\n  - Id: 1\n    V: 5", options));
+        AssertShapeError(2, "5", () => ToonDecoder.Decode<CtorHolder>("Id: 1\nV: 5", options));
+        AssertShapeError(2, "5", () => ToonDecoder.Decode<List<CtorHolder>>("[1]:\n  - V: 5\n    Id: 1", options));
+        AssertShapeError(3, "5", () => ToonDecoder.Decode<Dictionary<string, Dictionary<string, int>>>("b:\n  x: 1\na: 5", options));
+        AssertShapeError(2, "5", () => ToonDecoder.Decode<List<Dictionary<string, Dictionary<string, int>>>>("[1]:\n  - a: 5", options));
+        AssertShapeError(3, "5", () => ToonDecoder.Decode<Dictionary<string, Dictionary<string, Dictionary<string, int>>>>("k[1]{Key}:\n  a\n    Value: 5", options));
     }
 
     [Theory]
@@ -102,6 +107,10 @@ public sealed class LegacyDirectRouteBindingTests
         AssertShapeError(2, "array", () => ToonDecoder.Decode<List<MapHolder>>("[1]:\n  - V[2]: 1,2\n    Name: n", options));
         AssertShapeError(3, "array", () => ToonDecoder.Decode<List<MapHolder>>("[1]:\n  - Id: 1\n    V[2]: 1,2", options));
         AssertShapeError(2, "array", () => ToonDecoder.Decode<MapRecord>("Id: 1\nV[2]: 1,2\nName: n", options));
+        AssertShapeError(2, "array", () => ToonDecoder.Decode<MapRecord>("Id: 1\nV[1]{a}:\n  1\nName: n", options));
+        AssertShapeError(2, "array", () => ToonDecoder.Decode<CtorHolder>("Id: 1\nV[2]: 1,2", options));
+        AssertShapeError(2, "array", () => ToonDecoder.Decode<List<CtorHolder>>("[1]:\n  - V[2]: 1,2\n    Id: 1", options));
+        AssertShapeError(1, "array", () => ToonDecoder.Decode<Dictionary<string, Dictionary<string, int>>>("a[2]: 1,2", options));
     }
 
     [Theory]
@@ -122,11 +131,16 @@ public sealed class LegacyDirectRouteBindingTests
         {
             var holder = ToonDecoder.Decode<MapHolder>(text, options)!;
             var record = ToonDecoder.Decode<MapRecord>(text, options)!;
+            var ctorHolder = ToonDecoder.Decode<CtorHolder>(text, options)!;
+            var nested = ToonDecoder.Decode<Dictionary<string, Dictionary<string, int>?>>(text.Replace("Id: 1\n", "").Replace("\nName: n", ""), options)!;
 
             Assert.True(expected == JsonSerializer.Serialize(holder.V), $"{text}: holder bound {JsonSerializer.Serialize(holder.V)}");
             Assert.True(expected == JsonSerializer.Serialize(record.V), $"{text}: record bound {JsonSerializer.Serialize(record.V)}");
+            Assert.True(expected == JsonSerializer.Serialize(ctorHolder.V), $"{text}: constructor-backed holder bound {JsonSerializer.Serialize(ctorHolder.V)}");
+            Assert.True(expected == JsonSerializer.Serialize(nested["V"]), $"{text}: nested dictionary bound {JsonSerializer.Serialize(nested["V"])}");
             Assert.Equal("n", holder.Name);
             Assert.Equal("n", record.Name);
+            Assert.Equal(1, ctorHolder.Id);
         }
     }
 
@@ -198,4 +212,9 @@ public sealed class LegacyDirectRouteBindingTests
     }
 
     public sealed record MapRecord(int Id, Dictionary<string, int>? V = null, string? Name = null);
+
+    public sealed record CtorHolder(int Id)
+    {
+        public Dictionary<string, int>? V { get; set; }
+    }
 }
