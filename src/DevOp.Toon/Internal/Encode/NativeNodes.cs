@@ -210,6 +210,16 @@ internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<st
     }
 
     /// <summary>
+    /// Clears a literal mark left by an earlier quoted occurrence of <paramref name="key"/>.
+    /// </summary>
+    /// <param name="key">The decoded key.</param>
+    public void UnmarkLiteralKey(string key)
+    {
+        if (LiteralKeys.TryGetValue(this, out var keys))
+            keys.Remove(key);
+    }
+
+    /// <summary>
     /// Returns whether <paramref name="key"/> was quoted in source and must not be expanded as a dotted path.
     /// </summary>
     /// <param name="key">The property key to test.</param>

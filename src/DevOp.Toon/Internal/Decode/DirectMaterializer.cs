@@ -512,9 +512,9 @@ namespace DevOp.Toon.Internal.Decode
             var valuePlan = BuildPlan(valueType, building);
             if (!valuePlan.IsSupported)
             {
-                // A recognized container whose values this path cannot build must not be read as a plain object:
-                // leave the whole target to the native materializer. Recursive element types keep the old behaviour.
-                return !building.Contains(valueType);
+                // A recognized container whose values this path cannot build, including a recursive value type, must not
+                // be read as a plain object: leave the whole target to the native materializer.
+                return true;
             }
 
             plan = TypePlan.Dictionary(type, valuePlan, CreateDictionaryFactory(concreteDictionaryType));
@@ -536,7 +536,7 @@ namespace DevOp.Toon.Internal.Decode
                 var elementPlan = BuildPlan(elementType, building);
                 if (!elementPlan.IsSupported)
                 {
-                    return !building.Contains(elementType);
+                    return true;
                 }
 
                 plan = TypePlan.Array(
@@ -566,7 +566,7 @@ namespace DevOp.Toon.Internal.Decode
             var elementPlanForList = BuildPlan(elementTypeForList, building);
             if (!elementPlanForList.IsSupported)
             {
-                return !building.Contains(elementTypeForList);
+                return true;
             }
 
             var concreteListType = typeof(List<>).MakeGenericType(elementTypeForList);

@@ -21,8 +21,8 @@ namespace DevOp.Toon.Internal.Decode
         public char Delimiter { get; set; }
         /// <summary>Gets or sets tabular field names when the array uses row format.</summary>
         public List<string>? Fields { get; set; }
-        /// <summary>Gets or sets the dotted tabular field names that were quoted in source, or <see langword="null"/> when none were.</summary>
-        public HashSet<string>? QuotedDottedFields { get; set; }
+        /// <summary>Gets or sets, per tabular field position, whether a dotted field name was quoted in source; <see langword="null"/> when none was.</summary>
+        public bool[]? QuotedDottedFields { get; set; }
     }
 
     /// <summary>
@@ -155,18 +155,19 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             List<string>? fields = null;
-            HashSet<string>? quotedDottedFields = null;
+            bool[]? quotedDottedFields = null;
             if (braceStart != -1)
             {
                 var rawFields = ParseDelimitedValues(content.AsSpan(braceStart + 1, braceEnd - braceStart - 1), parsedBracket.Delimiter);
                 fields = new List<string>(rawFields.Count);
-                foreach (var rawField in rawFields)
+                for (var i = 0; i < rawFields.Count; i++)
                 {
+                    var rawField = rawFields[i];
                     var field = ParseStringLiteral(rawField);
                     fields.Add(field);
                     if (field.IndexOf(Constants.DOT) >= 0 && rawField.AsSpan().TrimStart().StartsWith("\"".AsSpan(), StringComparison.Ordinal))
                     {
-                        (quotedDottedFields ??= new HashSet<string>(StringComparer.Ordinal)).Add(field);
+                        (quotedDottedFields ??= new bool[rawFields.Count])[i] = true;
                     }
                 }
             }

@@ -216,6 +216,33 @@ public class ToonServiceTests
         Assert.Throws<ToonFormatException>(() => service.Decode<NestedDto>(text));
     }
 
+    [Theory]
+    [InlineData(ToonProtocolVersion.V3_0)]
+    [InlineData(ToonProtocolVersion.CustomLegacy)]
+    public void Decode_PinnedLenientDecodeVersion_KeepsDecodeIndent(ToonProtocolVersion version)
+    {
+        var options = new ToonServiceOptions { ProtocolVersion = version, Strict = false };
+        options.Decode.ProtocolVersion = version;
+        var service = new ToonService(options);
+
+        var decoded = service.Decode("Outer:\n a: 1")!;
+
+        Assert.Equal(1, decoded["a"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Decode_PinnedDecodeVersionWithEncodeIndentMultipleOfDecodeIndent_KeepsDecodeIndent()
+    {
+        var options = new ToonServiceOptions { ProtocolVersion = ToonProtocolVersion.V3_0 };
+        options.Encode.Indent = 4;
+        options.Decode.ProtocolVersion = ToonProtocolVersion.V3_0;
+        var service = new ToonService(options);
+
+        var decoded = service.Decode("a:\n    b:\n      c: 1")!;
+
+        Assert.Equal(1, decoded["a"]!["b"]!["c"]!.GetValue<int>());
+    }
+
     private sealed class NestedDto
     {
         public int Id { get; set; }

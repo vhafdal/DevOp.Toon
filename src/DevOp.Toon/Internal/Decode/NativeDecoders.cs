@@ -85,8 +85,14 @@ internal static class NativeDecoders
     private static void SetField(NativeObjectNode obj, string key, NativeNode? value, bool wasQuoted)
     {
         obj[key] = value;
-        if (wasQuoted && key.IndexOf(Constants.DOT) >= 0)
+        if (key.IndexOf(Constants.DOT) < 0)
+            return;
+
+        // The last occurrence of a repeated key decides both its value and whether it is literal.
+        if (wasQuoted)
             obj.MarkLiteralKey(key);
+        else
+            obj.UnmarkLiteralKey(key);
     }
 
     private sealed class KeyValueDecodeResult
@@ -274,7 +280,7 @@ internal static class NativeDecoders
                 for (int i = 0; i < header.Fields.Count; i++)
                 {
                     var field = header.Fields[i];
-                    SetField(obj, field, Parser.ParsePrimitiveNativeToken(values[i]), header.QuotedDottedFields?.Contains(field) == true);
+                    SetField(obj, field, Parser.ParsePrimitiveNativeToken(values[i]), header.QuotedDottedFields?[i] == true);
                 }
 
                 var followDepth = rowDepth + 1;

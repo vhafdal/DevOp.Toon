@@ -94,7 +94,8 @@ internal static class NativeTypedMaterializer
 
         if (building.Contains(type))
         {
-            return TypePlan.Unsupported(type);
+            // A type that refers back to itself binds through its own finished plan, looked up when a value is converted.
+            return type.IsValueType ? TypePlan.Unsupported(type) : TypePlan.Deferred(type);
         }
 
         building.Add(type);
@@ -447,8 +448,7 @@ internal static class NativeTypedMaterializer
         var valuePlan = BuildPlan(valueType, building);
         if (!valuePlan.IsSupported)
         {
-            // Recursive value types keep the old behaviour; any other value type the plan cannot build rejects the target.
-            return !building.Contains(valueType);
+            return true;
         }
 
         plan = TypePlan.Dictionary(
@@ -542,6 +542,8 @@ internal static class NativeTypedMaterializer
 
         switch (plan.Kind)
         {
+            case PlanKind.Deferred:
+                return TryConvert(node, plan.ResolveDeferred(), out value);
             case PlanKind.Any:
                 value = ConvertUntyped(node);
                 return true;
@@ -1669,6 +1671,8 @@ internal static class NativeTypedMaterializer
         /// <summary>Gets whether this target type is supported by the native materializer.</summary>
         public bool IsSupported => Kind != PlanKind.Unsupported;
 
+        private TypePlan? resolved;
+
         /// <summary>Gets the underlying plan for nullable value types.</summary>
         public TypePlan? UnderlyingPlan { get; private set; }
 
@@ -1748,6 +1752,11 @@ internal static class NativeTypedMaterializer
 
         public static TypePlan Any(Type type) => new TypePlan(type, PlanKind.Any);
 
+        public static TypePlan Deferred(Type type) => new TypePlan(type, PlanKind.Deferred);
+
+        /// <summary>Returns the finished plan of a recursive type, cached on first use.</summary>
+        public TypePlan ResolveDeferred() => resolved ??= GetPlan(Type);
+
         public static TypePlan Nullable(Type type, TypePlan underlyingPlan)
         {
             return new TypePlan(type, PlanKind.Nullable)
@@ -1818,6 +1827,7 @@ internal static class NativeTypedMaterializer
         Collection,
         Array,
         Dictionary,
-        Any
+        Any,
+        Deferred
     }
 }

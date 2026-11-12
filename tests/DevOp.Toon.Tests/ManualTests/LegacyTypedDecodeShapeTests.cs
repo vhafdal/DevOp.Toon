@@ -323,6 +323,43 @@ public sealed class LegacyTypedDecodeShapeTests
         Assert.Equal("x", decoded.Dotted);
     }
 
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_RecursiveTypes_RoundTripOnEveryRoute(ToonProtocolVersion version)
+    {
+        var source = new TreeNode
+        {
+            Name = "root",
+            Children = [new TreeNode { Name = "a", Children = [new TreeNode { Name = "a1" }] }, new TreeNode { Name = "b" }],
+            Map = new Dictionary<string, TreeNode> { ["x"] = new TreeNode { Name = "mx" }, ["y"] = new TreeNode { Name = "my" } },
+            Next = new TreeNode { Name = "next" }
+        };
+        var record = new TreeRecord("r", [new TreeRecord("c", [])]);
+
+        var decoded = ToonDecoder.Decode<TreeNode>(ToonEncoder.Encode(source, EncodeOptions(version)), DecodeOptions(version))!;
+        var decodedList = ToonDecoder.Decode<List<TreeNode>>(ToonEncoder.Encode(new List<TreeNode> { source }, EncodeOptions(version)), DecodeOptions(version))!;
+        var decodedRecord = ToonDecoder.Decode<TreeRecord>(ToonEncoder.Encode(record, EncodeOptions(version, keepEmpty: true)), DecodeOptions(version))!;
+
+        AssertStructurallyEqual(source, decoded);
+        AssertStructurallyEqual(new List<TreeNode> { source }, decodedList);
+        AssertStructurallyEqual(record, decodedRecord);
+        AssertStructurallyEqual(source, RoundTripExpanded(source, version));
+        AssertStructurallyEqual(source, RoundTripService(source, version));
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_RepeatedDottedKeyBelowTheRoot_LastOccurrenceDecidesExpansion(ToonProtocolVersion version)
+    {
+        var options = DecodeOptions(version, ToonPathExpansion.Safe);
+        options.Strict = false;
+
+        Assert.Equal("{\"Outer\":{\"a\":{\"b\":2}}}", ToonDecoder.Toon2Json("Outer:\n  \"a.b\": 1\n  a.b: 2", options));
+        Assert.Equal("{\"Outer\":{\"a.b\":2}}", ToonDecoder.Toon2Json("Outer:\n  a.b: 1\n  \"a.b\": 2", options));
+        Assert.Equal("{\"rows\":[{\"a\":{\"b\":2}}]}", ToonDecoder.Toon2Json("rows[1]{\"a.b\",a.b}:\n  1,2", options));
+        Assert.Equal("{\"rows\":[{\"a.b\":2}]}", ToonDecoder.Toon2Json("rows[1]{a.b,\"a.b\"}:\n  1,2", options));
+    }
+
     private static void AssertNotSupportedOnEveryRoute<T>(T source, ToonProtocolVersion version)
     {
         var toon = ToonEncoder.Encode(source, EncodeOptions(version));
@@ -542,6 +579,19 @@ public sealed class LegacyTypedDecodeShapeTests
         [ToonPropertyName("a.b")]
         public string? Dotted { get; set; }
     }
+
+    private sealed class TreeNode
+    {
+        public string Name { get; set; } = string.Empty;
+
+        public List<TreeNode>? Children { get; set; }
+
+        public Dictionary<string, TreeNode>? Map { get; set; }
+
+        public TreeNode? Next { get; set; }
+    }
+
+    private sealed record TreeRecord(string Name, IReadOnlyList<TreeRecord> Children);
 
     private sealed record Settings(string Name, Section Current, List<Section> History);
 

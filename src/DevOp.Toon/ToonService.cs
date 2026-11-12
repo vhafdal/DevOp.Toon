@@ -39,10 +39,13 @@ public sealed class ToonService : IToonService
         decodeOptions = options.CreateDecodeOptions();
 
         // A pinned decode version reads with the configured indent, which defaults to 2 while encoding defaults to 1. When the
-        // decode indent was left at its default, also accept the service's own encode indent, so it can read its output.
+        // decode indent was left at its default, also accept the service's own encode indent, so it can read its output. Only
+        // strict decoding with an encode indent that is not a multiple of the decode indent qualifies: a payload whose first
+        // indented line has that width then fails at the decode indent, so no payload that decoded before changes meaning.
         if (decodeOptions.ProtocolVersion != ToonProtocolVersion.Auto &&
             !decodeOptions.IndentSpecified &&
-            encodeOptions.Indent != decodeOptions.Indent)
+            decodeOptions.Strict &&
+            encodeOptions.Indent % decodeOptions.Indent != 0)
         {
             encodeIndentDecodeOptions = decodeOptions.Clone();
             encodeIndentDecodeOptions.Indent = encodeOptions.Indent;

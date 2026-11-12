@@ -321,9 +321,9 @@ public static class ToonDecoder
 
             if (header.Fields != null)
             {
-                foreach (var field in header.Fields)
+                for (var i = 0; i < header.Fields.Count; i++)
                 {
-                    if (header.QuotedDottedFields?.Contains(field) != true && IsExpandablePathKey(field))
+                    if (header.QuotedDottedFields?[i] != true && IsExpandablePathKey(header.Fields[i]))
                     {
                         return true;
                     }
