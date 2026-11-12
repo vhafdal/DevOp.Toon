@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace DevOp.Toon.Internal.Encode;
 
@@ -137,9 +138,12 @@ internal readonly struct DeferredTimeOnlyValue
 /// </summary>
 internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<string, NativeNode?>>
 {
+    // Quoted dotted keys are rare and matter only to path expansion, so they live in a side table rather than in a field
+    // that every object node, including those built by encoding, would carry.
+    private static readonly ConditionalWeakTable<NativeObjectNode, HashSet<string>> LiteralKeys = new();
+
     private readonly List<KeyValuePair<string, NativeNode?>> properties = new();
     private readonly Dictionary<string, int> propertyIndexes = new(StringComparer.Ordinal);
-    private HashSet<string>? literalKeys;
 
     /// <summary>
     /// Gets the number of properties in the object.
@@ -202,7 +206,7 @@ internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<st
     /// <param name="key">The decoded key.</param>
     public void MarkLiteralKey(string key)
     {
-        (literalKeys ??= new HashSet<string>(StringComparer.Ordinal)).Add(key);
+        LiteralKeys.GetValue(this, static _ => new HashSet<string>(StringComparer.Ordinal)).Add(key);
     }
 
     /// <summary>
@@ -210,7 +214,10 @@ internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<st
     /// </summary>
     /// <param name="key">The property key to test.</param>
     /// <returns><see langword="true"/> when the key was marked literal.</returns>
-    public bool IsLiteralKey(string key) => literalKeys != null && literalKeys.Contains(key);
+    public bool IsLiteralKey(string key)
+    {
+        return LiteralKeys.TryGetValue(this, out var keys) && keys.Contains(key);
+    }
 
     /// <summary>
     /// Adds or replaces a property value.
