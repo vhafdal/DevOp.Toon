@@ -530,6 +530,12 @@ internal static class NativeTypedMaterializer
                 return true;
             }
 
+            if (plan.BindsScalarTokens)
+            {
+                value = plan.DefaultValue;
+                return true;
+            }
+
             value = null;
             return false;
         }
@@ -551,6 +557,14 @@ internal static class NativeTypedMaterializer
                 if (node is NativePrimitiveNode number && IntegerRange(plan.Type) is { } integerRange &&
                     (TryConvertIntegerFromText(number, plan.Type, integerRange, out value) || TryConvertFraction(number, plan.Type, out value)))
                 {
+                    return true;
+                }
+
+                if (plan.BindsScalarTokens && node is NativePrimitiveNode { NumberText: null, Value: bool or string } scalar)
+                {
+                    value = scalar.Value is bool flag
+                        ? NumericUtils.ConvertBoolean(plan.Type, flag)
+                        : NumericUtils.ConvertText(plan.Type, (string)scalar.Value);
                     return true;
                 }
 
@@ -1658,6 +1672,15 @@ internal static class NativeTypedMaterializer
         /// <summary>Gets the underlying plan for nullable value types.</summary>
         public TypePlan? UnderlyingPlan { get; private set; }
 
+        /// <summary>
+        /// Gets whether this is a numeric or enum target, which binds <c>null</c>, <c>true</c>/<c>false</c> and text tokens
+        /// as 4.x decoding does.
+        /// </summary>
+        public bool BindsScalarTokens { get; private set; }
+
+        /// <summary>Gets the value a <c>null</c> token binds to when <see cref="BindsScalarTokens"/> is set.</summary>
+        public object? DefaultValue { get; private set; }
+
         /// <summary>Gets the element or value plan for collections, arrays, and dictionaries.</summary>
         public TypePlan? ElementPlan { get; private set; }
 
@@ -1713,7 +1736,15 @@ internal static class NativeTypedMaterializer
 
         public static TypePlan Unsupported(Type type) => new TypePlan(type, PlanKind.Unsupported);
 
-        public static TypePlan Primitive(Type type) => new TypePlan(type, PlanKind.Primitive);
+        public static TypePlan Primitive(Type type)
+        {
+            var bindsScalarTokens = type.IsEnum || NumericUtils.IsNumericType(type);
+            return new TypePlan(type, PlanKind.Primitive)
+            {
+                BindsScalarTokens = bindsScalarTokens,
+                DefaultValue = bindsScalarTokens ? Activator.CreateInstance(type) : null
+            };
+        }
 
         public static TypePlan Any(Type type) => new TypePlan(type, PlanKind.Any);
 

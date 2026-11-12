@@ -2359,7 +2359,7 @@ namespace DevOp.Toon.Internal.Decode
 
             if (token.SequenceEqual(Constants.TRUE_LITERAL) || token.SequenceEqual(Constants.FALSE_LITERAL))
             {
-                return Enum.ToObject(enumType, token.SequenceEqual(Constants.TRUE_LITERAL) ? 1 : 0);
+                return NumericUtils.ConvertBoolean(enumType, token.SequenceEqual(Constants.TRUE_LITERAL));
             }
 
             if (IsNumberToken(token))
@@ -2368,18 +2368,7 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             var text = token.Length > 0 && token[0] == Constants.DOUBLE_QUOTE ? Parser.ParseStringLiteral(source, start, endExclusive) : token.ToString();
-            try
-            {
-                return Enum.Parse(enumType, text, false);
-            }
-            catch (OverflowException)
-            {
-                throw ToonFormatException.Syntax(NumericUtils.OutsideRange(text, enumType));
-            }
-            catch (ArgumentException)
-            {
-                throw ToonFormatException.Syntax($"Value {text} is not a valid {enumType.FullName}");
-            }
+            return NumericUtils.ConvertText(enumType, text);
         }
 
         /// <summary>
@@ -2431,28 +2420,11 @@ namespace DevOp.Toon.Internal.Decode
 
             if (token.SequenceEqual(Constants.TRUE_LITERAL) || token.SequenceEqual(Constants.FALSE_LITERAL))
             {
-                return Convert.ChangeType(token.SequenceEqual(Constants.TRUE_LITERAL), type, CultureInfo.InvariantCulture);
+                return NumericUtils.ConvertBoolean(type, token.SequenceEqual(Constants.TRUE_LITERAL));
             }
 
             var text = token.Length > 0 && token[0] == Constants.DOUBLE_QUOTE ? Parser.ParseStringLiteral(token.ToString()) : token.ToString();
-            try
-            {
-                var converted = Convert.ChangeType(text, type, CultureInfo.InvariantCulture);
-                if ((converted is double number && !NumericUtils.IsFinite(number)) || (converted is float single && !NumericUtils.IsFinite(single)))
-                {
-                    throw ToonFormatException.Syntax(NumericUtils.IsNumberShaped(text.Trim()) ? NumericUtils.OutsideRange(text, type) : $"Value {text} is not a valid {type.FullName}");
-                }
-
-                return converted;
-            }
-            catch (FormatException)
-            {
-                throw ToonFormatException.Syntax($"Value {text} is not a valid {type.FullName}");
-            }
-            catch (OverflowException)
-            {
-                throw ToonFormatException.Syntax($"Number {text} is outside the range of {type.FullName}");
-            }
+            return NumericUtils.ConvertText(type, text);
         }
 
         private static object? NarrowInteger(Type type, decimal value)

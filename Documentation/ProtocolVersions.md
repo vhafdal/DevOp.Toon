@@ -183,8 +183,9 @@ is unchanged and still reads numbers as `double`.
   on the 4.x profiles.
 
 On the legacy path-expansion route (`ExpandPaths`) and in `ToonService.Deserialize<T>` with JSON,
-numbers follow the same rule, while `null`, `true`, `false` and text in a numeric or enum member
-still fail with `NotSupportedException`, as in 0.4.0.
+numbers follow the same rule, and `null`, `true`, `false` and text in a numeric or enum member bind
+as on 4.x: `null` gives 0 (or the enum default), `true` gives 1, and `"42"` gives 42; text that does
+not convert throws `ToonFormatException`. In 0.4.0 these routes failed with `NotSupportedException`.
 
 A token that does not fit throws `ToonFormatException` with `Kind` `Syntax` and a message naming
 the token and the CLR type, for example `Number 1.5 is not an integer (System.Int16)` or
