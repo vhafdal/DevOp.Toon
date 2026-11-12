@@ -146,21 +146,13 @@ public static class ToonDecoder
         // Create cursor and decode
         var cursor = new LineCursor(scanResult.Lines, scanResult.BlankLines);
 
-        var shouldExpandPaths = ShouldApplyRootPathExpansion(scanResult, resolvedOptions.ExpandPaths);
-
-        // Track quoted keys only when root-level path expansion can actually apply.
-        HashSet<string>? quotedKeys = null;
-        if (shouldExpandPaths)
-        {
-            quotedKeys = new HashSet<string>();
-        }
-
-        var nativeResult = NativeDecoders.DecodeValueFromLines(cursor, resolvedOptions, quotedKeys);
+        var shouldExpandPaths = ShouldApplyPathExpansion(scanResult, resolvedOptions.ExpandPaths);
+        var nativeResult = NativeDecoders.DecodeValueFromLines(cursor, shouldExpandPaths ? resolvedOptions : resolvedOptions.WithoutPathExpansion());
 
         // Apply path expansion before converting to the public TOON node model.
-        if (shouldExpandPaths && nativeResult is NativeObjectNode nativeObject)
+        if (shouldExpandPaths)
         {
-            nativeResult = NativePathExpansion.ExpandPaths(nativeObject, resolvedOptions.Strict, quotedKeys);
+            nativeResult = NativePathExpansion.ExpandPaths(nativeResult, resolvedOptions.Strict);
         }
 
         return nativeResult;
@@ -198,11 +190,11 @@ public static class ToonDecoder
         var decodeOptions = resolvedOptions.GetResolvedOptions();
 
         var scanResult = Scanner.ToParsedLines(toonString, decodeOptions.Indent, decodeOptions.Strict);
-        var shouldExpandPaths = ShouldApplyRootPathExpansion(scanResult, decodeOptions.ExpandPaths);
+        var shouldExpandPaths = ShouldApplyPathExpansion(scanResult, decodeOptions.ExpandPaths);
 
         if (!shouldExpandPaths && !RequiresNativeByteSequenceMaterialization(typeof(T)))
         {
-            return TypedDecoder.Decode<T>(scanResult, decodeOptions);
+            return TypedDecoder.Decode<T>(scanResult, decodeOptions.WithoutPathExpansion());
         }
 
         if (scanResult.Lines.Count == 0)
@@ -216,12 +208,11 @@ public static class ToonDecoder
         }
 
         var cursor = new LineCursor(scanResult.Lines, scanResult.BlankLines);
-        var quotedKeys = new HashSet<string>();
 
-        var nativeResult = NativeDecoders.DecodeValueFromLines(cursor, decodeOptions, quotedKeys);
-        if (nativeResult is NativeObjectNode nativeObject)
+        var nativeResult = NativeDecoders.DecodeValueFromLines(cursor, shouldExpandPaths ? decodeOptions : decodeOptions.WithoutPathExpansion());
+        if (shouldExpandPaths)
         {
-            nativeResult = NativePathExpansion.ExpandPaths(nativeObject, decodeOptions.Strict, quotedKeys);
+            nativeResult = NativePathExpansion.ExpandPaths(nativeResult, decodeOptions.Strict);
         }
 
         if (NativeTypedMaterializer.TryConvert<T>(nativeResult, out var typedValue))
@@ -277,36 +268,32 @@ public static class ToonDecoder
             throw new ArgumentOutOfRangeException(nameof(indent), indent, "Indent must be greater than 0.");
     }
 
-    private static bool ShouldApplyRootPathExpansion(ScanResult scanResult, ToonPathExpansion expandPaths)
+    private static bool ShouldApplyPathExpansion(ScanResult scanResult, ToonPathExpansion expandPaths)
     {
         if (expandPaths != ToonPathExpansion.Safe || scanResult.Lines.Count == 0)
         {
             return false;
         }
 
-        var firstLine = scanResult.Lines[0];
-        if (Parser.IsArrayHeaderAfterHyphen(firstLine.Content))
+        if (scanResult.Lines.Count == 1 && !IsKeyValueLine(scanResult.Lines[0].Content))
         {
             return false;
         }
 
-        if (scanResult.Lines.Count == 1 && !IsKeyValueLine(firstLine.Content))
-        {
-            return false;
-        }
-
-        var rootDepth = firstLine.Depth;
         for (int i = 0; i < scanResult.Lines.Count; i++)
         {
-            var line = scanResult.Lines[i];
-            if (line.Depth != rootDepth)
+            var content = scanResult.Lines[i].ContentSpan;
+            if (content.IndexOf(Constants.DOT) < 0)
             {
                 continue;
             }
 
-            if (TryGetRootObjectKey(line.Content, out var key, out var wasQuoted)
-                && !wasQuoted
-                && IsExpandablePathKey(key))
+            if (content.StartsWith(Constants.LIST_ITEM_PREFIX.AsSpan(), StringComparison.Ordinal))
+            {
+                content = content.Slice(Constants.LIST_ITEM_PREFIX.Length);
+            }
+
+            if (HasExpandableKey(content))
             {
                 return true;
             }
@@ -315,27 +302,138 @@ public static class ToonDecoder
         return false;
     }
 
-    private static bool TryGetRootObjectKey(string content, out string key, out bool wasQuoted)
+    // Judges the key of a line from its span without allocating; only a quoted key or dotted header fields, which are
+    // rare, take the full header parse.
+    private static bool HasExpandableKey(ReadOnlySpan<char> content)
     {
-        var arrayHeader = Parser.ParseArrayHeaderLine(content, Constants.DEFAULT_DELIMITER_CHAR);
-        if (arrayHeader?.Header.Key != null)
+        if (content.IsEmpty)
         {
-            key = arrayHeader.Header.Key;
-            wasQuoted = arrayHeader.HasKeyRange && content[arrayHeader.KeyStart] == Constants.DOUBLE_QUOTE;
-            return true;
+            return false;
+        }
+
+        if (content[0] == Constants.DOUBLE_QUOTE)
+        {
+            return HasDottedHeaderFields(content) && HasExpandableKeyParsed(content.ToString());
+        }
+
+        var end = 0;
+        while (end < content.Length && content[end] != Constants.COLON && content[end] != Constants.OPEN_BRACKET)
+        {
+            end++;
+        }
+
+        if (end == content.Length)
+        {
+            return false;
+        }
+
+        if (content[end] == Constants.COLON)
+        {
+            return IsExpandablePathKey(content.Slice(0, end).Trim());
+        }
+
+        if (StringUtils.FindUnquotedChar(content, Constants.COLON, end) < 0)
+        {
+            return false;
+        }
+
+        return IsExpandablePathKey(content.Slice(0, end).Trim()) ||
+               HasDottedHeaderFields(content) && HasExpandableKeyParsed(content.ToString());
+    }
+
+    // The field list follows the bracket segment; braces inside a quoted key do not count.
+    private static bool HasDottedHeaderFields(ReadOnlySpan<char> content)
+    {
+        var bracket = StringUtils.FindUnquotedChar(content, Constants.OPEN_BRACKET);
+        if (bracket < 0)
+        {
+            return false;
+        }
+
+        var open = StringUtils.FindUnquotedChar(content, '{', bracket);
+        var colon = StringUtils.FindUnquotedChar(content, Constants.COLON, bracket);
+        if (open < 0 || colon < 0 || open > colon)
+        {
+            return false;
+        }
+
+        var close = StringUtils.FindUnquotedChar(content, '}', open);
+        return close > open && content.Slice(open, close - open).IndexOf(Constants.DOT) >= 0;
+    }
+
+    private static bool IsExpandablePathKey(ReadOnlySpan<char> key)
+    {
+        if (key.IndexOf(Constants.DOT) < 0)
+        {
+            return false;
+        }
+
+        var segmentStart = 0;
+        for (var i = 0; i <= key.Length; i++)
+        {
+            if (i < key.Length && key[i] != Constants.DOT)
+            {
+                continue;
+            }
+
+            if (i == segmentStart || !(key[segmentStart] == '_' || char.IsLetter(key[segmentStart])))
+            {
+                return false;
+            }
+
+            for (var j = segmentStart + 1; j < i; j++)
+            {
+                if (!(key[j] == '_' || char.IsLetterOrDigit(key[j])))
+                {
+                    return false;
+                }
+            }
+
+            segmentStart = i + 1;
+        }
+
+        return true;
+    }
+
+    private static bool HasExpandableKeyParsed(string content)
+    {
+        if (content.Length == 0 || StringUtils.FindUnquotedChar(content, Constants.COLON) < 0)
+        {
+            return false;
+        }
+
+        var arrayHeader = Parser.ParseArrayHeaderLine(content, Constants.DEFAULT_DELIMITER_CHAR);
+        if (arrayHeader != null)
+        {
+            var header = arrayHeader.Header;
+            if (header.Key != null &&
+                !(arrayHeader.HasKeyRange && content[arrayHeader.KeyStart] == Constants.DOUBLE_QUOTE) &&
+                IsExpandablePathKey(header.Key))
+            {
+                return true;
+            }
+
+            if (header.Fields != null)
+            {
+                for (var i = 0; i < header.Fields.Count; i++)
+                {
+                    if (header.QuotedDottedFields?[i] != true && IsExpandablePathKey(header.Fields[i]))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         try
         {
             var keyResult = Parser.ParseKeyToken(content, 0);
-            key = keyResult.Key;
-            wasQuoted = keyResult.WasQuoted;
-            return true;
+            return !keyResult.WasQuoted && IsExpandablePathKey(keyResult.Key);
         }
         catch (ToonFormatException)
         {
-            key = string.Empty;
-            wasQuoted = false;
             return false;
         }
     }

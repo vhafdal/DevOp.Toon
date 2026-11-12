@@ -20,6 +20,8 @@ internal static class NativeNormalize
     private const string JsonNodeTypeName = "System.Text.Json.Nodes.JsonNode";
     private static readonly ConcurrentDictionary<Type, PropertyMetadata[]> PropertyCache = new();
     private static readonly ConcurrentDictionary<Type, Func<object, string>?> JsonNodeWriters = new();
+    private static readonly ConcurrentDictionary<Type, bool> JsonDomTypes = new();
+    private static readonly ConcurrentDictionary<Type, bool> PlainObjectTypes = new();
     [ThreadStatic]
     private static HashSet<Type>? propertyBuildTypes;
 
@@ -363,11 +365,17 @@ internal static class NativeNormalize
     /// or a <c>JsonNode</c>), which encodes as its JSON text rather than as a CLR object.
     /// </summary>
     internal static bool IsJsonDomType(Type type)
-    {
-        if (!IsJsonNamespace(type))
-            return false;
+        => IsJsonNamespace(type) && JsonDomTypes.GetOrAdd(type, static t => t.FullName is JsonElementTypeName or JsonDocumentTypeName || FindJsonNodeType(t) is not null);
 
-        return type.FullName is JsonElementTypeName or JsonDocumentTypeName || FindJsonNodeType(type) is not null;
+    /// <summary>
+    /// Returns whether a member declared as <paramref name="declaredType"/> can hold a System.Text.Json DOM value at run time:
+    /// the DOM types derive only from <see cref="object"/> and <see cref="ValueType"/> and from each other, and implement
+    /// only interfaces, so any other declared type rules them out without a per-value check.
+    /// </summary>
+    internal static bool MayHoldJsonDomValue(Type declaredType)
+    {
+        var type = Nullable.GetUnderlyingType(declaredType) ?? declaredType;
+        return type == typeof(object) || type == typeof(ValueType) || type.IsInterface || IsJsonNamespace(type);
     }
 
     // The library does not reference System.Text.Json on netstandard2.0, so its DOM types are matched by name.
@@ -459,6 +467,9 @@ internal static class NativeNormalize
     }
 
     internal static bool IsPlainObjectType(Type type)
+        => PlainObjectTypes.TryGetValue(type, out var plain) ? plain : PlainObjectTypes.GetOrAdd(type, static t => ClassifyPlainObjectType(t));
+
+    private static bool ClassifyPlainObjectType(Type type)
     {
         if (typeof(ToonNode).IsAssignableFrom(type) || typeof(NativeNode).IsAssignableFrom(type) || IsJsonDomType(type)) return false;
         if (type.IsPrimitive || type == typeof(string) || type == typeof(DateTime) || type == typeof(DateTimeOffset))
@@ -525,7 +536,8 @@ internal static class NativeNormalize
                 enumerableElementType,
                 BuildCachedEmptyEnumerableHeader(propertyName, enumerableElementType),
                 nestedObjectProperties,
-                valueDeclaresExtensionData));
+                valueDeclaresExtensionData,
+                MayHoldJsonDomValue(property.PropertyType)));
         }
 
         return metadata.ToArray();
@@ -561,6 +573,7 @@ internal static class NativeNormalize
         /// <param name="cachedEmptyEnumerableHeader">A cached empty array header for enumerable properties.</param>
         /// <param name="nestedObjectProperties">Cached nested properties when the property type is a plain object.</param>
         /// <param name="valueDeclaresExtensionData">Whether the property type declares a <see cref="ToonExtensionDataAttribute"/> property.</param>
+        /// <param name="mayHoldJsonDom">Whether the declared property type admits a System.Text.Json DOM value.</param>
         public PropertyMetadata(
             PropertyInfo info,
             string name,
@@ -569,7 +582,8 @@ internal static class NativeNormalize
             Type? enumerableElementType,
             string? cachedEmptyEnumerableHeader,
             PropertyMetadata[]? nestedObjectProperties,
-            bool valueDeclaresExtensionData)
+            bool valueDeclaresExtensionData,
+            bool mayHoldJsonDom)
         {
             Info = info;
             Name = name;
@@ -579,6 +593,7 @@ internal static class NativeNormalize
             CachedEmptyEnumerableHeader = cachedEmptyEnumerableHeader;
             NestedObjectProperties = nestedObjectProperties;
             ValueDeclaresExtensionData = valueDeclaresExtensionData;
+            MayHoldJsonDom = mayHoldJsonDom;
         }
 
         /// <summary>Gets the reflected property.</summary>
@@ -604,6 +619,9 @@ internal static class NativeNormalize
 
         /// <summary>Gets whether the property type declares extension data, so its values are flattened rather than written member by member.</summary>
         public bool ValueDeclaresExtensionData { get; }
+
+        /// <summary>Gets whether values of this property can be System.Text.Json DOM values, which encode as their JSON text.</summary>
+        public bool MayHoldJsonDom { get; }
     }
 
     private static PropertyMetadata[]? CreateNestedPropertyCache(Type type)

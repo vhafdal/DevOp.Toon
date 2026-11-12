@@ -207,6 +207,252 @@ public sealed class LegacyTypedDecodeShapeTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_StringKeyedConcreteDictionaries_RoundTripOnEveryRoute(ToonProtocolVersion version)
+    {
+        var sorted = new SortedDictionary<string, AddressDto> { ["work"] = new("Oslo", "Norway"), ["home"] = new("Reykjavik", "Iceland") };
+        var book = new AddressBook { ["billing"] = new("Bergen", "Norway"), ["shipping"] = new("Turku", "Finland") };
+        var source = new ConcreteMaps(
+            new SortedDictionary<string, int> { ["b"] = 2, ["a"] = 1 },
+            sorted,
+            book);
+
+        var rootSorted = RoundTripDirect(sorted, version);
+        var rootBook = RoundTripDirect(book, version);
+
+        Assert.IsType<SortedDictionary<string, AddressDto>>(rootSorted);
+        Assert.Equal(sorted, rootSorted);
+        Assert.IsType<AddressBook>(rootBook);
+        Assert.Equal(book, rootBook);
+        Assert.Equal(sorted, RoundTripExpanded(sorted, version));
+        Assert.Equal(sorted, RoundTripService(sorted, version));
+        foreach (var decoded in new[] { RoundTripDirect(source, version), RoundTripExpanded(source, version), RoundTripService(source, version) })
+        {
+            Assert.Equal(source.Counts, decoded.Counts);
+            Assert.Equal(source.Sorted, decoded.Sorted);
+            Assert.IsType<AddressBook>(decoded.Book);
+            Assert.Equal(source.Book, decoded.Book);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_NonStringKeyedDictionaries_ThrowNotSupportedOnEveryRoute(ToonProtocolVersion version)
+    {
+        AssertNotSupportedOnEveryRoute(new Dictionary<int, string> { [1] = "one", [2] = "two" }, version);
+        AssertNotSupportedOnEveryRoute(new Dictionary<Guid, string> { [Guid.Parse("8f7c1f4e-0d55-4b8e-9d42-3e1c6b9a7f10")] = "x" }, version);
+        AssertNotSupportedOnEveryRoute(new Dictionary<DayOfWeek, int> { [DayOfWeek.Monday] = 1 }, version);
+        AssertNotSupportedOnEveryRoute(new SortedDictionary<int, string> { [1] = "one" }, version);
+        AssertNotSupportedOnEveryRoute(
+            new GuidKeyed("a", new Dictionary<Guid, string> { [Guid.Parse("8f7c1f4e-0d55-4b8e-9d42-3e1c6b9a7f10")] = "x" }),
+            version);
+        AssertNotSupportedOnEveryRoute(new IntKeyedHolder { Name = "a", Map = new Dictionary<int, string> { [1] = "one" } }, version);
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_KeyChainsFoldedBelowTheRoot_ExpandOnPathExpansionRoute(ToonProtocolVersion version)
+    {
+        var source = new Settings(
+            "main",
+            new Section(3, new Dictionary<string, AddressDto> { ["home"] = new("Reykjavik", "Iceland") }),
+            [new Section(1, new Dictionary<string, AddressDto> { ["work"] = new("Oslo", "Norway") })]);
+        var encodeOptions = EncodeOptions(version);
+        encodeOptions.KeyFolding = ToonKeyFolding.Safe;
+        var toon = ToonEncoder.Encode(source, encodeOptions);
+        const string rootArray = "[1]:\n  - Size: 1\n    Map.work:\n      City: Oslo\n      Country: Norway";
+        Assert.Contains("\n  Map.home:", toon, StringComparison.Ordinal);
+
+        var decoded = ToonDecoder.Decode<Settings>(toon, DecodeOptions(version, ToonPathExpansion.Safe))!;
+        var decodedArray = ToonDecoder.Decode<List<Section>>(rootArray, DecodeOptions(version, ToonPathExpansion.Safe))!;
+
+        AssertStructurallyEqual(source, decoded);
+        AssertStructurallyEqual(source.History, decodedArray);
+        Assert.Equal(
+            JsonSerializer.Serialize(source),
+            ToonDecoder.Toon2Json(toon, DecodeOptions(version, ToonPathExpansion.Safe)));
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_DottedKeysBelowTheRoot_ExpandUnlessQuoted(ToonProtocolVersion version)
+    {
+        const string text =
+            "Outer:\n" +
+            "  \"a.b\": 1\n" +
+            "  \"q.r\"[2]: 1,2\n" +
+            "  c.d: 2\n" +
+            "  rows[1]{\"x.y\",z.w}:\n" +
+            "    3,4\n" +
+            "  items[1]:\n" +
+            "    - e.f: 5\n" +
+            "      \"g.h\": 6";
+        const string expected =
+            "{\"Outer\":{\"a.b\":1,\"q.r\":[1,2],\"c\":{\"d\":2},\"rows\":[{\"x.y\":3,\"z\":{\"w\":4}}],\"items\":[{\"e\":{\"f\":5},\"g.h\":6}]}}";
+
+        Assert.Equal(expected, ToonDecoder.Toon2Json(text, DecodeOptions(version, ToonPathExpansion.Safe)));
+        Assert.Equal(
+            "{\"q.r\":[1,2],\"c\":{\"d\":2}}",
+            ToonDecoder.Toon2Json("\"q.r\"[2]: 1,2\nc.d: 2", DecodeOptions(version, ToonPathExpansion.Safe)));
+        Assert.Equal(
+            "{\"Outer\":{\"a.b\":1,\"c.d\":2}}",
+            ToonDecoder.Toon2Json("Outer:\n  \"a.b\": 1\n  c.d: 2", DecodeOptions(version)));
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_ConflictingDottedKeysBelowTheRoot_FollowStrictMode(ToonProtocolVersion version)
+    {
+        const string text = "Outer:\n  a.b: 1\n  a: 2";
+        var strict = DecodeOptions(version, ToonPathExpansion.Safe);
+        var lenient = DecodeOptions(version, ToonPathExpansion.Safe);
+        lenient.Strict = false;
+
+        Assert.Throws<ToonPathExpansionException>(() => ToonDecoder.Toon2Json(text, strict));
+        Assert.Equal("{\"Outer\":{\"a\":2}}", ToonDecoder.Toon2Json(text, lenient));
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_ByteArrayTargetWithPathExpansionOff_KeepsDottedKeysLiteral(ToonProtocolVersion version)
+    {
+        var decoded = ToonDecoder.Decode<DottedBlob>("Data: AQID\na.b: x", DecodeOptions(version))!;
+
+        Assert.Equal([1, 2, 3], decoded.Data);
+        Assert.Equal("x", decoded.Dotted);
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_RecursiveTypes_RoundTripOnEveryRoute(ToonProtocolVersion version)
+    {
+        var source = new TreeNode
+        {
+            Name = "root",
+            Children = [new TreeNode { Name = "a", Children = [new TreeNode { Name = "a1" }] }, new TreeNode { Name = "b" }],
+            Map = new Dictionary<string, TreeNode> { ["x"] = new TreeNode { Name = "mx" }, ["y"] = new TreeNode { Name = "my" } },
+            Next = new TreeNode { Name = "next" }
+        };
+        var record = new TreeRecord("r", [new TreeRecord("c", [])]);
+
+        var decoded = ToonDecoder.Decode<TreeNode>(ToonEncoder.Encode(source, EncodeOptions(version)), DecodeOptions(version))!;
+        var decodedList = ToonDecoder.Decode<List<TreeNode>>(ToonEncoder.Encode(new List<TreeNode> { source }, EncodeOptions(version)), DecodeOptions(version))!;
+        var decodedRecord = ToonDecoder.Decode<TreeRecord>(ToonEncoder.Encode(record, EncodeOptions(version, keepEmpty: true)), DecodeOptions(version))!;
+
+        AssertStructurallyEqual(source, decoded);
+        AssertStructurallyEqual(new List<TreeNode> { source }, decodedList);
+        AssertStructurallyEqual(record, decodedRecord);
+        AssertStructurallyEqual(source, RoundTripExpanded(source, version));
+        AssertStructurallyEqual(source, RoundTripService(source, version));
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_RepeatedDottedKeyBelowTheRoot_LastOccurrenceDecidesExpansion(ToonProtocolVersion version)
+    {
+        var options = DecodeOptions(version, ToonPathExpansion.Safe);
+        options.Strict = false;
+
+        Assert.Equal("{\"Outer\":{\"a\":{\"b\":2}}}", ToonDecoder.Toon2Json("Outer:\n  \"a.b\": 1\n  a.b: 2", options));
+        Assert.Equal("{\"Outer\":{\"a.b\":2}}", ToonDecoder.Toon2Json("Outer:\n  a.b: 1\n  \"a.b\": 2", options));
+        Assert.Equal("{\"rows\":[{\"a\":{\"b\":2}}]}", ToonDecoder.Toon2Json("rows[1]{\"a.b\",a.b}:\n  1,2", options));
+        Assert.Equal("{\"rows\":[{\"a.b\":2}]}", ToonDecoder.Toon2Json("rows[1]{a.b,\"a.b\"}:\n  1,2", options));
+        Assert.Equal(
+            "{\"rows\":[{\"a\":{\"b\":3},\"id\":2},{\"a.b\":4,\"id\":5}]}",
+            ToonDecoder.Toon2Json("rows[2]{\"a.b\",id}:\n  1,2\n    a.b: 3\n  4,5", options));
+        Assert.Equal(
+            "{\"rows\":[{\"a.b\":3,\"id\":2},{\"a\":{\"b\":4},\"id\":5}]}",
+            ToonDecoder.Toon2Json("rows[2]{a.b,id}:\n  1,2\n    \"a.b\": 3\n  4,5", options));
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_UnbindableDictionaryMemberAbsentOrNull_DecodesTheOtherMembers(ToonProtocolVersion version)
+    {
+        AssertUnbindableMember<Dictionary<int, string>>(version, "V:\n  \"1\": a");
+        AssertUnbindableMember<Dictionary<Guid, string>>(version, "V:\n  \"8f7c1f4e-0d55-4b8e-9d42-3e1c6b9a7f10\": a");
+        AssertUnbindableMember<SortedDictionary<int, string>>(version, "V:\n  \"1\": a");
+        AssertUnbindableMember<System.Dynamic.ExpandoObject>(version, "V:\n  k: a");
+        AssertUnbindableMember<System.Collections.Hashtable>(version, "V:\n  k: a");
+        AssertUnbindableMember<Dictionary<string, Dictionary<int, string>>>(version, "V:\n  k:\n    \"1\": a");
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_UnbindableDictionaryMemberAbsentOrNull_StaysOnDirectRoute(ToonProtocolVersion version)
+    {
+        AssertDirectHit<MapHolder<Dictionary<int, string>>>("Id: 1\nV: null\nName: n", version);
+        AssertDirectHit<MapRecord<Dictionary<int, string>>>("Id: 1\nName: n", version);
+        AssertDirectHit<MapOuter>("Inner:\n  Id: 1\n  V: null\n  Name: n", version);
+        AssertDirectHit<List<MapHolder<System.Collections.Hashtable>>>("[2]{Id,V,Name}:\n  1,null,n\n  2,null,m", version);
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<MapHolder<Dictionary<int, string>>>("Id: 1\nV:", DecodeOptions(version)));
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<List<MapHolder<System.Collections.Hashtable>>>("[1]{Id,V,Name}:\n  1,x,n", DecodeOptions(version)));
+    }
+
+    private static void AssertDirectHit<T>(string text, ToonProtocolVersion version)
+    {
+        var before = GetDirectMaterializerMisses(typeof(T));
+
+        Assert.NotNull(ToonDecoder.Decode<T>(text, DecodeOptions(version)));
+        Assert.Equal(before, GetDirectMaterializerMisses(typeof(T)));
+    }
+
+    private static void AssertUnbindableMember<TMap>(ToonProtocolVersion version, string valueLines)
+        where TMap : class
+    {
+        var expanded = DecodeOptions(version, ToonPathExpansion.Safe);
+        var service = new ToonService();
+
+        foreach (var holder in new[]
+                 {
+                     ToonDecoder.Decode<MapHolder<TMap>>("Id: 1\nName: n", DecodeOptions(version))!,
+                     ToonDecoder.Decode<MapHolder<TMap>>("Id: 1\nV: null\nName: n", DecodeOptions(version))!,
+                     ToonDecoder.Decode<MapHolder<TMap>>("Id: 1\nName: n\nz.q: 1", expanded)!,
+                     ToonDecoder.Decode<List<MapHolder<TMap>>>("[2]{Id,Name}:\n  1,n\n  2,m", DecodeOptions(version))![0],
+                     service.Deserialize<MapHolder<TMap>>("{\"Id\":1,\"V\":null,\"Name\":\"n\"}", "application/json")!
+                 })
+        {
+            Assert.Equal(1, holder.Id);
+            Assert.Equal("n", holder.Name);
+            Assert.Null(holder.V);
+        }
+
+        var record = ToonDecoder.Decode<MapRecord<TMap>>("Id: 1\nName: n", DecodeOptions(version))!;
+        Assert.Equal(1, record.Id);
+        Assert.Null(record.V);
+
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<MapHolder<TMap>>($"Id: 1\n{valueLines}", DecodeOptions(version)));
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<MapHolder<TMap>>($"Id: 1\n{valueLines}\nz.q: 1", expanded));
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<MapRecord<TMap>>($"Id: 1\n{valueLines}", DecodeOptions(version)));
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_QuotedArrayKeyWithBraces_StillExpandsDottedTableFields(ToonProtocolVersion version)
+    {
+        const string text = "\"x{}\"[1]{a.b}:\n  1";
+        var options = DecodeOptions(version, ToonPathExpansion.Safe);
+
+        var typed = ToonDecoder.Decode<BracedTable>(text, options)!;
+
+        Assert.Equal("{\"x{}\":[{\"a\":{\"b\":1}}]}", ToonDecoder.Toon2Json(text, options));
+        Assert.Equal(1, typed.Rows![0].A!.B);
+    }
+
+    private static void AssertNotSupportedOnEveryRoute<T>(T source, ToonProtocolVersion version)
+    {
+        var toon = ToonEncoder.Encode(source, EncodeOptions(version));
+        var encodeOptions = EncodeOptions(version);
+        encodeOptions.KeyFolding = ToonKeyFolding.Safe;
+        var folded = ToonEncoder.Encode(new FoldedEnvelope<T>(new FoldedBox<T>(source)), encodeOptions);
+        IToonService service = CreateService(version);
+
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<T>(toon, DecodeOptions(version)));
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<FoldedEnvelope<T>>(folded, DecodeOptions(version, ToonPathExpansion.Safe)));
+        Assert.Throws<NotSupportedException>(() => service.Decode<T>(service.Encode(source)));
+    }
+
     private static T RoundTripDirect<T>(T source, ToonProtocolVersion version, bool keepEmpty = false)
     {
         var toon = ToonEncoder.Encode(source, EncodeOptions(version, keepEmpty));
@@ -390,6 +636,82 @@ public sealed class LegacyTypedDecodeShapeTests
         int Count);
 
     private sealed record Thing(string Name, IReadOnlyList<string> Tags, Dictionary<string, string> Meta);
+
+    private sealed class AddressBook : Dictionary<string, AddressDto>
+    {
+    }
+
+    private sealed record ConcreteMaps(SortedDictionary<string, int> Counts, SortedDictionary<string, AddressDto> Sorted, AddressBook Book);
+
+    private sealed record GuidKeyed(string Name, IDictionary<Guid, string> Map);
+
+    private sealed class IntKeyedHolder
+    {
+        public string Name { get; set; } = string.Empty;
+
+        public Dictionary<int, string> Map { get; set; } = new();
+    }
+
+    private sealed class DottedBlob
+    {
+        public byte[] Data { get; set; } = [];
+
+        [ToonPropertyName("a.b")]
+        public string? Dotted { get; set; }
+    }
+
+    public sealed class MapHolder<TMap>
+        where TMap : class
+    {
+        public int Id { get; set; }
+
+        public TMap? V { get; set; }
+
+        public string? Name { get; set; }
+    }
+
+    public sealed class MapOuter
+    {
+        public MapHolder<Dictionary<int, string>>? Inner { get; set; }
+    }
+
+    public sealed record MapRecord<TMap>(int Id, TMap? V = null, string? Name = null)
+        where TMap : class;
+
+    private sealed class BracedTable
+    {
+        [ToonPropertyName("x{}")]
+        public List<BracedRow>? Rows { get; set; }
+    }
+
+    private sealed class BracedRow
+    {
+        [ToonPropertyName("a")]
+        public BracedLeaf? A { get; set; }
+    }
+
+    private sealed class BracedLeaf
+    {
+        [ToonPropertyName("b")]
+        public int B { get; set; }
+    }
+
+    private sealed class TreeNode
+    {
+        public string Name { get; set; } = string.Empty;
+
+        public List<TreeNode>? Children { get; set; }
+
+        public Dictionary<string, TreeNode>? Map { get; set; }
+
+        public TreeNode? Next { get; set; }
+    }
+
+    private sealed record TreeRecord(string Name, IReadOnlyList<TreeRecord> Children);
+
+    private sealed record Settings(string Name, Section Current, List<Section> History);
+
+    private sealed record Section(int Size, Dictionary<string, AddressDto> Map);
 
     private sealed record FoldedEnvelope<T>(FoldedBox<T> Box);
 

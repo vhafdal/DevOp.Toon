@@ -77,9 +77,10 @@ Selecting `CustomLegacy` alone restores that profile's default layout and omissi
 CLR serialization reads public instance getters and skips indexers and private getters.
 Deserialization can populate public setters independently of getter visibility. Serialization
 supports finite values whose declared CLR types refer to themselves or each other; metadata
-construction does not recursively expand a type cycle. The historical typed decoder still rejects
-recursive type schemas; DOM/JSON decoding is available there. Actual object-reference cycles
-remain a separate concern.
+construction does not recursively expand a type cycle. Typed decoding on `V3_0` and `CustomLegacy`
+also accepts such types: a type that contains itself through a member, a list or a dictionary
+(a tree node, for example) decodes on the native route. Actual object-reference cycles remain a
+separate concern.
 
 ## Custom grouped rows
 
@@ -183,8 +184,9 @@ is unchanged and still reads numbers as `double`.
   on the 4.x profiles.
 
 On the legacy path-expansion route (`ExpandPaths`) and in `ToonService.Deserialize<T>` with JSON,
-numbers follow the same rule, while `null`, `true`, `false` and text in a numeric or enum member
-still fail with `NotSupportedException`, as in 0.4.0.
+numbers follow the same rule, and `null`, `true`, `false` and text in a numeric or enum member bind
+as on 4.x: `null` gives 0 (or the enum default), `true` gives 1, and `"42"` gives 42; text that does
+not convert throws `ToonFormatException`. In 0.4.0 these routes failed with `NotSupportedException`.
 
 A token that does not fit throws `ToonFormatException` with `Kind` `Syntax` and a message naming
 the token and the CLR type, for example `Number 1.5 is not an integer (System.Int16)` or

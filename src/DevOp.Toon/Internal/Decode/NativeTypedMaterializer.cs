@@ -94,7 +94,8 @@ internal static class NativeTypedMaterializer
 
         if (building.Contains(type))
         {
-            return TypePlan.Unsupported(type);
+            // A type that refers back to itself binds through its own finished plan, looked up when a value is converted.
+            return type.IsValueType ? TypePlan.Unsupported(type) : TypePlan.Deferred(type);
         }
 
         building.Add(type);
@@ -434,31 +435,22 @@ internal static class NativeTypedMaterializer
     private static bool TryBuildDictionaryPlan(Type type, HashSet<Type> building, out TypePlan plan)
     {
         plan = TypePlan.Unsupported(type);
-        if (!type.IsGenericType)
+        if (!DictionaryTargetShape.TryResolve(type, out var valueType, out var concreteDictionaryType))
         {
             return false;
         }
 
-        var genericDefinition = type.GetGenericTypeDefinition();
-        if ((genericDefinition != typeof(Dictionary<,>) &&
-             genericDefinition != typeof(IDictionary<,>) &&
-             genericDefinition != typeof(IReadOnlyDictionary<,>)) ||
-            type.GetGenericArguments()[0] != typeof(string))
+        if (valueType == null || concreteDictionaryType == null)
         {
-            return false;
+            plan = TypePlan.Reject(type);
+            return true;
         }
 
-        var valueType = type.GetGenericArguments()[1];
         var valuePlan = BuildPlan(valueType, building);
         if (!valuePlan.IsSupported)
         {
-            return false;
-        }
-
-        var concreteDictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(string), valueType);
-        if (!type.IsAssignableFrom(concreteDictionaryType) && type != concreteDictionaryType)
-        {
-            return false;
+            plan = TypePlan.Reject(type);
+            return true;
         }
 
         plan = TypePlan.Dictionary(
@@ -540,12 +532,23 @@ internal static class NativeTypedMaterializer
                 return true;
             }
 
+            if (plan.BindsScalarTokens)
+            {
+                value = plan.DefaultValue;
+                return true;
+            }
+
             value = null;
             return false;
         }
 
         switch (plan.Kind)
         {
+            case PlanKind.Deferred:
+                return TryConvert(node, plan.ResolveDeferred(), out value);
+            case PlanKind.Reject:
+                // As on 4.x, a member of a dictionary type this route cannot key binds null or stays unset; a value fails.
+                throw new NotSupportedException($"TOON typed decode does not support target type '{plan.Type.FullName}'.");
             case PlanKind.Any:
                 value = ConvertUntyped(node);
                 return true;
@@ -561,6 +564,20 @@ internal static class NativeTypedMaterializer
                 if (node is NativePrimitiveNode number && IntegerRange(plan.Type) is { } integerRange &&
                     (TryConvertIntegerFromText(number, plan.Type, integerRange, out value) || TryConvertFraction(number, plan.Type, out value)))
                 {
+                    return true;
+                }
+
+                if (plan.IsEnum && node is NativePrimitiveNode { NumberText: { } enumNumber })
+                {
+                    value = NumericUtils.BindEnumNumber(plan.Type, enumNumber.AsSpan());
+                    return true;
+                }
+
+                if (plan.BindsScalarTokens && node is NativePrimitiveNode { NumberText: null, Value: bool or string } scalar)
+                {
+                    value = scalar.Value is bool flag
+                        ? NumericUtils.ConvertBoolean(plan.Type, flag)
+                        : NumericUtils.ConvertText(plan.Type, (string)scalar.Value);
                     return true;
                 }
 
@@ -1665,8 +1682,22 @@ internal static class NativeTypedMaterializer
         /// <summary>Gets whether this target type is supported by the native materializer.</summary>
         public bool IsSupported => Kind != PlanKind.Unsupported;
 
+        private TypePlan? resolved;
+
         /// <summary>Gets the underlying plan for nullable value types.</summary>
         public TypePlan? UnderlyingPlan { get; private set; }
+
+        /// <summary>
+        /// Gets whether this is a numeric or enum target, which binds <c>null</c>, <c>true</c>/<c>false</c> and text tokens
+        /// as 4.x decoding does.
+        /// </summary>
+        public bool BindsScalarTokens { get; private set; }
+
+        /// <summary>Gets whether this is an enum target.</summary>
+        public bool IsEnum { get; private set; }
+
+        /// <summary>Gets the value a <c>null</c> token binds to when <see cref="BindsScalarTokens"/> is set.</summary>
+        public object? DefaultValue { get; private set; }
 
         /// <summary>Gets the element or value plan for collections, arrays, and dictionaries.</summary>
         public TypePlan? ElementPlan { get; private set; }
@@ -1723,9 +1754,26 @@ internal static class NativeTypedMaterializer
 
         public static TypePlan Unsupported(Type type) => new TypePlan(type, PlanKind.Unsupported);
 
-        public static TypePlan Primitive(Type type) => new TypePlan(type, PlanKind.Primitive);
+        public static TypePlan Primitive(Type type)
+        {
+            var bindsScalarTokens = type.IsEnum || NumericUtils.IsNumericType(type);
+            return new TypePlan(type, PlanKind.Primitive)
+            {
+                IsEnum = type.IsEnum,
+                BindsScalarTokens = bindsScalarTokens,
+                DefaultValue = bindsScalarTokens ? Activator.CreateInstance(type) : null
+            };
+        }
 
         public static TypePlan Any(Type type) => new TypePlan(type, PlanKind.Any);
+
+        public static TypePlan Deferred(Type type) => new TypePlan(type, PlanKind.Deferred);
+
+        /// <summary>A dictionary target this route cannot key or construct: <c>null</c> binds, any other value fails.</summary>
+        public static TypePlan Reject(Type type) => new TypePlan(type, PlanKind.Reject);
+
+        /// <summary>Returns the finished plan of a recursive type, cached on first use.</summary>
+        public TypePlan ResolveDeferred() => resolved ??= GetPlan(Type);
 
         public static TypePlan Nullable(Type type, TypePlan underlyingPlan)
         {
@@ -1797,6 +1845,8 @@ internal static class NativeTypedMaterializer
         Collection,
         Array,
         Dictionary,
-        Any
+        Any,
+        Deferred,
+        Reject
     }
 }

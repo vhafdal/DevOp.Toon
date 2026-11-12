@@ -21,6 +21,8 @@ namespace DevOp.Toon.Internal.Decode
         public char Delimiter { get; set; }
         /// <summary>Gets or sets tabular field names when the array uses row format.</summary>
         public List<string>? Fields { get; set; }
+        /// <summary>Gets or sets, per tabular field position, whether a dotted field name was quoted in source; <see langword="null"/> when none was.</summary>
+        public bool[]? QuotedDottedFields { get; set; }
     }
 
     /// <summary>
@@ -153,11 +155,21 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             List<string>? fields = null;
+            bool[]? quotedDottedFields = null;
             if (braceStart != -1)
             {
-                fields = ParseDelimitedValues(content.AsSpan(braceStart + 1, braceEnd - braceStart - 1), parsedBracket.Delimiter)
-                    .Select(ParseStringLiteral)
-                    .ToList();
+                var rawFields = ParseDelimitedValues(content.AsSpan(braceStart + 1, braceEnd - braceStart - 1), parsedBracket.Delimiter);
+                fields = new List<string>(rawFields.Count);
+                for (var i = 0; i < rawFields.Count; i++)
+                {
+                    var rawField = rawFields[i];
+                    var field = ParseStringLiteral(rawField);
+                    fields.Add(field);
+                    if (field.IndexOf(Constants.DOT) >= 0 && rawField.AsSpan().TrimStart().StartsWith("\"".AsSpan(), StringComparison.Ordinal))
+                    {
+                        (quotedDottedFields ??= new bool[rawFields.Count])[i] = true;
+                    }
+                }
             }
 
             var inlineValueStart = FindTrimmedStart(content, colonIndex + 1, content.Length);
@@ -173,6 +185,7 @@ namespace DevOp.Toon.Internal.Decode
                     Length = parsedBracket.Length,
                     Delimiter = parsedBracket.Delimiter,
                     Fields = fields,
+                    QuotedDottedFields = quotedDottedFields,
                 },
                 KeyStart = keyStart,
                 KeyEndExclusive = keyEndExclusive,

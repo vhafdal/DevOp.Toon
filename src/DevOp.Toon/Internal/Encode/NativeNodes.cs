@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace DevOp.Toon.Internal.Encode;
 
@@ -137,6 +138,10 @@ internal readonly struct DeferredTimeOnlyValue
 /// </summary>
 internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<string, NativeNode?>>
 {
+    // Quoted dotted keys are rare and matter only to path expansion, so they live in a side table rather than in a field
+    // that every object node, including those built by encoding, would carry.
+    private static readonly ConditionalWeakTable<NativeObjectNode, HashSet<string>> LiteralKeys = new();
+
     private readonly List<KeyValuePair<string, NativeNode?>> properties = new();
     private readonly Dictionary<string, int> propertyIndexes = new(StringComparer.Ordinal);
 
@@ -196,6 +201,48 @@ internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<st
     public bool ContainsKey(string key) => propertyIndexes.ContainsKey(key);
 
     /// <summary>
+    /// Gets the property at <paramref name="index"/> in insertion order, without an enumerator.
+    /// </summary>
+    public KeyValuePair<string, NativeNode?> GetAt(int index) => properties[index];
+
+    /// <summary>
+    /// Removes every property, keeping the storage for reuse.
+    /// </summary>
+    public void Clear()
+    {
+        properties.Clear();
+        propertyIndexes.Clear();
+    }
+
+    /// <summary>
+    /// Records whether <paramref name="key"/> was quoted in source, so path expansion keeps a quoted dotted key literal.
+    /// The last occurrence of a repeated key decides. Only decoding with path expansion records this.
+    /// </summary>
+    /// <param name="key">The decoded dotted key.</param>
+    /// <param name="quoted">Whether this occurrence was quoted.</param>
+    /// <param name="inherited">Literal keys this object inherits from its table header, copied before the first change.</param>
+    public void SetLiteralKey(string key, bool quoted, HashSet<string>? inherited = null)
+    {
+        if (!LiteralKeys.TryGetValue(this, out var keys))
+        {
+            if (!quoted && inherited?.Contains(key) != true)
+                return;
+
+            keys = LiteralKeys.GetValue(this, _ => inherited != null ? new HashSet<string>(inherited, StringComparer.Ordinal) : new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        if (quoted)
+            keys.Add(key);
+        else
+            keys.Remove(key);
+    }
+
+    /// <summary>
+    /// Returns the literal keys recorded on this object, or <see langword="null"/> when it has none of its own.
+    /// </summary>
+    public HashSet<string>? GetLiteralKeys() => LiteralKeys.TryGetValue(this, out var keys) ? keys : null;
+
+    /// <summary>
     /// Adds or replaces a property value.
     /// </summary>
     /// <param name="key">The property key.</param>
@@ -219,7 +266,25 @@ internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<st
 /// </summary>
 internal sealed class NativeArrayNode : NativeNode, IEnumerable<NativeNode?>
 {
+    // The quoted dotted fields of a table header, shared by all its rows instead of recorded on each row.
+    private static readonly ConditionalWeakTable<NativeArrayNode, HashSet<string>> RowLiteralKeys = new();
+
     private readonly List<NativeNode?> items = new();
+
+    /// <summary>
+    /// Records the literal (quoted dotted) keys that every row object of this table inherits from its header.
+    /// </summary>
+    public void SetRowLiteralKeys(HashSet<string> keys) => RowLiteralKeys.Add(this, keys);
+
+    /// <summary>
+    /// Returns the literal keys the row objects of this table inherit, or <see langword="null"/> when there are none.
+    /// </summary>
+    public HashSet<string>? GetRowLiteralKeys() => RowLiteralKeys.TryGetValue(this, out var keys) ? keys : null;
+
+    /// <summary>
+    /// Replaces the item at <paramref name="index"/>.
+    /// </summary>
+    public void SetItem(int index, NativeNode? value) => items[index] = value;
 
     /// <summary>
     /// Gets the number of items in the array.

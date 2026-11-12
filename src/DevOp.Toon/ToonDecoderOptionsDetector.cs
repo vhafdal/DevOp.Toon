@@ -38,6 +38,26 @@ public static class ToonDecoderOptionsDetector
         return options;
     }
 
+    /// <summary>
+    /// Returns the leading-space width of the first indented content line, ignoring blank and comment lines, or 0 when no
+    /// line is indented. In well-formed TOON that line is one level deep, so its width is the indentation unit.
+    /// </summary>
+    internal static int FirstIndentWidth(string toonString)
+    {
+        for (var start = 0; start < toonString.Length;)
+        {
+            var newline = toonString.IndexOf('\n', start);
+            if (newline < 0) newline = toonString.Length;
+            var position = start;
+            while (position < newline && toonString[position] == ' ') position++;
+            if (position > start && position < newline && toonString[position] is not ('\r' or '\t' or '#'))
+                return position - start;
+            start = newline + 1;
+        }
+
+        return 0;
+    }
+
     internal static int? DetectIndent(string toonString, bool ignoreComments)
     {
         var gcd = 0;

@@ -499,33 +499,23 @@ namespace DevOp.Toon.Internal.Decode
         private static bool TryBuildDictionaryPlan(Type type, HashSet<Type> building, out TypePlan plan)
         {
             plan = TypePlan.Unsupported(type);
-            if (!type.IsGenericType)
+            if (!DictionaryTargetShape.TryResolve(type, out var valueType, out var concreteDictionaryType))
             {
                 return false;
             }
 
-            var genericDefinition = type.GetGenericTypeDefinition();
-            if ((genericDefinition != typeof(Dictionary<,>) &&
-                 genericDefinition != typeof(IDictionary<,>) &&
-                 genericDefinition != typeof(IReadOnlyDictionary<,>)) ||
-                type.GetGenericArguments()[0] != typeof(string))
+            if (valueType == null || concreteDictionaryType == null)
             {
-                return false;
+                plan = TypePlan.Reject(type);
+                return true;
             }
 
-            var valueType = type.GetGenericArguments()[1];
             var valuePlan = BuildPlan(valueType, building);
             if (!valuePlan.IsSupported)
             {
-                // A recognized container whose values this path cannot build must not be read as a plain object:
-                // leave the whole target to the native materializer. Recursive element types keep the old behaviour.
-                return !building.Contains(valueType);
-            }
-
-            var concreteDictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(string), valueType);
-            if (!type.IsAssignableFrom(concreteDictionaryType) && type != concreteDictionaryType)
-            {
-                return false;
+                // A recognized container whose values this path cannot build, including a recursive value type, must not
+                // be read as a plain object: leave the whole target to the native materializer.
+                return true;
             }
 
             plan = TypePlan.Dictionary(type, valuePlan, CreateDictionaryFactory(concreteDictionaryType));
@@ -547,7 +537,7 @@ namespace DevOp.Toon.Internal.Decode
                 var elementPlan = BuildPlan(elementType, building);
                 if (!elementPlan.IsSupported)
                 {
-                    return !building.Contains(elementType);
+                    return true;
                 }
 
                 plan = TypePlan.Array(
@@ -577,7 +567,7 @@ namespace DevOp.Toon.Internal.Decode
             var elementPlanForList = BuildPlan(elementTypeForList, building);
             if (!elementPlanForList.IsSupported)
             {
-                return !building.Contains(elementTypeForList);
+                return true;
             }
 
             var concreteListType = typeof(List<>).MakeGenericType(elementTypeForList);
@@ -899,6 +889,7 @@ namespace DevOp.Toon.Internal.Decode
             ResolvedDecodeOptions options,
             out object? value)
         {
+            ThrowIfReject(plan);
             if (plan.Kind != PlanKind.Dictionary ||
                 plan.CreateDictionary == null ||
                 plan.ElementPlan == null ||
@@ -1218,6 +1209,7 @@ namespace DevOp.Toon.Internal.Decode
 
         private static bool TryReadNestedValue(LineCursor cursor, TypePlan plan, int baseDepth, ResolvedDecodeOptions options, out object? value)
         {
+            ThrowIfReject(plan);
             if (plan.Kind == PlanKind.Object)
             {
                 return TryReadObject(cursor, plan, baseDepth, options, out value);
@@ -1246,6 +1238,7 @@ namespace DevOp.Toon.Internal.Decode
             ResolvedDecodeOptions options,
             out object? value)
         {
+            ThrowIfReject(plan);
             if (plan.Kind != PlanKind.Collection && plan.Kind != PlanKind.Array && plan.Kind != PlanKind.Any)
             {
                 value = null;
@@ -1844,8 +1837,19 @@ namespace DevOp.Toon.Internal.Decode
             return true;
         }
 
+        // As on 4.x, a member of a dictionary type this route cannot key or construct binds null or stays unset; any other
+        // value, an empty one included, fails instead of being skipped.
+        private static void ThrowIfReject(TypePlan plan)
+        {
+            if (plan.Kind == PlanKind.Reject)
+            {
+                throw new NotSupportedException($"TOON typed decode does not support target type '{plan.Type.FullName}'.");
+            }
+        }
+
         private static bool TryCreateEmptyValue(TypePlan plan, out object? value)
         {
+            ThrowIfReject(plan);
             if (plan.Kind == PlanKind.Object && plan.Factory != null)
             {
                 value = plan.Factory();
@@ -1898,6 +1902,7 @@ namespace DevOp.Toon.Internal.Decode
                 return true;
             }
 
+            ThrowIfReject(plan);
             if (plan.Kind == PlanKind.Nullable && plan.UnderlyingPlan != null)
             {
                 return TryReadPrimitiveLikeValue(plan.UnderlyingPlan, source, start, endExclusive, out value, alreadyTrimmed: true);
@@ -2370,7 +2375,7 @@ namespace DevOp.Toon.Internal.Decode
 
             if (token.SequenceEqual(Constants.TRUE_LITERAL) || token.SequenceEqual(Constants.FALSE_LITERAL))
             {
-                return Enum.ToObject(enumType, token.SequenceEqual(Constants.TRUE_LITERAL) ? 1 : 0);
+                return NumericUtils.ConvertBoolean(enumType, token.SequenceEqual(Constants.TRUE_LITERAL));
             }
 
             if (IsNumberToken(token))
@@ -2379,18 +2384,7 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             var text = token.Length > 0 && token[0] == Constants.DOUBLE_QUOTE ? Parser.ParseStringLiteral(source, start, endExclusive) : token.ToString();
-            try
-            {
-                return Enum.Parse(enumType, text, false);
-            }
-            catch (OverflowException)
-            {
-                throw ToonFormatException.Syntax(NumericUtils.OutsideRange(text, enumType));
-            }
-            catch (ArgumentException)
-            {
-                throw ToonFormatException.Syntax($"Value {text} is not a valid {enumType.FullName}");
-            }
+            return NumericUtils.ConvertText(enumType, text);
         }
 
         /// <summary>
@@ -2442,28 +2436,11 @@ namespace DevOp.Toon.Internal.Decode
 
             if (token.SequenceEqual(Constants.TRUE_LITERAL) || token.SequenceEqual(Constants.FALSE_LITERAL))
             {
-                return Convert.ChangeType(token.SequenceEqual(Constants.TRUE_LITERAL), type, CultureInfo.InvariantCulture);
+                return NumericUtils.ConvertBoolean(type, token.SequenceEqual(Constants.TRUE_LITERAL));
             }
 
             var text = token.Length > 0 && token[0] == Constants.DOUBLE_QUOTE ? Parser.ParseStringLiteral(token.ToString()) : token.ToString();
-            try
-            {
-                var converted = Convert.ChangeType(text, type, CultureInfo.InvariantCulture);
-                if ((converted is double number && !NumericUtils.IsFinite(number)) || (converted is float single && !NumericUtils.IsFinite(single)))
-                {
-                    throw ToonFormatException.Syntax(NumericUtils.IsNumberShaped(text.Trim()) ? NumericUtils.OutsideRange(text, type) : $"Value {text} is not a valid {type.FullName}");
-                }
-
-                return converted;
-            }
-            catch (FormatException)
-            {
-                throw ToonFormatException.Syntax($"Value {text} is not a valid {type.FullName}");
-            }
-            catch (OverflowException)
-            {
-                throw ToonFormatException.Syntax($"Number {text} is outside the range of {type.FullName}");
-            }
+            return NumericUtils.ConvertText(type, text);
         }
 
         private static object? NarrowInteger(Type type, decimal value)
@@ -4353,7 +4330,9 @@ namespace DevOp.Toon.Internal.Decode
             /// <summary>The type is a string-keyed dictionary.</summary>
             Dictionary,
             /// <summary>The type is <see cref="object"/> and should materialize native values dynamically.</summary>
-            Any
+            Any,
+            /// <summary>The type is a dictionary this path cannot key or construct: <c>null</c> binds, any other value fails.</summary>
+            Reject
         }
 
         /// <summary>
@@ -4473,6 +4452,8 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             public static TypePlan Unsupported(Type type) => new TypePlan(type, PlanKind.Unsupported);
+
+            public static TypePlan Reject(Type type) => new TypePlan(type, PlanKind.Reject);
             public static TypePlan Primitive(Type type) => new TypePlan(type, PlanKind.Primitive);
             public static TypePlan Any(Type type) => new TypePlan(type, PlanKind.Any);
 

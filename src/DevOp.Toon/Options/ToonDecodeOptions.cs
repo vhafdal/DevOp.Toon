@@ -10,6 +10,7 @@ namespace DevOp.Toon;
 public class ToonDecodeOptions
 {
     private ResolvedDecodeOptions? cachedResolvedOptions;
+    private int indent = 2;
 
     internal ResolvedDecodeOptions GetResolvedOptions()
     {
@@ -35,7 +36,20 @@ public class ToonDecodeOptions
     /// Gets or sets the number of spaces that represent one indentation level.
     /// </summary>
     /// <remarks>The default value is 2. Decoding throws when this value is less than or equal to zero.</remarks>
-    public int Indent { get; set; } = 2;
+    public int Indent
+    {
+        get => indent;
+        set
+        {
+            indent = value;
+            IndentSpecified = true;
+        }
+    }
+
+    /// <summary>
+    /// Gets whether <see cref="Indent"/> was assigned rather than left at its default.
+    /// </summary>
+    internal bool IndentSpecified { get; private set; }
 
     /// <summary>
     /// Gets or sets whether the decoder enforces strict structural validation.
@@ -51,7 +65,8 @@ public class ToonDecodeOptions
     /// </summary>
     /// <remarks>
     /// The default value is <see cref="ToonPathExpansion.Off"/>, which treats dotted keys as literal property names.
-    /// Use <see cref="ToonPathExpansion.Safe"/> to expand eligible unquoted dotted keys into nested objects.
+    /// Use <see cref="ToonPathExpansion.Safe"/> to expand eligible unquoted dotted keys into nested objects at every depth,
+    /// including objects inside arrays, which matches the keys that key folding writes; quoted dotted keys stay literal.
     /// </remarks>
     public ToonPathExpansion ExpandPaths { get; set; } = ToonPathExpansion.Off;
 
@@ -73,7 +88,8 @@ public class ToonDecodeOptions
         return new ToonDecodeOptions
         {
             ProtocolVersion = ProtocolVersion,
-            Indent = Indent,
+            indent = indent,
+            IndentSpecified = IndentSpecified,
             Strict = Strict,
             ExpandPaths = ExpandPaths,
             ObjectArrayLayout = ObjectArrayLayout

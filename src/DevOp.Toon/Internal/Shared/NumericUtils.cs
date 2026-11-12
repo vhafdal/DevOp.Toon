@@ -327,6 +327,71 @@ namespace DevOp.Toon.Internal.Shared
         public static string OutsideRange(string numberText, Type type) => $"Number {numberText} is outside the range of {type.FullName}";
 
         /// <summary>
+        /// Returns whether <paramref name="type"/> is one of the numeric types typed decoding binds numbers to.
+        /// </summary>
+        public static bool IsNumericType(Type type)
+            => type == typeof(int) || type == typeof(long) || type == typeof(double) || type == typeof(decimal) || type == typeof(float)
+               || type == typeof(short) || type == typeof(byte) || type == typeof(uint) || type == typeof(ulong) || type == typeof(ushort) || type == typeof(sbyte);
+
+        /// <summary>
+        /// Converts <c>true</c> or <c>false</c> to a numeric or enum <paramref name="type"/> as 4.x decoding does: one and zero.
+        /// </summary>
+        public static object ConvertBoolean(Type type, bool value)
+            => type.IsEnum
+                ? Enum.ToObject(type, value ? 1 : 0)
+                : Convert.ChangeType(value, type, System.Globalization.CultureInfo.InvariantCulture)!;
+
+        /// <summary>
+        /// Converts text, the content of a string token, to a numeric or enum <paramref name="type"/> as 4.x decoding does: an
+        /// enum by <see cref="Enum.Parse(Type, string, bool)"/> (a name, a list of flag names or a number), a number by the
+        /// invariant parse of the type. Text that does not convert, or converts to an infinity or NaN, throws a format error.
+        /// </summary>
+        public static object ConvertText(Type type, string text)
+        {
+            if (type.IsEnum)
+            {
+                try
+                {
+                    return Enum.Parse(type, text, false);
+                }
+                catch (OverflowException)
+                {
+                    throw ToonFormatException.Syntax(OutsideRange(text, type));
+                }
+                catch (ArgumentException)
+                {
+                    throw ToonFormatException.Syntax(NotValid(text, type));
+                }
+            }
+
+            object converted;
+            try
+            {
+                converted = Convert.ChangeType(text, type, System.Globalization.CultureInfo.InvariantCulture)!;
+            }
+            catch (FormatException)
+            {
+                throw ToonFormatException.Syntax(NotValid(text, type));
+            }
+            catch (OverflowException)
+            {
+                throw ToonFormatException.Syntax(OutsideRange(text, type));
+            }
+
+            if ((converted is double number && !IsFinite(number)) || (converted is float single && !IsFinite(single)))
+            {
+                throw ToonFormatException.Syntax(IsNumberShaped(text.Trim()) ? OutsideRange(text, type) : NotValid(text, type));
+            }
+
+            return converted;
+        }
+
+        /// <summary>
+        /// The message for a token the target type cannot take.
+        /// </summary>
+        public static string NotValid(string token, Type type) => $"Value {token} is not a valid {type.FullName}";
+
+        /// <summary>
         /// Binds number text to an enum member by the integer rule of its underlying type, throwing a format error for a
         /// fraction or a number outside that type's range.
         /// </summary>
