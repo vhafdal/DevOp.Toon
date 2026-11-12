@@ -16,6 +16,7 @@ public sealed class ToonService : IToonService
     private readonly ToonEncodeOptions encodeOptions;
     private readonly ResolvedEncodeOptions resolvedEncodeOptions;
     private readonly ToonDecodeOptions decodeOptions;
+    private readonly ToonDecodeOptions? encodeIndentDecodeOptions;
 
     /// <summary>
     /// Creates a service instance with default TOON service options.
@@ -36,6 +37,16 @@ public sealed class ToonService : IToonService
         encodeOptions = options.CreateEncodeOptions();
         resolvedEncodeOptions = encodeOptions.GetResolvedOptions();
         decodeOptions = options.CreateDecodeOptions();
+
+        // A pinned decode version reads with the configured indent, which defaults to 2 while encoding defaults to 1. When the
+        // decode indent was left at its default, also accept the service's own encode indent, so it can read its output.
+        if (decodeOptions.ProtocolVersion != ToonProtocolVersion.Auto &&
+            !decodeOptions.IndentSpecified &&
+            encodeOptions.Indent != decodeOptions.Indent)
+        {
+            encodeIndentDecodeOptions = decodeOptions.Clone();
+            encodeIndentDecodeOptions.Indent = encodeOptions.Indent;
+        }
     }
 
     /// <summary>
@@ -115,7 +126,7 @@ public sealed class ToonService : IToonService
     /// <returns>The decoded node graph.</returns>
     public ToonNode? Decode(string toonString)
     {
-        return ToonDecoder.Decode(toonString, decodeOptions);
+        return ToonDecoder.Decode(toonString, DecodeOptionsFor(toonString));
     }
 
     /// <summary>
@@ -137,7 +148,7 @@ public sealed class ToonService : IToonService
     /// <returns>The decoded value.</returns>
     public T? Decode<T>(string toonString)
     {
-        return ToonDecoder.Decode<T>(toonString, decodeOptions);
+        return ToonDecoder.Decode<T>(toonString, DecodeOptionsFor(toonString));
     }
 
     /// <summary>
@@ -160,7 +171,7 @@ public sealed class ToonService : IToonService
     /// <returns>A task containing the decoded node graph.</returns>
     public Task<ToonNode?> DecodeAsync(string toonString, CancellationToken cancellationToken = default)
     {
-        return ToonDecoder.DecodeAsync(toonString, decodeOptions, cancellationToken);
+        return ToonDecoder.DecodeAsync(toonString, DecodeOptionsFor(toonString), cancellationToken);
     }
 
     /// <summary>
@@ -184,7 +195,7 @@ public sealed class ToonService : IToonService
     /// <returns>A task containing the decoded value.</returns>
     public Task<T?> DecodeAsync<T>(string toonString, CancellationToken cancellationToken = default)
     {
-        return ToonDecoder.DecodeAsync<T>(toonString, decodeOptions, cancellationToken);
+        return ToonDecoder.DecodeAsync<T>(toonString, DecodeOptionsFor(toonString), cancellationToken);
     }
 
     /// <summary>
@@ -217,7 +228,7 @@ public sealed class ToonService : IToonService
     /// <returns>The converted JSON payload.</returns>
     public string Toon2Json(string toonString)
     {
-        return ToonDecoder.Toon2Json(toonString, decodeOptions);
+        return ToonDecoder.Toon2Json(toonString, DecodeOptionsFor(toonString));
     }
 
     /// <summary>
@@ -303,6 +314,15 @@ public sealed class ToonService : IToonService
         contentType.Equals("application/json", StringComparison.OrdinalIgnoreCase)
         || contentType.Equals("text/json", StringComparison.OrdinalIgnoreCase)
         || contentType.EndsWith("+json", StringComparison.OrdinalIgnoreCase);
+
+    private ToonDecodeOptions DecodeOptionsFor(string? toonString)
+    {
+        return encodeIndentDecodeOptions != null &&
+               toonString != null &&
+               ToonDecoderOptionsDetector.FirstIndentWidth(toonString) == encodeIndentDecodeOptions.Indent
+            ? encodeIndentDecodeOptions
+            : decodeOptions;
+    }
 
     private static ToonDecodeOptions CloneDecodeOptions(ToonDecodeOptions options)
     {

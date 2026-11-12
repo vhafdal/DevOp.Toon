@@ -160,6 +160,69 @@ public class ToonServiceTests
             toon.Deserialize<SimpleDto>("hello", "text/plain", new ToonDecodeOptions()));
     }
 
+    [Theory]
+    [InlineData(ToonProtocolVersion.V3_0)]
+    [InlineData(ToonProtocolVersion.CustomLegacy)]
+    [InlineData(ToonProtocolVersion.V4_4)]
+    [InlineData(ToonProtocolVersion.CustomV4_4)]
+    public void Decode_PinnedDecodeVersionWithDefaultIndents_DecodesOwnOutput(ToonProtocolVersion version)
+    {
+        var options = new ToonServiceOptions { ProtocolVersion = version };
+        options.Decode.ProtocolVersion = version;
+        var service = new ToonService(options);
+        var source = new NestedDto { Id = 7, Child = new SimpleDto { Id = 8, Name = "Gear" }, Tags = ["a", "b"] };
+
+        var text = service.Encode(source);
+        var decoded = service.Decode<NestedDto>(text)!;
+
+        Assert.Contains("\n Id: 8", text, StringComparison.Ordinal);
+        Assert.Equal(1, options.Encode.Indent);
+        Assert.Equal(2, options.Decode.Indent);
+        Assert.Equal(8, decoded.Child!.Id);
+        Assert.Equal("Gear", decoded.Child.Name);
+        Assert.Equal(["a", "b"], decoded.Tags);
+        Assert.Equal(8, service.Decode(text)!["Child"]!["Id"]!.GetValue<int>());
+        Assert.Equal("Gear", service.Deserialize<NestedDto>(text, "application/toon")!.Child!.Name);
+        Assert.Contains("\"Name\":\"Gear\"", service.Toon2Json(text), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(ToonProtocolVersion.V3_0)]
+    [InlineData(ToonProtocolVersion.V4_4)]
+    public async Task Decode_PinnedDecodeVersionWithDefaultIndents_StillDecodesDecodeIndentInput(ToonProtocolVersion version)
+    {
+        var options = new ToonServiceOptions { ProtocolVersion = version };
+        options.Decode.ProtocolVersion = version;
+        var service = new ToonService(options);
+        var text = ToonEncoder.Encode(
+            new NestedDto { Id = 7, Child = new SimpleDto { Id = 8, Name = "Gear" } },
+            new ToonEncodeOptions { ProtocolVersion = version, Indent = 2 });
+
+        Assert.Equal("Gear", service.Decode<NestedDto>(text)!.Child!.Name);
+        Assert.Equal("Gear", (await service.DecodeAsync<NestedDto>(text))!.Child!.Name);
+    }
+
+    [Theory]
+    [InlineData(ToonProtocolVersion.V3_0)]
+    [InlineData(ToonProtocolVersion.V4_4)]
+    public void Decode_ExplicitDecodeIndent_IsHonoured(ToonProtocolVersion version)
+    {
+        var options = new ToonServiceOptions { ProtocolVersion = version };
+        options.Decode.ProtocolVersion = version;
+        options.Decode.Indent = 2;
+        var service = new ToonService(options);
+        var text = service.Encode(new NestedDto { Id = 7, Child = new SimpleDto { Id = 8, Name = "Gear" } });
+
+        Assert.Throws<ToonFormatException>(() => service.Decode<NestedDto>(text));
+    }
+
+    private sealed class NestedDto
+    {
+        public int Id { get; set; }
+        public SimpleDto? Child { get; set; }
+        public List<string>? Tags { get; set; }
+    }
+
     private sealed class SimpleDto
     {
         public int Id { get; set; }

@@ -16,6 +16,11 @@ public sealed class ToonServiceOptions
     /// <summary>
     /// Gets the decoder options used by the service.
     /// </summary>
+    /// <remarks>
+    /// With a concrete <see cref="ToonDecodeOptions.ProtocolVersion"/> and <see cref="ToonDecodeOptions.Indent"/> left at its
+    /// default, the service also reads a payload indented with the encode indentation, so it can decode its own output; an
+    /// assigned decode indent is used as given.
+    /// </remarks>
     public ToonDecodeOptions Decode { get; } = new();
 
     /// <summary>
