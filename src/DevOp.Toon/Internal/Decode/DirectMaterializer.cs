@@ -506,6 +506,7 @@ namespace DevOp.Toon.Internal.Decode
 
             if (valueType == null || concreteDictionaryType == null)
             {
+                plan = TypePlan.Reject(type);
                 return true;
             }
 
@@ -888,6 +889,7 @@ namespace DevOp.Toon.Internal.Decode
             ResolvedDecodeOptions options,
             out object? value)
         {
+            ThrowIfReject(plan);
             if (plan.Kind != PlanKind.Dictionary ||
                 plan.CreateDictionary == null ||
                 plan.ElementPlan == null ||
@@ -1207,6 +1209,7 @@ namespace DevOp.Toon.Internal.Decode
 
         private static bool TryReadNestedValue(LineCursor cursor, TypePlan plan, int baseDepth, ResolvedDecodeOptions options, out object? value)
         {
+            ThrowIfReject(plan);
             if (plan.Kind == PlanKind.Object)
             {
                 return TryReadObject(cursor, plan, baseDepth, options, out value);
@@ -1235,6 +1238,7 @@ namespace DevOp.Toon.Internal.Decode
             ResolvedDecodeOptions options,
             out object? value)
         {
+            ThrowIfReject(plan);
             if (plan.Kind != PlanKind.Collection && plan.Kind != PlanKind.Array && plan.Kind != PlanKind.Any)
             {
                 value = null;
@@ -1833,8 +1837,19 @@ namespace DevOp.Toon.Internal.Decode
             return true;
         }
 
+        // As on 4.x, a member of a dictionary type this route cannot key or construct binds null or stays unset; any other
+        // value, an empty one included, fails instead of being skipped.
+        private static void ThrowIfReject(TypePlan plan)
+        {
+            if (plan.Kind == PlanKind.Reject)
+            {
+                throw new NotSupportedException($"TOON typed decode does not support target type '{plan.Type.FullName}'.");
+            }
+        }
+
         private static bool TryCreateEmptyValue(TypePlan plan, out object? value)
         {
+            ThrowIfReject(plan);
             if (plan.Kind == PlanKind.Object && plan.Factory != null)
             {
                 value = plan.Factory();
@@ -1887,6 +1902,7 @@ namespace DevOp.Toon.Internal.Decode
                 return true;
             }
 
+            ThrowIfReject(plan);
             if (plan.Kind == PlanKind.Nullable && plan.UnderlyingPlan != null)
             {
                 return TryReadPrimitiveLikeValue(plan.UnderlyingPlan, source, start, endExclusive, out value, alreadyTrimmed: true);
@@ -4314,7 +4330,9 @@ namespace DevOp.Toon.Internal.Decode
             /// <summary>The type is a string-keyed dictionary.</summary>
             Dictionary,
             /// <summary>The type is <see cref="object"/> and should materialize native values dynamically.</summary>
-            Any
+            Any,
+            /// <summary>The type is a dictionary this path cannot key or construct: <c>null</c> binds, any other value fails.</summary>
+            Reject
         }
 
         /// <summary>
@@ -4434,6 +4452,8 @@ namespace DevOp.Toon.Internal.Decode
             }
 
             public static TypePlan Unsupported(Type type) => new TypePlan(type, PlanKind.Unsupported);
+
+            public static TypePlan Reject(Type type) => new TypePlan(type, PlanKind.Reject);
             public static TypePlan Primitive(Type type) => new TypePlan(type, PlanKind.Primitive);
             public static TypePlan Any(Type type) => new TypePlan(type, PlanKind.Any);
 

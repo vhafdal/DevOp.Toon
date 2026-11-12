@@ -378,6 +378,26 @@ public sealed class LegacyTypedDecodeShapeTests
         AssertUnbindableMember<Dictionary<string, Dictionary<int, string>>>(version, "V:\n  k:\n    \"1\": a");
     }
 
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_UnbindableDictionaryMemberAbsentOrNull_StaysOnDirectRoute(ToonProtocolVersion version)
+    {
+        AssertDirectHit<MapHolder<Dictionary<int, string>>>("Id: 1\nV: null\nName: n", version);
+        AssertDirectHit<MapRecord<Dictionary<int, string>>>("Id: 1\nName: n", version);
+        AssertDirectHit<MapOuter>("Inner:\n  Id: 1\n  V: null\n  Name: n", version);
+        AssertDirectHit<List<MapHolder<System.Collections.Hashtable>>>("[2]{Id,V,Name}:\n  1,null,n\n  2,null,m", version);
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<MapHolder<Dictionary<int, string>>>("Id: 1\nV:", DecodeOptions(version)));
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<List<MapHolder<System.Collections.Hashtable>>>("[1]{Id,V,Name}:\n  1,x,n", DecodeOptions(version)));
+    }
+
+    private static void AssertDirectHit<T>(string text, ToonProtocolVersion version)
+    {
+        var before = GetDirectMaterializerMisses(typeof(T));
+
+        Assert.NotNull(ToonDecoder.Decode<T>(text, DecodeOptions(version)));
+        Assert.Equal(before, GetDirectMaterializerMisses(typeof(T)));
+    }
+
     private static void AssertUnbindableMember<TMap>(ToonProtocolVersion version, string valueLines)
         where TMap : class
     {
@@ -648,6 +668,11 @@ public sealed class LegacyTypedDecodeShapeTests
         public TMap? V { get; set; }
 
         public string? Name { get; set; }
+    }
+
+    public sealed class MapOuter
+    {
+        public MapHolder<Dictionary<int, string>>? Inner { get; set; }
     }
 
     public sealed record MapRecord<TMap>(int Id, TMap? V = null, string? Name = null)

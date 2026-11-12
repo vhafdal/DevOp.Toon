@@ -201,6 +201,11 @@ internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<st
     public bool ContainsKey(string key) => propertyIndexes.ContainsKey(key);
 
     /// <summary>
+    /// Gets the property at <paramref name="index"/> in insertion order, without an enumerator.
+    /// </summary>
+    public KeyValuePair<string, NativeNode?> GetAt(int index) => properties[index];
+
+    /// <summary>
     /// Removes every property, keeping the storage for reuse.
     /// </summary>
     public void Clear()

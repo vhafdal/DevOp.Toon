@@ -62,8 +62,9 @@ internal static class NativePathExpansion
         List<KeyValuePair<string, NativeNode?>>? replaced = null;
         var expands = false;
         var literalKeys = obj.GetLiteralKeys() ?? inheritedLiteralKeys;
-        foreach (var kvp in obj)
+        for (int i = 0; i < obj.Count; i++)
         {
+            var kvp = obj.GetAt(i);
             expands |= GetSegments(kvp.Key, literalKeys, state) != null;
             if (kvp.Value is NativePrimitiveNode or null)
                 continue;
@@ -84,7 +85,8 @@ internal static class NativePathExpansion
 
         // Rebuild the object in place from its properties, whose values are already expanded.
         var properties = state.Buffer ??= new List<KeyValuePair<string, NativeNode?>>();
-        properties.AddRange(obj);
+        for (int i = 0; i < obj.Count; i++)
+            properties.Add(obj.GetAt(i));
         obj.Clear();
         try
         {
@@ -208,8 +210,9 @@ internal static class NativePathExpansion
 
     private static void DeepMerge(NativeObjectNode target, NativeObjectNode source, bool strict)
     {
-        foreach (var kvp in source)
+        for (int i = 0; i < source.Count; i++)
         {
+            var kvp = source.GetAt(i);
             SetValue(target, kvp.Key, kvp.Value, strict);
         }
     }
