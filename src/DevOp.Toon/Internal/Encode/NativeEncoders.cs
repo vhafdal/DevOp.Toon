@@ -683,11 +683,11 @@ internal static class NativePrimitives
     private static string FormatShortestFixed(double value)
     {
         var text = value.ToString("R", CultureInfo.InvariantCulture);
-#if NETSTANDARD2_0
-        // "R" on .NET Framework can return 15 digits that do not read back; 17 always do.
+        // "R" can return digits that read back one ulp off: 15 digits on .NET Framework, and on .NET Core at some powers
+        // of two, such as 2^-25, where the gap below the value is half the gap above it. 17 digits always read back.
         if (!ReadsBackAs(text, value))
             text = value.ToString("G17", CultureInfo.InvariantCulture);
-#endif
+
         var exponentIndex = text.IndexOf('E');
         if (exponentIndex < 0)
             return text;
@@ -712,8 +712,10 @@ internal static class NativePrimitives
     }
 
 #if NETSTANDARD2_0
+    // The runtime's own parser decides, since the .NET Framework parser is not always correctly rounded; text it cannot
+    // parse, such as an "F" precision above 99 that .NET Framework writes as literal text, does not read back.
     private static bool ReadsBackAs(string text, double value)
-        => double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture) == value;
+        => double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed == value;
 #else
     private static bool ReadsBackAs(string text, double value) => ReadsBackAs(text.AsSpan(), value);
 
@@ -1558,7 +1560,14 @@ internal static class NativePrimitives
         if (ReadsBackAs(buffer.Slice(0, written), value))
             return true;
 
-        return value.TryFormat(buffer, out written, "R", CultureInfo.InvariantCulture) &&
+        if (!value.TryFormat(buffer, out written, "R", CultureInfo.InvariantCulture) || buffer.Slice(0, written).IndexOfAny('E', 'e') >= 0)
+            return false;
+
+        if (ReadsBackAs(buffer.Slice(0, written), value))
+            return true;
+
+        // See FormatShortestFixed: "R" can be one ulp off at some powers of two; 17 digits always read back.
+        return value.TryFormat(buffer, out written, "G17", CultureInfo.InvariantCulture) &&
                buffer.Slice(0, written).IndexOfAny('E', 'e') < 0;
     }
 #endif

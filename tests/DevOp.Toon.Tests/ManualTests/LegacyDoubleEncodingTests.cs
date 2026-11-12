@@ -31,6 +31,8 @@ public sealed class LegacyDoubleEncodingTests
                 data.Add(version, 1234567890123456.7, "1234567890123456.8");
                 data.Add(version, 1.2345678901234566e-7, "0.00000012345678901234566");
                 data.Add(version, -9.999999999999999e-6, "-0.000009999999999999999");
+                data.Add(version, Math.Pow(2, -25), "0.000000029802322387695312");
+                data.Add(version, -Math.Pow(2, -25), "-0.000000029802322387695312");
             }
 
             return data;
@@ -164,7 +166,7 @@ public sealed class LegacyDoubleEncodingTests
         yield return ("fast object", ToonEncoder.Encode(new DoubleRow { Id = 1, V = value }, options).Split('\n')[1].Substring("V: ".Length));
         yield return ("fast table", RowTokens(ToonEncoder.Encode(rows, options))[0]);
         yield return ("compact table", RowTokens(Encoding.UTF8.GetString(ToonEncoder.EncodeToBytes(rows, options)))[0]);
-        yield return ("json", ToonEncoder.Json2Toon("{\"V\":" + value.ToString("R", CultureInfo.InvariantCulture) + "}", options).Substring("V: ".Length));
+        yield return ("json", ToonEncoder.Json2Toon("{\"V\":" + value.ToString("G17", CultureInfo.InvariantCulture) + "}", options).Substring("V: ".Length));
     }
 
     private static void AssertDecodesBack(ToonProtocolVersion version, double value)
@@ -231,6 +233,17 @@ public sealed class LegacyDoubleEncodingTests
             values.Add(random.NextDouble() * Math.Pow(10, random.Next(-30, -4)));
             values.Add(random.NextDouble() * Math.Pow(10, random.Next(14, 26)));
             values.Add(-random.NextDouble() * Math.Pow(10, random.Next(-8, 16)));
+        }
+
+        // Every finite power of two, 2^-1074 through 2^1023: the boundary where the gap below a value is half the gap above
+        // it, where "R" can return digits that read back one ulp low.
+        for (var exponent = -1074; exponent <= 1023; exponent++)
+        {
+            var power = exponent < -1022
+                ? BitConverter.Int64BitsToDouble(1L << (exponent + 1074))
+                : BitConverter.Int64BitsToDouble((long)(exponent + 1023) << 52);
+            values.Add(power);
+            values.Add(-power);
         }
 
         return values.Where(static v => v != 0.0).ToArray();

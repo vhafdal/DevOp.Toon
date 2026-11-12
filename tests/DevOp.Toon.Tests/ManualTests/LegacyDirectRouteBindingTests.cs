@@ -89,6 +89,9 @@ public sealed class LegacyDirectRouteBindingTests
         AssertShapeError(2, "5", () => ToonDecoder.Decode<MapRecord>("Id: 1\nV: 5\nName: n", options));
         AssertShapeError(3, "5", () => ToonDecoder.Decode<List<MapRecord>>("[1]:\n  - Id: 1\n    V: 5", options));
         AssertShapeError(2, "5", () => ToonDecoder.Decode<CtorHolder>("Id: 1\nV: 5", options));
+        AssertShapeError(2, "5", () => ToonDecoder.Decode<List<MapHolder>>("[1]{Id,V,Name}:\n  1,5,n", options));
+        AssertShapeError(2, "5", () => ToonDecoder.Decode<List<MapRecord>>("[1]{Id,V,Name}:\n  1,5,n", options));
+        AssertShapeError(2, "5", () => ToonDecoder.Decode<List<CtorHolder>>("[1]{Id,V}:\n  1,5", options));
         AssertShapeError(2, "5", () => ToonDecoder.Decode<List<CtorHolder>>("[1]:\n  - V: 5\n    Id: 1", options));
         AssertShapeError(3, "5", () => ToonDecoder.Decode<Dictionary<string, Dictionary<string, int>>>("b:\n  x: 1\na: 5", options));
         AssertShapeError(2, "5", () => ToonDecoder.Decode<List<Dictionary<string, Dictionary<string, int>>>>("[1]:\n  - a: 5", options));
@@ -144,6 +147,53 @@ public sealed class LegacyDirectRouteBindingTests
             Assert.Equal("n", holder.Name);
             Assert.Equal("n", record.Name);
             Assert.Equal(1, ctorHolder.Id);
+        }
+    }
+
+    /// <summary>
+    /// A Key/Value table the direct reader cannot bind, a short or wide one, is read as the native route reads it: strict
+    /// decoding reports the count, lenient decoding binds what is there, and a bad cell reports the cell.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(LegacyCases))]
+    public void Decode_DictionaryTableTheDirectReaderRejects_DecodesAsNativeRoute(ToonProtocolVersion version, bool strict)
+    {
+        var options = DecodeOptions(version, strict);
+        foreach (var (text, countError) in new[]
+                 {
+                     ("Id: 1\nV[2]{Key,Value}:\n  a,1\nName: n", "Expected 2 tabular rows, but got 1"),
+                     ("Id: 1\nV[1]{Key,Value}:\n  a,1,2\nName: n", "Expected 2 tabular row values, but got 3"),
+                     ("Id: 1\nV[2]:\n  - Key: a\n    Value: 1\nName: n", "Expected 2 list array items, but got 1")
+                 })
+        {
+            if (strict)
+            {
+                foreach (var decode in new Func<object?>[] { () => ToonDecoder.Decode<MapHolder>(text, options), () => ToonDecoder.Decode<MapRecord>(text, options) })
+                {
+                    var error = Assert.IsType<ToonFormatException>(Record.Exception(decode));
+                    Assert.Equal(ToonErrorKind.Range, error.Kind);
+                    Assert.Contains(countError, error.Message);
+                }
+
+                continue;
+            }
+
+            var holder = ToonDecoder.Decode<MapHolder>(text, options)!;
+            var record = ToonDecoder.Decode<MapRecord>(text, options)!;
+            Assert.Equal("{\"a\":1}", JsonSerializer.Serialize(holder.V));
+            Assert.Equal("{\"a\":1}", JsonSerializer.Serialize(record.V));
+            Assert.Equal("n", holder.Name);
+            Assert.Equal("n", record.Name);
+        }
+
+        foreach (var decode in new Func<object?>[]
+                 {
+                     () => ToonDecoder.Decode<MapHolder>("Id: 1\nV[1]{Key,Value}:\n  a,\nName: n", options),
+                     () => ToonDecoder.Decode<MapRecord>("Id: 1\nV[1]{Key,Value}:\n  a,\nName: n", options)
+                 })
+        {
+            var error = Assert.IsType<ToonFormatException>(Record.Exception(decode));
+            Assert.Contains("Value  is not a valid System.Int32", error.Message);
         }
     }
 

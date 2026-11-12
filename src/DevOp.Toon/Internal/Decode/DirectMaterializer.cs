@@ -848,8 +848,9 @@ namespace DevOp.Toon.Internal.Decode
         }
 
         // A dictionary takes an object, null, a Key/Value table or, as on the native route, an empty array or a list of
-        // Key/Value objects. A scalar or any other array cannot fill it and fails, as on 4.x, instead of leaving it unset or
-        // sending the whole document to the native route, which would reject it without the line.
+        // Key/Value objects. A table the direct reader cannot bind is read again as the native route reads it, which applies
+        // strict-mode counts and lenient-mode tolerance as before; only a value that conversion also rejects, a scalar or a list
+        // of scalars, fails here, as on 4.x, instead of leaving the member unset or failing the whole document without a line.
         private static object? ReadDictionaryFromArrayField(
             LineCursor cursor,
             TypePlan plan,
@@ -860,21 +861,27 @@ namespace DevOp.Toon.Internal.Decode
             ResolvedDecodeOptions options)
         {
             var headerLine = cursor.Current().LineNumber;
-            object? value;
-            bool read;
-            if (header.Header.Fields != null && header.Header.Length > 0)
+            var start = cursor.Position;
+            if (header.Header.Fields != null && header.Header.Length > 0 &&
+                TryReadDictionaryFromHeader(cursor, plan, header.Header, header.InlineValues, arrayDepth, options, out var tableValue))
             {
-                read = TryReadDictionaryFromHeader(cursor, plan, header.Header, header.InlineValues, arrayDepth, options, out value);
-            }
-            else
-            {
-                var fieldContent = contentStart == 0 ? content : content.Substring(contentStart);
-                var fieldDepth = contentStart > 0 ? arrayDepth - 1 : arrayDepth;
-                var node = NativeDecoders.DecodeFieldValue(fieldContent, cursor, fieldDepth, options, isListItemFirstField: contentStart > 0);
-                read = NativeTypedMaterializer.TryConvert(node, plan.Type, out value);
+                return tableValue;
             }
 
-            return read ? value : throw DictionaryShapeError(plan, headerLine, null);
+            cursor.Position = start;
+            var fieldContent = contentStart == 0 ? content : content.Substring(contentStart);
+            var fieldDepth = contentStart > 0 ? arrayDepth - 1 : arrayDepth;
+            var node = NativeDecoders.DecodeFieldValue(fieldContent, cursor, fieldDepth, options, isListItemFirstField: contentStart > 0);
+            return NativeTypedMaterializer.TryConvert(node, plan.Type, out var value) ? value : throw DictionaryShapeError(plan, headerLine, null);
+        }
+
+        // A table cell is a scalar, which never fills a dictionary column.
+        private static void ThrowIfDictionaryCell(TypePlan plan, ParsedLine line, int start, int endExclusive)
+        {
+            if (plan.Kind == PlanKind.Dictionary)
+            {
+                throw DictionaryShapeError(plan, line.LineNumber, line.SourceString.Substring(start, endExclusive - start));
+            }
         }
 
         private static ToonFormatException DictionaryShapeError(TypePlan plan, int lineNumber, string? token)
@@ -982,11 +989,7 @@ namespace DevOp.Toon.Internal.Decode
                     var valueRange = tokenRanges[valueIndex];
                     if (!TryReadPrimitiveLikeValue(plan.ElementPlan, line.SourceString, contentOffset + valueRange.Start, contentOffset + valueRange.EndExclusive, out itemValue, alreadyTrimmed: true))
                     {
-                        if (plan.ElementPlan.Kind == PlanKind.Dictionary)
-                        {
-                            throw DictionaryShapeError(plan.ElementPlan, line.LineNumber, line.SourceString.Substring(contentOffset + valueRange.Start, valueRange.EndExclusive - valueRange.Start));
-                        }
-
+                        ThrowIfDictionaryCell(plan.ElementPlan, line, contentOffset + valueRange.Start, contentOffset + valueRange.EndExclusive);
                         value = null;
                         return false;
                     }
@@ -1459,6 +1462,7 @@ namespace DevOp.Toon.Internal.Decode
 
                     if (!TryReadPrimitiveLikeValue(property.Plan, line.SourceString, contentOffset + tokenRange.Start, contentOffset + tokenRange.EndExclusive, out var fieldValue, alreadyTrimmed: true))
                     {
+                        ThrowIfDictionaryCell(property.Plan, line, contentOffset + tokenRange.Start, contentOffset + tokenRange.EndExclusive);
                         return false;
                     }
 
@@ -1545,6 +1549,7 @@ namespace DevOp.Toon.Internal.Decode
                         {
                             if (!TryReadPrimitiveLikeValue(member.Plan, line.SourceString, contentOffset + tokenRanges[i].Start, contentOffset + tokenRanges[i].EndExclusive, out var memberValue, alreadyTrimmed: true))
                             {
+                                ThrowIfDictionaryCell(member.Plan, line, contentOffset + tokenRanges[i].Start, contentOffset + tokenRanges[i].EndExclusive);
                                 return false;
                             }
 
@@ -1566,6 +1571,7 @@ namespace DevOp.Toon.Internal.Decode
                     var tokenRange = tokenRanges[i];
                     if (!TryReadPrimitiveLikeValue(parameter.Plan, line.SourceString, contentOffset + tokenRange.Start, contentOffset + tokenRange.EndExclusive, out var fieldValue, alreadyTrimmed: true))
                     {
+                        ThrowIfDictionaryCell(parameter.Plan, line, contentOffset + tokenRange.Start, contentOffset + tokenRange.EndExclusive);
                         return false;
                     }
 
