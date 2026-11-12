@@ -201,33 +201,41 @@ internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<st
     public bool ContainsKey(string key) => propertyIndexes.ContainsKey(key);
 
     /// <summary>
-    /// Records that <paramref name="key"/> was quoted in source, so path expansion keeps it as a literal key.
+    /// Removes every property, keeping the storage for reuse.
     /// </summary>
-    /// <param name="key">The decoded key.</param>
-    public void MarkLiteralKey(string key)
+    public void Clear()
     {
-        LiteralKeys.GetValue(this, static _ => new HashSet<string>(StringComparer.Ordinal)).Add(key);
+        properties.Clear();
+        propertyIndexes.Clear();
     }
 
     /// <summary>
-    /// Clears a literal mark left by an earlier quoted occurrence of <paramref name="key"/>.
+    /// Records whether <paramref name="key"/> was quoted in source, so path expansion keeps a quoted dotted key literal.
+    /// The last occurrence of a repeated key decides. Only decoding with path expansion records this.
     /// </summary>
-    /// <param name="key">The decoded key.</param>
-    public void UnmarkLiteralKey(string key)
+    /// <param name="key">The decoded dotted key.</param>
+    /// <param name="quoted">Whether this occurrence was quoted.</param>
+    /// <param name="inherited">Literal keys this object inherits from its table header, copied before the first change.</param>
+    public void SetLiteralKey(string key, bool quoted, HashSet<string>? inherited = null)
     {
-        if (LiteralKeys.TryGetValue(this, out var keys))
+        if (!LiteralKeys.TryGetValue(this, out var keys))
+        {
+            if (!quoted && inherited?.Contains(key) != true)
+                return;
+
+            keys = LiteralKeys.GetValue(this, _ => inherited != null ? new HashSet<string>(inherited, StringComparer.Ordinal) : new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        if (quoted)
+            keys.Add(key);
+        else
             keys.Remove(key);
     }
 
     /// <summary>
-    /// Returns whether <paramref name="key"/> was quoted in source and must not be expanded as a dotted path.
+    /// Returns the literal keys recorded on this object, or <see langword="null"/> when it has none of its own.
     /// </summary>
-    /// <param name="key">The property key to test.</param>
-    /// <returns><see langword="true"/> when the key was marked literal.</returns>
-    public bool IsLiteralKey(string key)
-    {
-        return LiteralKeys.TryGetValue(this, out var keys) && keys.Contains(key);
-    }
+    public HashSet<string>? GetLiteralKeys() => LiteralKeys.TryGetValue(this, out var keys) ? keys : null;
 
     /// <summary>
     /// Adds or replaces a property value.
@@ -253,7 +261,25 @@ internal sealed class NativeObjectNode : NativeNode, IEnumerable<KeyValuePair<st
 /// </summary>
 internal sealed class NativeArrayNode : NativeNode, IEnumerable<NativeNode?>
 {
+    // The quoted dotted fields of a table header, shared by all its rows instead of recorded on each row.
+    private static readonly ConditionalWeakTable<NativeArrayNode, HashSet<string>> RowLiteralKeys = new();
+
     private readonly List<NativeNode?> items = new();
+
+    /// <summary>
+    /// Records the literal (quoted dotted) keys that every row object of this table inherits from its header.
+    /// </summary>
+    public void SetRowLiteralKeys(HashSet<string> keys) => RowLiteralKeys.Add(this, keys);
+
+    /// <summary>
+    /// Returns the literal keys the row objects of this table inherit, or <see langword="null"/> when there are none.
+    /// </summary>
+    public HashSet<string>? GetRowLiteralKeys() => RowLiteralKeys.TryGetValue(this, out var keys) ? keys : null;
+
+    /// <summary>
+    /// Replaces the item at <paramref name="index"/>.
+    /// </summary>
+    public void SetItem(int index, NativeNode? value) => items[index] = value;
 
     /// <summary>
     /// Gets the number of items in the array.

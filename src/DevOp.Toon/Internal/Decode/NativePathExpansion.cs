@@ -1,4 +1,6 @@
 #nullable enable
+using System;
+using System.Collections.Generic;
 using DevOp.Toon.Internal.Encode;
 using DevOp.Toon.Internal.Shared;
 
@@ -14,56 +16,117 @@ internal static class NativePathExpansion
     /// Expands unquoted dotted keys such as <c>a.b.c</c> into nested object nodes, in objects at any depth and in the
     /// objects inside arrays.
     /// </summary>
-    /// <param name="node">The decoded node to expand.</param>
+    /// <param name="node">The decoded node to expand; it is updated in place where that is possible.</param>
     /// <param name="strict">Whether conflicts should throw instead of being overwritten or merged.</param>
-    /// <returns>A new node graph with path expansion applied; primitive nodes are shared with the input.</returns>
+    /// <returns>The expanded node graph: subtrees without expandable keys are kept, objects with them are rebuilt.</returns>
     public static NativeNode? ExpandPaths(NativeNode? node, bool strict)
+    {
+        return Expand(node, null, new ExpansionState(strict));
+    }
+
+    private sealed class ExpansionState
+    {
+        public ExpansionState(bool strict) => Strict = strict;
+
+        public bool Strict { get; }
+
+        // Split segments per key, null for a key that stays literal: the rows of a table repeat the same keys.
+        public Dictionary<string, string[]?>? Segments;
+
+        // The properties of the object being rebuilt; reused because rebuilding never recurses.
+        public List<KeyValuePair<string, NativeNode?>>? Buffer;
+    }
+
+    private static NativeNode? Expand(NativeNode? node, HashSet<string>? inheritedLiteralKeys, ExpansionState state)
     {
         if (node is NativeArrayNode array)
         {
-            var expandedArray = new NativeArrayNode();
-            foreach (var item in array)
+            var rowLiteralKeys = array.GetRowLiteralKeys();
+            for (int i = 0; i < array.Count; i++)
             {
-                expandedArray.Add(ExpandPaths(item, strict));
+                var item = array[i];
+                if (item is NativePrimitiveNode or null)
+                    continue;
+
+                var expanded = Expand(item, rowLiteralKeys, state);
+                if (!ReferenceEquals(expanded, item))
+                    array.SetItem(i, expanded);
             }
 
-            return expandedArray;
+            return array;
         }
 
         if (node is not NativeObjectNode obj)
             return node;
 
-        var result = new NativeObjectNode();
-
+        List<KeyValuePair<string, NativeNode?>>? replaced = null;
+        var expands = false;
+        var literalKeys = obj.GetLiteralKeys() ?? inheritedLiteralKeys;
         foreach (var kvp in obj)
         {
-            var key = kvp.Key;
-            var value = ExpandPaths(kvp.Value, strict);
+            expands |= GetSegments(kvp.Key, literalKeys, state) != null;
+            if (kvp.Value is NativePrimitiveNode or null)
+                continue;
 
-            if (key.IndexOf(Constants.DOT) >= 0 && !obj.IsLiteralKey(key))
+            var expanded = Expand(kvp.Value, null, state);
+            if (!ReferenceEquals(expanded, kvp.Value))
+                (replaced ??= new List<KeyValuePair<string, NativeNode?>>()).Add(new KeyValuePair<string, NativeNode?>(kvp.Key, expanded));
+        }
+
+        if (replaced != null)
+        {
+            foreach (var kvp in replaced)
+                obj[kvp.Key] = kvp.Value;
+        }
+
+        if (!expands)
+            return obj;
+
+        // Rebuild the object in place from its properties, whose values are already expanded.
+        var properties = state.Buffer ??= new List<KeyValuePair<string, NativeNode?>>();
+        properties.AddRange(obj);
+        obj.Clear();
+        try
+        {
+            foreach (var kvp in properties)
             {
-                var segments = key.Split(Constants.DOT);
-                bool expandable = true;
-                foreach (var segment in segments)
-                {
-                    if (!ValidationShared.IsIdentifierSegment(segment))
-                    {
-                        expandable = false;
-                        break;
-                    }
-                }
-                if (expandable)
-                    SetNestedValue(result, segments, value, strict);
+                if (GetSegments(kvp.Key, literalKeys, state) is { } keySegments)
+                    SetNestedValue(obj, keySegments, kvp.Value, state.Strict);
                 else
-                    SetValue(result, key, value, strict);
+                    SetValue(obj, kvp.Key, kvp.Value, state.Strict);
             }
-            else
+        }
+        finally
+        {
+            properties.Clear();
+        }
+
+        return obj;
+    }
+
+    // Returns the path segments of an expandable key, or null for a key that stays literal. A key is split and validated
+    // once per expansion: the rows of a table repeat the same keys.
+    private static string[]? GetSegments(string key, HashSet<string>? literalKeys, ExpansionState state)
+    {
+        if (key.IndexOf(Constants.DOT) < 0 || literalKeys?.Contains(key) == true)
+            return null;
+
+        var cache = state.Segments ??= new Dictionary<string, string[]?>(StringComparer.Ordinal);
+        if (cache.TryGetValue(key, out var cached))
+            return cached;
+
+        var segments = key.Split(Constants.DOT);
+        foreach (var segment in segments)
+        {
+            if (!ValidationShared.IsIdentifierSegment(segment))
             {
-                SetValue(result, key, value, strict);
+                segments = null;
+                break;
             }
         }
 
-        return result;
+        cache[key] = segments;
+        return segments;
     }
 
     private static void SetNestedValue(NativeObjectNode target, string[] segments, NativeNode? value, bool strict)

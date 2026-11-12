@@ -21,6 +21,27 @@ namespace DevOp.Toon.Internal.Decode
         public ToonPathExpansion ExpandPaths { get; set; } = ToonPathExpansion.Off;
         /// <summary>Gets or sets the expected or detected object-array layout.</summary>
         public ToonObjectArrayLayout ObjectArrayLayout { get; set; } = ToonObjectArrayLayout.Auto;
+
+        private ResolvedDecodeOptions? withoutPathExpansion;
+
+        /// <summary>
+        /// Returns these options with path expansion off, for a payload that has nothing to expand, so decoding does not
+        /// record quoted keys for it. The instance is cached.
+        /// </summary>
+        public ResolvedDecodeOptions WithoutPathExpansion()
+        {
+            if (ExpandPaths == ToonPathExpansion.Off)
+                return this;
+
+            return withoutPathExpansion ??= new ResolvedDecodeOptions
+            {
+                ProtocolVersion = ProtocolVersion,
+                Indent = Indent,
+                Strict = Strict,
+                ExpandPaths = ToonPathExpansion.Off,
+                ObjectArrayLayout = ObjectArrayLayout
+            };
+        }
     }
 
     /// <summary>

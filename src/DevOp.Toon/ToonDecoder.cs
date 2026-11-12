@@ -146,10 +146,11 @@ public static class ToonDecoder
         // Create cursor and decode
         var cursor = new LineCursor(scanResult.Lines, scanResult.BlankLines);
 
-        var nativeResult = NativeDecoders.DecodeValueFromLines(cursor, resolvedOptions);
+        var shouldExpandPaths = ShouldApplyPathExpansion(scanResult, resolvedOptions.ExpandPaths);
+        var nativeResult = NativeDecoders.DecodeValueFromLines(cursor, shouldExpandPaths ? resolvedOptions : resolvedOptions.WithoutPathExpansion());
 
         // Apply path expansion before converting to the public TOON node model.
-        if (ShouldApplyPathExpansion(scanResult, resolvedOptions.ExpandPaths))
+        if (shouldExpandPaths)
         {
             nativeResult = NativePathExpansion.ExpandPaths(nativeResult, resolvedOptions.Strict);
         }
@@ -193,7 +194,7 @@ public static class ToonDecoder
 
         if (!shouldExpandPaths && !RequiresNativeByteSequenceMaterialization(typeof(T)))
         {
-            return TypedDecoder.Decode<T>(scanResult, decodeOptions);
+            return TypedDecoder.Decode<T>(scanResult, decodeOptions.WithoutPathExpansion());
         }
 
         if (scanResult.Lines.Count == 0)
@@ -208,7 +209,7 @@ public static class ToonDecoder
 
         var cursor = new LineCursor(scanResult.Lines, scanResult.BlankLines);
 
-        var nativeResult = NativeDecoders.DecodeValueFromLines(cursor, decodeOptions);
+        var nativeResult = NativeDecoders.DecodeValueFromLines(cursor, shouldExpandPaths ? decodeOptions : decodeOptions.WithoutPathExpansion());
         if (shouldExpandPaths)
         {
             nativeResult = NativePathExpansion.ExpandPaths(nativeResult, decodeOptions.Strict);
@@ -281,15 +282,15 @@ public static class ToonDecoder
 
         for (int i = 0; i < scanResult.Lines.Count; i++)
         {
-            var content = scanResult.Lines[i].Content;
+            var content = scanResult.Lines[i].ContentSpan;
             if (content.IndexOf(Constants.DOT) < 0)
             {
                 continue;
             }
 
-            if (content.StartsWith(Constants.LIST_ITEM_PREFIX, StringComparison.Ordinal))
+            if (content.StartsWith(Constants.LIST_ITEM_PREFIX.AsSpan(), StringComparison.Ordinal))
             {
-                content = content.Substring(Constants.LIST_ITEM_PREFIX.Length);
+                content = content.Slice(Constants.LIST_ITEM_PREFIX.Length);
             }
 
             if (HasExpandableKey(content))
@@ -301,7 +302,93 @@ public static class ToonDecoder
         return false;
     }
 
-    private static bool HasExpandableKey(string content)
+    // Judges the key of a line from its span without allocating; only a quoted key or dotted header fields, which are
+    // rare, take the full header parse.
+    private static bool HasExpandableKey(ReadOnlySpan<char> content)
+    {
+        if (content.IsEmpty)
+        {
+            return false;
+        }
+
+        if (content[0] == Constants.DOUBLE_QUOTE)
+        {
+            return HasDottedHeaderFields(content) && HasExpandableKeyParsed(content.ToString());
+        }
+
+        var end = 0;
+        while (end < content.Length && content[end] != Constants.COLON && content[end] != Constants.OPEN_BRACKET)
+        {
+            end++;
+        }
+
+        if (end == content.Length)
+        {
+            return false;
+        }
+
+        if (content[end] == Constants.COLON)
+        {
+            return IsExpandablePathKey(content.Slice(0, end).Trim());
+        }
+
+        if (StringUtils.FindUnquotedChar(content, Constants.COLON, end) < 0)
+        {
+            return false;
+        }
+
+        return IsExpandablePathKey(content.Slice(0, end).Trim()) ||
+               HasDottedHeaderFields(content) && HasExpandableKeyParsed(content.ToString());
+    }
+
+    private static bool HasDottedHeaderFields(ReadOnlySpan<char> content)
+    {
+        var colon = StringUtils.FindUnquotedChar(content, Constants.COLON);
+        var open = content.IndexOf('{');
+        if (colon < 0 || open < 0 || open > colon)
+        {
+            return false;
+        }
+
+        var close = content.Slice(open).IndexOf('}');
+        return close > 0 && content.Slice(open, close).IndexOf(Constants.DOT) >= 0;
+    }
+
+    private static bool IsExpandablePathKey(ReadOnlySpan<char> key)
+    {
+        if (key.IndexOf(Constants.DOT) < 0)
+        {
+            return false;
+        }
+
+        var segmentStart = 0;
+        for (var i = 0; i <= key.Length; i++)
+        {
+            if (i < key.Length && key[i] != Constants.DOT)
+            {
+                continue;
+            }
+
+            if (i == segmentStart || !(key[segmentStart] == '_' || char.IsLetter(key[segmentStart])))
+            {
+                return false;
+            }
+
+            for (var j = segmentStart + 1; j < i; j++)
+            {
+                if (!(key[j] == '_' || char.IsLetterOrDigit(key[j])))
+                {
+                    return false;
+                }
+            }
+
+            segmentStart = i + 1;
+        }
+
+        return true;
+    }
+
+    private static bool HasExpandableKeyParsed(string content)
     {
         if (content.Length == 0 || StringUtils.FindUnquotedChar(content, Constants.COLON) < 0)
         {

@@ -358,6 +358,12 @@ public sealed class LegacyTypedDecodeShapeTests
         Assert.Equal("{\"Outer\":{\"a.b\":2}}", ToonDecoder.Toon2Json("Outer:\n  a.b: 1\n  \"a.b\": 2", options));
         Assert.Equal("{\"rows\":[{\"a\":{\"b\":2}}]}", ToonDecoder.Toon2Json("rows[1]{\"a.b\",a.b}:\n  1,2", options));
         Assert.Equal("{\"rows\":[{\"a.b\":2}]}", ToonDecoder.Toon2Json("rows[1]{a.b,\"a.b\"}:\n  1,2", options));
+        Assert.Equal(
+            "{\"rows\":[{\"a\":{\"b\":3},\"id\":2},{\"a.b\":4,\"id\":5}]}",
+            ToonDecoder.Toon2Json("rows[2]{\"a.b\",id}:\n  1,2\n    a.b: 3\n  4,5", options));
+        Assert.Equal(
+            "{\"rows\":[{\"a.b\":3,\"id\":2},{\"a\":{\"b\":4},\"id\":5}]}",
+            ToonDecoder.Toon2Json("rows[2]{a.b,id}:\n  1,2\n    \"a.b\": 3\n  4,5", options));
     }
 
     [Theory]

@@ -71,7 +71,7 @@ internal static class NativeDecoders
             if (line.Depth == computedDepth)
             {
                 var (key, value, wasQuoted) = DecodeKeyValuePair(line, cursor, computedDepth.Value, options);
-                SetField(obj, key, value, wasQuoted);
+                SetField(obj, key, value, wasQuoted, options);
             }
             else
             {
@@ -82,17 +82,30 @@ internal static class NativeDecoders
         return obj;
     }
 
-    private static void SetField(NativeObjectNode obj, string key, NativeNode? value, bool wasQuoted)
+    private static void SetField(NativeObjectNode obj, string key, NativeNode? value, bool wasQuoted, ResolvedDecodeOptions options, HashSet<string>? inherited = null)
     {
         obj[key] = value;
-        if (key.IndexOf(Constants.DOT) < 0)
-            return;
+        // Quoted dotted keys matter only to path expansion, so decoding without it records nothing.
+        if (options.ExpandPaths == ToonPathExpansion.Safe && key.IndexOf(Constants.DOT) >= 0)
+            obj.SetLiteralKey(key, wasQuoted, inherited);
+    }
 
-        // The last occurrence of a repeated key decides both its value and whether it is literal.
-        if (wasQuoted)
-            obj.MarkLiteralKey(key);
-        else
-            obj.UnmarkLiteralKey(key);
+    private static HashSet<string>? GetQuotedDottedFields(ArrayHeaderInfo header, ResolvedDecodeOptions options)
+    {
+        if (options.ExpandPaths != ToonPathExpansion.Safe || header.QuotedDottedFields is not { } quoted)
+            return null;
+
+        // The last position of a repeated field name decides, as the row assigns its values in order.
+        HashSet<string>? keys = null;
+        for (int i = 0; i < header.Fields!.Count; i++)
+        {
+            if (quoted[i])
+                (keys ??= new HashSet<string>(StringComparer.Ordinal)).Add(header.Fields[i]);
+            else
+                keys?.Remove(header.Fields[i]);
+        }
+
+        return keys is { Count: > 0 } ? keys : null;
     }
 
     private sealed class KeyValueDecodeResult
@@ -173,7 +186,11 @@ internal static class NativeDecoders
 
         if (header.Fields != null && header.Fields.Count > 0)
         {
-            return CreateArrayNode(DecodeTabularArray(header, cursor, baseDepth, options));
+            var rowLiteralKeys = GetQuotedDottedFields(header, options);
+            var table = CreateArrayNode(DecodeTabularArray(header, cursor, baseDepth, options, rowLiteralKeys));
+            if (rowLiteralKeys != null)
+                table.SetRowLiteralKeys(rowLiteralKeys);
+            return table;
         }
 
         return CreateArrayNode(DecodeListArray(header, cursor, baseDepth, options));
@@ -253,7 +270,7 @@ internal static class NativeDecoders
         return items;
     }
 
-    private static List<NativeObjectNode> DecodeTabularArray(ArrayHeaderInfo header, LineCursor cursor, int baseDepth, ResolvedDecodeOptions options)
+    private static List<NativeObjectNode> DecodeTabularArray(ArrayHeaderInfo header, LineCursor cursor, int baseDepth, ResolvedDecodeOptions options, HashSet<string>? rowLiteralKeys)
     {
         var objects = new List<NativeObjectNode>(header.Length > 0 ? Math.Min(header.Length, 4096) : 4);
         var rowDepth = baseDepth + 1;
@@ -279,8 +296,7 @@ internal static class NativeDecoders
                 var obj = new NativeObjectNode();
                 for (int i = 0; i < header.Fields.Count; i++)
                 {
-                    var field = header.Fields[i];
-                    SetField(obj, field, Parser.ParsePrimitiveNativeToken(values[i]), header.QuotedDottedFields?[i] == true);
+                    obj[header.Fields[i]] = Parser.ParsePrimitiveNativeToken(values[i]);
                 }
 
                 var followDepth = rowDepth + 1;
@@ -293,7 +309,7 @@ internal static class NativeDecoders
                     if (continuation.Depth == followDepth && !continuation.Content.StartsWith(Constants.LIST_ITEM_PREFIX, StringComparison.Ordinal))
                     {
                         var (key, value, wasQuoted) = DecodeKeyValuePair(continuation, cursor, followDepth, options);
-                        SetField(obj, key, value, wasQuoted);
+                        SetField(obj, key, value, wasQuoted, options, rowLiteralKeys);
                         continue;
                     }
 
@@ -356,7 +372,7 @@ internal static class NativeDecoders
         var firstField = DecodeKeyValue(afterHyphen, cursor, baseDepth, options, isListItemFirstField: true);
 
         var obj = new NativeObjectNode();
-        SetField(obj, firstField.Key, firstField.Value, firstField.WasQuoted);
+        SetField(obj, firstField.Key, firstField.Value, firstField.WasQuoted, options);
 
         while (!cursor.AtEnd())
         {
@@ -367,7 +383,7 @@ internal static class NativeDecoders
             if (line.Depth == firstField.FollowDepth && !line.Content.StartsWith(Constants.LIST_ITEM_PREFIX, StringComparison.Ordinal))
             {
                 var (key, value, wasQuoted) = DecodeKeyValuePair(line, cursor, firstField.FollowDepth, options);
-                SetField(obj, key, value, wasQuoted);
+                SetField(obj, key, value, wasQuoted, options);
             }
             else
             {
