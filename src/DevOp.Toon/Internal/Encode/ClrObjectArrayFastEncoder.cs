@@ -537,7 +537,7 @@ internal static class ClrObjectArrayFastEncoder
             return;
         }
 
-        if (IsJsonDomValue(rawValue))
+        if (property.MayHoldJsonDom && IsJsonDomValue(rawValue))
         {
             NativeEncoders.EncodeNamedValue(property.Name, rawValue, writer, depth, options);
             return;
@@ -638,7 +638,7 @@ internal static class ClrObjectArrayFastEncoder
             return;
         }
 
-        if (IsJsonDomValue(rawValue))
+        if (property.MayHoldJsonDom && IsJsonDomValue(rawValue))
         {
             PushNamedValue(property.Name, rawValue, writer, depth, options);
             return;
