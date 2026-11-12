@@ -773,6 +773,18 @@ namespace DevOp.Toon.Internal.Decode
                 }
 
                 object? arrayValue;
+                if (parameter.Plan.Kind == PlanKind.Dictionary && field.ArrayHeader.Header.Fields == null)
+                {
+                    var headerLine = cursor.Current().LineNumber;
+                    if (!TryReadDictionaryFromArrayField(cursor, parameter.Plan, field.ArrayHeader, content, contentStart, baseDepth, arrayDepth, options, out arrayValue))
+                    {
+                        throw DictionaryShapeError(parameter.Plan, headerLine, null);
+                    }
+
+                    SetConstructorArgument(arguments, assigned, parameter, arrayValue);
+                    return true;
+                }
+
                 var valueRead = parameter.Plan.Kind == PlanKind.Dictionary
                     ? TryReadDictionaryFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options, out arrayValue)
                     : TryReadArrayFromHeader(cursor, parameter.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options, out arrayValue);
@@ -832,12 +844,45 @@ namespace DevOp.Toon.Internal.Decode
 
             if (!TryReadPrimitiveLikeValue(parameterPlan.Plan, content, field.ValueStart, content.Length, out var primitiveValue))
             {
+                if (parameterPlan.Plan.Kind == PlanKind.Dictionary)
+                {
+                    throw DictionaryShapeError(parameterPlan.Plan, cursor.Current().LineNumber, content.Substring(field.ValueStart).Trim());
+                }
+
                 return false;
             }
 
             SetConstructorArgument(arguments, assigned, parameterPlan, primitiveValue);
             return true;
         }
+
+        // A dictionary takes an object, null, a Key/Value table or, as on the native route, an empty array or a list of
+        // Key/Value objects. A scalar or any other array cannot fill it and fails, as on 4.x, instead of leaving it unset.
+        private static bool TryReadDictionaryFromArrayField(
+            LineCursor cursor,
+            TypePlan plan,
+            ArrayHeaderParseResult header,
+            string content,
+            int contentStart,
+            int baseDepth,
+            int arrayDepth,
+            ResolvedDecodeOptions options,
+            out object? value)
+        {
+            if (header.Header.Fields != null)
+            {
+                return TryReadDictionaryFromHeader(cursor, plan, header.Header, header.InlineValues, arrayDepth, options, out value);
+            }
+
+            var fieldContent = contentStart == 0 ? content : content.Substring(contentStart);
+            var node = NativeDecoders.DecodeFieldValue(fieldContent, cursor, baseDepth, options, isListItemFirstField: contentStart > 0);
+            return NativeTypedMaterializer.TryConvert(node, plan.Type, out value);
+        }
+
+        private static ToonFormatException DictionaryShapeError(TypePlan plan, int lineNumber, string? token)
+            => ToonFormatException.Syntax(
+                token == null ? $"An array is not a valid {plan.Type.FullName}" : $"Value {token} is not a valid {plan.Type.FullName}",
+                lineNumber);
 
         private static bool TryReadDictionary(LineCursor cursor, TypePlan plan, int baseDepth, ResolvedDecodeOptions options, out object? value)
         {
@@ -1141,6 +1186,18 @@ namespace DevOp.Toon.Internal.Decode
                     return;
                 }
 
+                if (property.Plan.Kind == PlanKind.Dictionary)
+                {
+                    var headerLine = cursor.Current().LineNumber;
+                    if (!TryReadDictionaryFromArrayField(cursor, property.Plan, field.ArrayHeader, content, contentStart, baseDepth, arrayDepth, options, out var dictionaryValue))
+                    {
+                        throw DictionaryShapeError(property.Plan, headerLine, null);
+                    }
+
+                    property.Setter(instance, dictionaryValue);
+                    return;
+                }
+
                 if (TryReadArrayFromHeader(cursor, property.Plan, field.ArrayHeader.Header, field.ArrayHeader.InlineValues, arrayDepth, options, out var arrayValue))
                 {
                     property.Setter(instance, arrayValue);
@@ -1199,6 +1256,11 @@ namespace DevOp.Toon.Internal.Decode
             {
                 propertyPlan.Setter(instance, primitiveValue);
                 return;
+            }
+
+            if (propertyPlan.Plan.Kind == PlanKind.Dictionary)
+            {
+                throw DictionaryShapeError(propertyPlan.Plan, cursor.Current().LineNumber, content.Substring(field.ValueStart).Trim());
             }
 
             if (field.ValueStart >= content.Length)
@@ -3106,9 +3168,13 @@ namespace DevOp.Toon.Internal.Decode
             return field.Key!;
         }
 
+        // A header's key range spans a quoted key's quotes; that key binds by the unquoted text the parser already holds.
+        private static bool HasUnquotedKeyRange(string content, ArrayHeaderParseResult header)
+            => header.HasKeyRange && content[header.KeyStart] != Constants.DOUBLE_QUOTE;
+
         private static string GetArrayHeaderKey(string content, ArrayHeaderParseResult header)
         {
-            if (header.HasKeyRange)
+            if (HasUnquotedKeyRange(content, header))
             {
                 return content.Substring(header.KeyStart, header.KeyEndExclusive - header.KeyStart);
             }
@@ -3237,7 +3303,7 @@ namespace DevOp.Toon.Internal.Decode
 
         private static bool TryGetProperty(TypePlan plan, string content, ArrayHeaderParseResult header, out PropertyPlan property)
         {
-            if (header.HasKeyRange)
+            if (HasUnquotedKeyRange(content, header))
             {
                 return TryGetProperty(plan, content, header.KeyStart, header.KeyEndExclusive, out property);
             }

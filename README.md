@@ -139,8 +139,9 @@ Omission settings trade data preservation for compactness. `IgnoreNullOrEmpty` c
 The **6 November 2026 published-package benchmark** uses all **2,051 product DTOs** on .NET
 10.0.13, with 30 warmups and 50 samples. Compared with legacy custom output from 0.2.9,
 custom 4.4 in 0.3.0 allocates **42.1% less memory during decoding** and produces **3.9% fewer UTF-8 bytes**;
-it decodes **17.0% slower in that isolated pair**. The old encoder's existing numeric
-precision defect and intentional compact omissions are reported separately.
+it decodes **17.0% slower in that isolated pair**. The 0.2.9 legacy output rounded some doubles to
+16 significant digits, and the compact profiles omit values by design; both are reported separately.
+After 0.4.0 the legacy profiles write every double so that it reads back exactly.
 
 See [current benchmark results and methodology](https://wiki.devop.is/devop-toon/performance-benchmarks)
 and [published-package measurements](https://github.com/vhafdal/DevOp.Toon/blob/main/Documentation/PublishedPackageBenchmarks.md)

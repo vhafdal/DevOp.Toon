@@ -1776,7 +1776,7 @@ internal static class ClrObjectArrayFastEncoder
         var underlying = Nullable.GetUnderlyingType(propType) ?? propType;
 
         // double / float — most common value type in real-world data
-        if (underlying == typeof(double) || underlying == typeof(float))
+        if (underlying == typeof(double))
         {
             var getter = CompileNullableValueGetter<double>(property.Info);
             return (
@@ -1795,6 +1795,29 @@ internal static class ClrObjectArrayFastEncoder
                     var n = FloatUtils.NormalizeSignedZero(v.Value);
                     if (!NumericUtils.IsFinite(n)) { writer.Append(Constants.NULL_LITERAL); return; }
                     NativePrimitives.AppendDouble(writer, n);
+                }
+            );
+        }
+
+        if (underlying == typeof(float))
+        {
+            var getter = CompileNullableValueGetter<double>(property.Info);
+            return (
+                (row, sb, _) =>
+                {
+                    var v = getter(row);
+                    if (!v.HasValue) { sb.Append(Constants.NULL_LITERAL); return; }
+                    var n = FloatUtils.NormalizeSignedZero(v.Value);
+                    if (!NumericUtils.IsFinite(n)) { sb.Append(Constants.NULL_LITERAL); return; }
+                    NativePrimitives.AppendSingle(sb, n);
+                },
+                (row, writer, _) =>
+                {
+                    var v = getter(row);
+                    if (!v.HasValue) { writer.Append(Constants.NULL_LITERAL); return; }
+                    var n = FloatUtils.NormalizeSignedZero(v.Value);
+                    if (!NumericUtils.IsFinite(n)) { writer.Append(Constants.NULL_LITERAL); return; }
+                    NativePrimitives.AppendSingle(writer, n);
                 }
             );
         }
