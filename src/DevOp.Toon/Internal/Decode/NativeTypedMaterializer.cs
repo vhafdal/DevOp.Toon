@@ -434,31 +434,21 @@ internal static class NativeTypedMaterializer
     private static bool TryBuildDictionaryPlan(Type type, HashSet<Type> building, out TypePlan plan)
     {
         plan = TypePlan.Unsupported(type);
-        if (!type.IsGenericType)
+        if (!DictionaryTargetShape.TryResolve(type, out var valueType, out var concreteDictionaryType))
         {
             return false;
         }
 
-        var genericDefinition = type.GetGenericTypeDefinition();
-        if ((genericDefinition != typeof(Dictionary<,>) &&
-             genericDefinition != typeof(IDictionary<,>) &&
-             genericDefinition != typeof(IReadOnlyDictionary<,>)) ||
-            type.GetGenericArguments()[0] != typeof(string))
+        if (valueType == null || concreteDictionaryType == null)
         {
-            return false;
+            return true;
         }
 
-        var valueType = type.GetGenericArguments()[1];
         var valuePlan = BuildPlan(valueType, building);
         if (!valuePlan.IsSupported)
         {
-            return false;
-        }
-
-        var concreteDictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(string), valueType);
-        if (!type.IsAssignableFrom(concreteDictionaryType) && type != concreteDictionaryType)
-        {
-            return false;
+            // Recursive value types keep the old behaviour; any other value type the plan cannot build rejects the target.
+            return !building.Contains(valueType);
         }
 
         plan = TypePlan.Dictionary(

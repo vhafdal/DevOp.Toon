@@ -207,6 +207,62 @@ public sealed class LegacyTypedDecodeShapeTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_StringKeyedConcreteDictionaries_RoundTripOnEveryRoute(ToonProtocolVersion version)
+    {
+        var sorted = new SortedDictionary<string, AddressDto> { ["work"] = new("Oslo", "Norway"), ["home"] = new("Reykjavik", "Iceland") };
+        var book = new AddressBook { ["billing"] = new("Bergen", "Norway"), ["shipping"] = new("Turku", "Finland") };
+        var source = new ConcreteMaps(
+            new SortedDictionary<string, int> { ["b"] = 2, ["a"] = 1 },
+            sorted,
+            book);
+
+        var rootSorted = RoundTripDirect(sorted, version);
+        var rootBook = RoundTripDirect(book, version);
+
+        Assert.IsType<SortedDictionary<string, AddressDto>>(rootSorted);
+        Assert.Equal(sorted, rootSorted);
+        Assert.IsType<AddressBook>(rootBook);
+        Assert.Equal(book, rootBook);
+        Assert.Equal(sorted, RoundTripExpanded(sorted, version));
+        Assert.Equal(sorted, RoundTripService(sorted, version));
+        foreach (var decoded in new[] { RoundTripDirect(source, version), RoundTripExpanded(source, version), RoundTripService(source, version) })
+        {
+            Assert.Equal(source.Counts, decoded.Counts);
+            Assert.Equal(source.Sorted, decoded.Sorted);
+            Assert.IsType<AddressBook>(decoded.Book);
+            Assert.Equal(source.Book, decoded.Book);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_NonStringKeyedDictionaries_ThrowNotSupportedOnEveryRoute(ToonProtocolVersion version)
+    {
+        AssertNotSupportedOnEveryRoute(new Dictionary<int, string> { [1] = "one", [2] = "two" }, version);
+        AssertNotSupportedOnEveryRoute(new Dictionary<Guid, string> { [Guid.Parse("8f7c1f4e-0d55-4b8e-9d42-3e1c6b9a7f10")] = "x" }, version);
+        AssertNotSupportedOnEveryRoute(new Dictionary<DayOfWeek, int> { [DayOfWeek.Monday] = 1 }, version);
+        AssertNotSupportedOnEveryRoute(new SortedDictionary<int, string> { [1] = "one" }, version);
+        AssertNotSupportedOnEveryRoute(
+            new GuidKeyed("a", new Dictionary<Guid, string> { [Guid.Parse("8f7c1f4e-0d55-4b8e-9d42-3e1c6b9a7f10")] = "x" }),
+            version);
+        AssertNotSupportedOnEveryRoute(new IntKeyedHolder { Name = "a", Map = new Dictionary<int, string> { [1] = "one" } }, version);
+    }
+
+    private static void AssertNotSupportedOnEveryRoute<T>(T source, ToonProtocolVersion version)
+    {
+        var toon = ToonEncoder.Encode(source, EncodeOptions(version));
+        var encodeOptions = EncodeOptions(version);
+        encodeOptions.KeyFolding = ToonKeyFolding.Safe;
+        var folded = ToonEncoder.Encode(new FoldedEnvelope<T>(new FoldedBox<T>(source)), encodeOptions);
+        IToonService service = CreateService(version);
+
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<T>(toon, DecodeOptions(version)));
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<FoldedEnvelope<T>>(folded, DecodeOptions(version, ToonPathExpansion.Safe)));
+        Assert.Throws<NotSupportedException>(() => service.Decode<T>(service.Encode(source)));
+    }
+
     private static T RoundTripDirect<T>(T source, ToonProtocolVersion version, bool keepEmpty = false)
     {
         var toon = ToonEncoder.Encode(source, EncodeOptions(version, keepEmpty));
@@ -390,6 +446,21 @@ public sealed class LegacyTypedDecodeShapeTests
         int Count);
 
     private sealed record Thing(string Name, IReadOnlyList<string> Tags, Dictionary<string, string> Meta);
+
+    private sealed class AddressBook : Dictionary<string, AddressDto>
+    {
+    }
+
+    private sealed record ConcreteMaps(SortedDictionary<string, int> Counts, SortedDictionary<string, AddressDto> Sorted, AddressBook Book);
+
+    private sealed record GuidKeyed(string Name, IDictionary<Guid, string> Map);
+
+    private sealed class IntKeyedHolder
+    {
+        public string Name { get; set; } = string.Empty;
+
+        public Dictionary<int, string> Map { get; set; } = new();
+    }
 
     private sealed record FoldedEnvelope<T>(FoldedBox<T> Box);
 
