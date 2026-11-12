@@ -341,17 +341,24 @@ public static class ToonDecoder
                HasDottedHeaderFields(content) && HasExpandableKeyParsed(content.ToString());
     }
 
+    // The field list follows the bracket segment; braces inside a quoted key do not count.
     private static bool HasDottedHeaderFields(ReadOnlySpan<char> content)
     {
-        var colon = StringUtils.FindUnquotedChar(content, Constants.COLON);
-        var open = content.IndexOf('{');
-        if (colon < 0 || open < 0 || open > colon)
+        var bracket = StringUtils.FindUnquotedChar(content, Constants.OPEN_BRACKET);
+        if (bracket < 0)
         {
             return false;
         }
 
-        var close = content.Slice(open).IndexOf('}');
-        return close > 0 && content.Slice(open, close).IndexOf(Constants.DOT) >= 0;
+        var open = StringUtils.FindUnquotedChar(content, '{', bracket);
+        var colon = StringUtils.FindUnquotedChar(content, Constants.COLON, bracket);
+        if (open < 0 || colon < 0 || open > colon)
+        {
+            return false;
+        }
+
+        var close = StringUtils.FindUnquotedChar(content, '}', open);
+        return close > open && content.Slice(open, close - open).IndexOf(Constants.DOT) >= 0;
     }
 
     private static bool IsExpandablePathKey(ReadOnlySpan<char> key)

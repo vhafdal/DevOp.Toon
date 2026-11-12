@@ -407,6 +407,19 @@ public sealed class LegacyTypedDecodeShapeTests
         Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<MapRecord<TMap>>($"Id: 1\n{valueLines}", DecodeOptions(version)));
     }
 
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_QuotedArrayKeyWithBraces_StillExpandsDottedTableFields(ToonProtocolVersion version)
+    {
+        const string text = "\"x{}\"[1]{a.b}:\n  1";
+        var options = DecodeOptions(version, ToonPathExpansion.Safe);
+
+        var typed = ToonDecoder.Decode<BracedTable>(text, options)!;
+
+        Assert.Equal("{\"x{}\":[{\"a\":{\"b\":1}}]}", ToonDecoder.Toon2Json(text, options));
+        Assert.Equal(1, typed.Rows![0].A!.B);
+    }
+
     private static void AssertNotSupportedOnEveryRoute<T>(T source, ToonProtocolVersion version)
     {
         var toon = ToonEncoder.Encode(source, EncodeOptions(version));
@@ -639,6 +652,24 @@ public sealed class LegacyTypedDecodeShapeTests
 
     public sealed record MapRecord<TMap>(int Id, TMap? V = null, string? Name = null)
         where TMap : class;
+
+    private sealed class BracedTable
+    {
+        [ToonPropertyName("x{}")]
+        public List<BracedRow>? Rows { get; set; }
+    }
+
+    private sealed class BracedRow
+    {
+        [ToonPropertyName("a")]
+        public BracedLeaf? A { get; set; }
+    }
+
+    private sealed class BracedLeaf
+    {
+        [ToonPropertyName("b")]
+        public int B { get; set; }
+    }
 
     private sealed class TreeNode
     {
