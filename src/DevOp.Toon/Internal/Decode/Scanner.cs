@@ -169,6 +169,15 @@ namespace DevOp.Toon.Internal.Decode
         public int Length => _lines.Count;
 
         /// <summary>
+        /// Gets or sets the index of the next line, so a reader can return to a line it has already passed.
+        /// </summary>
+        public int Position
+        {
+            get => _index;
+            set => _index = value;
+        }
+
+        /// <summary>
         /// Peeks at the current line only when it belongs to the requested depth.
         /// </summary>
         /// <param name="targetDepth">The logical depth to match.</param>

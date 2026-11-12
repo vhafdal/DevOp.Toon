@@ -639,14 +639,29 @@ internal static class NativePrimitives
     private static readonly ConcurrentDictionary<string, string> EncodedTabStringLiteralCache = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<string, string> EncodedPipeStringLiteralCache = new(StringComparer.Ordinal);
 
+    // 10^0 through 10^22, every power of ten a double holds exactly.
+    private static readonly double[] ExactPowersOfTen =
+    {
+        1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11,
+        1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22
+    };
+
+    // The legacy profiles write a double as 16 significant digits in fixed notation. That text is kept whenever it reads back
+    // as the same double, so existing output does not move; otherwise the shortest round-trip digits are written instead.
     private static string FormatNumber(double value)
     {
         if (value == 0.0)
             return "0";
 
+        var text = FormatSixteenDigits(value);
+        return ReadsBackAs(text, value) ? text : FormatShortestFixed(value);
+    }
+
+    private static string FormatSixteenDigits(double value)
+    {
         Span<char> initialBuffer = stackalloc char[64];
         var gFormat = FormatToString(value, "G16", initialBuffer);
-        if (!gFormat.Contains('E') && !gFormat.Contains('e'))
+        if (gFormat.IndexOf('E') < 0 && gFormat.IndexOf('e') < 0)
             return gFormat;
 
         var absValue = Math.Abs(value);
@@ -654,7 +669,7 @@ internal static class NativePrimitives
             ? Math.Max(0, -(int)Math.Floor(Math.Log10(absValue)) + 15)
             : 15;
         var result = FormatToString(value, "F" + decimalPlaces, initialBuffer);
-        if (result.Contains('.'))
+        if (result.IndexOf('.') >= 0)
         {
             result = result.TrimEnd('0');
             if (result.EndsWith(Constants.DOT.ToString()))
@@ -663,6 +678,78 @@ internal static class NativePrimitives
 
         return result;
     }
+
+    // The shortest digits that read back as the value, written without an exponent as this profile requires.
+    private static string FormatShortestFixed(double value)
+    {
+        var text = value.ToString("R", CultureInfo.InvariantCulture);
+        // "R" can return digits that read back one ulp off: 15 digits on .NET Framework, and on .NET Core at some powers
+        // of two, such as 2^-25, where the gap below the value is half the gap above it. 17 digits always read back.
+        if (!ReadsBackAs(text, value))
+            text = value.ToString("G17", CultureInfo.InvariantCulture);
+
+        var exponentIndex = text.IndexOf('E');
+        if (exponentIndex < 0)
+            return text;
+
+        var negative = text[0] == '-';
+        var mantissa = text.Substring(negative ? 1 : 0, exponentIndex - (negative ? 1 : 0));
+        var exponent = int.Parse(text.Substring(exponentIndex + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+        var dot = mantissa.IndexOf('.');
+        var digits = dot < 0 ? mantissa : mantissa.Remove(dot, 1);
+        var point = (dot < 0 ? mantissa.Length : dot) + exponent;
+        var builder = new StringBuilder(digits.Length + Math.Abs(point) + 3);
+        if (negative)
+            builder.Append('-');
+        if (point <= 0)
+            builder.Append("0.").Append('0', -point).Append(digits);
+        else if (point >= digits.Length)
+            builder.Append(digits).Append('0', point - digits.Length);
+        else
+            builder.Append(digits, 0, point).Append('.').Append(digits, point, digits.Length - point);
+
+        return builder.ToString();
+    }
+
+#if NETSTANDARD2_0
+    // The runtime's own parser decides, since the .NET Framework parser is not always correctly rounded; text it cannot
+    // parse, such as an "F" precision above 99 that .NET Framework writes as literal text, does not read back.
+    private static bool ReadsBackAs(string text, double value)
+        => double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed == value;
+#else
+    private static bool ReadsBackAs(string text, double value) => ReadsBackAs(text.AsSpan(), value);
+
+    // Fixed-notation text with at most 2^53 as its digits and at most 22 fraction digits reads back as one exact division of
+    // two exactly held doubles, which IEEE rounding makes the correctly rounded value; anything else is parsed.
+    private static bool ReadsBackAs(ReadOnlySpan<char> text, double value)
+    {
+        var start = text.Length > 0 && text[0] == '-' ? 1 : 0;
+        ulong digits = 0;
+        var fractionDigits = -1;
+        for (var i = start; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c == '.' && fractionDigits < 0)
+            {
+                fractionDigits = 0;
+                continue;
+            }
+
+            if (c < '0' || c > '9' || digits > (1UL << 53))
+                return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed == value;
+
+            digits = digits * 10 + (ulong)(c - '0');
+            if (fractionDigits >= 0)
+                fractionDigits++;
+        }
+
+        if (digits > (1UL << 53) || fractionDigits > 22)
+            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed == value;
+
+        var magnitude = fractionDigits > 0 ? digits / ExactPowersOfTen[fractionDigits] : (double)digits;
+        return (start == 1 ? -magnitude : magnitude) == value;
+    }
+#endif
 
     /// <summary>
     /// Encodes a native primitive node as a TOON literal.
@@ -748,7 +835,7 @@ internal static class NativePrimitives
                     return;
                 }
 
-                AppendDouble(builder, normalizedFloat);
+                AppendSingle(builder, normalizedFloat);
                 return;
             case double doubleValue:
                 var normalizedDouble = FloatUtils.NormalizeSignedZero(doubleValue);
@@ -869,7 +956,7 @@ internal static class NativePrimitives
                     return;
                 }
 
-                AppendDouble(writer, normalizedFloat);
+                AppendSingle(writer, normalizedFloat);
                 return;
             case double doubleValue:
                 var normalizedDouble = FloatUtils.NormalizeSignedZero(doubleValue);
@@ -1358,8 +1445,8 @@ internal static class NativePrimitives
 #endif
 
     /// <summary>
-    /// Appends a double to the builder without allocating a string for the common case (no exponent notation).
-    /// Falls back to FormatNumber only for values requiring exponent notation, which is rare for real-world data.
+    /// Appends a double in the legacy fixed notation: the 16-significant-digit text when it reads back as the same double,
+    /// otherwise the shortest round-trip digits. The common case writes from the stack without allocating.
     /// </summary>
     internal static void AppendDouble(StringBuilder builder, double value)
     {
@@ -1373,24 +1460,19 @@ internal static class NativePrimitives
         builder.Append(FormatNumber(value));
 #else
         Span<char> buffer = stackalloc char[64];
-        if (value.TryFormat(buffer, out var written, "G16", CultureInfo.InvariantCulture))
+        if (TryFormatFixed(value, buffer, out var written))
         {
-            var span = buffer.Slice(0, written);
-            if (span.IndexOf('E') < 0 && span.IndexOf('e') < 0)
-            {
-                builder.Append(span);
-                return;
-            }
+            builder.Append(buffer.Slice(0, written));
+            return;
         }
 
-        // Exponent notation (very small or very large numbers) — fallback to string allocation
         builder.Append(FormatNumber(value));
 #endif
     }
 
     /// <summary>
-    /// Appends a double to the writer without allocating a string for the common case (no exponent notation).
-    /// Falls back to FormatNumber only for values requiring exponent notation, which is rare for real-world data.
+    /// Appends a double in the legacy fixed notation: the 16-significant-digit text when it reads back as the same double,
+    /// otherwise the shortest round-trip digits. The common case writes from the stack without allocating.
     /// </summary>
     internal static void AppendDouble(CompactBufferWriter writer, double value)
     {
@@ -1404,20 +1486,91 @@ internal static class NativePrimitives
         writer.Append(FormatNumber(value));
 #else
         Span<char> buffer = stackalloc char[64];
-        if (value.TryFormat(buffer, out var written, "G16", CultureInfo.InvariantCulture))
+        if (TryFormatFixed(value, buffer, out var written))
         {
-            var span = buffer.Slice(0, written);
-            if (span.IndexOf('E') < 0 && span.IndexOf('e') < 0)
-            {
-                writer.Append(span);
-                return;
-            }
+            writer.Append(buffer.Slice(0, written));
+            return;
         }
 
-        // Exponent notation (very small or very large numbers) — fallback to string allocation
         writer.Append(FormatNumber(value));
 #endif
     }
+
+    /// <summary>
+    /// Appends a float widened to double as its 16-significant-digit text, which always reads back as the same float.
+    /// </summary>
+    internal static void AppendSingle(StringBuilder builder, double widened)
+    {
+        if (widened == 0.0)
+        {
+            builder.Append('0');
+            return;
+        }
+
+#if NETSTANDARD2_0
+        builder.Append(FormatSixteenDigits(widened));
+#else
+        Span<char> buffer = stackalloc char[64];
+        if (TryFormatSixteenDigits(widened, buffer, out var written))
+        {
+            builder.Append(buffer.Slice(0, written));
+            return;
+        }
+
+        builder.Append(FormatSixteenDigits(widened));
+#endif
+    }
+
+    /// <summary>
+    /// Appends a float widened to double as its 16-significant-digit text, which always reads back as the same float.
+    /// </summary>
+    internal static void AppendSingle(CompactBufferWriter writer, double widened)
+    {
+        if (widened == 0.0)
+        {
+            writer.Append('0');
+            return;
+        }
+
+#if NETSTANDARD2_0
+        writer.Append(FormatSixteenDigits(widened));
+#else
+        Span<char> buffer = stackalloc char[64];
+        if (TryFormatSixteenDigits(widened, buffer, out var written))
+        {
+            writer.Append(buffer.Slice(0, written));
+            return;
+        }
+
+        writer.Append(FormatSixteenDigits(widened));
+#endif
+    }
+
+#if !NETSTANDARD2_0
+    // False when the text needs exponent notation, which the string fallback rewrites in fixed notation.
+    private static bool TryFormatSixteenDigits(double value, Span<char> buffer, out int written)
+        => value.TryFormat(buffer, out written, "G16", CultureInfo.InvariantCulture) &&
+           buffer.Slice(0, written).IndexOfAny('E', 'e') < 0;
+
+    private static bool TryFormatFixed(double value, Span<char> buffer, out int written)
+    {
+        if (!TryFormatSixteenDigits(value, buffer, out written))
+            return false;
+
+        if (ReadsBackAs(buffer.Slice(0, written), value))
+            return true;
+
+        if (!value.TryFormat(buffer, out written, "R", CultureInfo.InvariantCulture) || buffer.Slice(0, written).IndexOfAny('E', 'e') >= 0)
+            return false;
+
+        if (ReadsBackAs(buffer.Slice(0, written), value))
+            return true;
+
+        // See FormatShortestFixed: "R" can be one ulp off at some powers of two; 17 digits always read back.
+        return value.TryFormat(buffer, out written, "G17", CultureInfo.InvariantCulture) &&
+               buffer.Slice(0, written).IndexOfAny('E', 'e') < 0;
+    }
+#endif
 
 #if NETSTANDARD2_0
     private static void AppendFormatted<T>(StringBuilder builder, Func<T, string> formatter, T value)
