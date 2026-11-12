@@ -360,6 +360,47 @@ public sealed class LegacyTypedDecodeShapeTests
         Assert.Equal("{\"rows\":[{\"a.b\":2}]}", ToonDecoder.Toon2Json("rows[1]{a.b,\"a.b\"}:\n  1,2", options));
     }
 
+    [Theory]
+    [MemberData(nameof(LegacyVersions))]
+    public void Decode_UnbindableDictionaryMemberAbsentOrNull_DecodesTheOtherMembers(ToonProtocolVersion version)
+    {
+        AssertUnbindableMember<Dictionary<int, string>>(version, "V:\n  \"1\": a");
+        AssertUnbindableMember<Dictionary<Guid, string>>(version, "V:\n  \"8f7c1f4e-0d55-4b8e-9d42-3e1c6b9a7f10\": a");
+        AssertUnbindableMember<SortedDictionary<int, string>>(version, "V:\n  \"1\": a");
+        AssertUnbindableMember<System.Dynamic.ExpandoObject>(version, "V:\n  k: a");
+        AssertUnbindableMember<System.Collections.Hashtable>(version, "V:\n  k: a");
+        AssertUnbindableMember<Dictionary<string, Dictionary<int, string>>>(version, "V:\n  k:\n    \"1\": a");
+    }
+
+    private static void AssertUnbindableMember<TMap>(ToonProtocolVersion version, string valueLines)
+        where TMap : class
+    {
+        var expanded = DecodeOptions(version, ToonPathExpansion.Safe);
+        var service = new ToonService();
+
+        foreach (var holder in new[]
+                 {
+                     ToonDecoder.Decode<MapHolder<TMap>>("Id: 1\nName: n", DecodeOptions(version))!,
+                     ToonDecoder.Decode<MapHolder<TMap>>("Id: 1\nV: null\nName: n", DecodeOptions(version))!,
+                     ToonDecoder.Decode<MapHolder<TMap>>("Id: 1\nName: n\nz.q: 1", expanded)!,
+                     ToonDecoder.Decode<List<MapHolder<TMap>>>("[2]{Id,Name}:\n  1,n\n  2,m", DecodeOptions(version))![0],
+                     service.Deserialize<MapHolder<TMap>>("{\"Id\":1,\"V\":null,\"Name\":\"n\"}", "application/json")!
+                 })
+        {
+            Assert.Equal(1, holder.Id);
+            Assert.Equal("n", holder.Name);
+            Assert.Null(holder.V);
+        }
+
+        var record = ToonDecoder.Decode<MapRecord<TMap>>("Id: 1\nName: n", DecodeOptions(version))!;
+        Assert.Equal(1, record.Id);
+        Assert.Null(record.V);
+
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<MapHolder<TMap>>($"Id: 1\n{valueLines}", DecodeOptions(version)));
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<MapHolder<TMap>>($"Id: 1\n{valueLines}\nz.q: 1", expanded));
+        Assert.Throws<NotSupportedException>(() => ToonDecoder.Decode<MapRecord<TMap>>($"Id: 1\n{valueLines}", DecodeOptions(version)));
+    }
+
     private static void AssertNotSupportedOnEveryRoute<T>(T source, ToonProtocolVersion version)
     {
         var toon = ToonEncoder.Encode(source, EncodeOptions(version));
@@ -579,6 +620,19 @@ public sealed class LegacyTypedDecodeShapeTests
         [ToonPropertyName("a.b")]
         public string? Dotted { get; set; }
     }
+
+    public sealed class MapHolder<TMap>
+        where TMap : class
+    {
+        public int Id { get; set; }
+
+        public TMap? V { get; set; }
+
+        public string? Name { get; set; }
+    }
+
+    public sealed record MapRecord<TMap>(int Id, TMap? V = null, string? Name = null)
+        where TMap : class;
 
     private sealed class TreeNode
     {

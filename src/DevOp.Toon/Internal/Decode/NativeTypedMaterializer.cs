@@ -442,12 +442,14 @@ internal static class NativeTypedMaterializer
 
         if (valueType == null || concreteDictionaryType == null)
         {
+            plan = TypePlan.Reject(type);
             return true;
         }
 
         var valuePlan = BuildPlan(valueType, building);
         if (!valuePlan.IsSupported)
         {
+            plan = TypePlan.Reject(type);
             return true;
         }
 
@@ -544,6 +546,9 @@ internal static class NativeTypedMaterializer
         {
             case PlanKind.Deferred:
                 return TryConvert(node, plan.ResolveDeferred(), out value);
+            case PlanKind.Reject:
+                // As on 4.x, a member of a dictionary type this route cannot key binds null or stays unset; a value fails.
+                throw new NotSupportedException($"TOON typed decode does not support target type '{plan.Type.FullName}'.");
             case PlanKind.Any:
                 value = ConvertUntyped(node);
                 return true;
@@ -559,6 +564,12 @@ internal static class NativeTypedMaterializer
                 if (node is NativePrimitiveNode number && IntegerRange(plan.Type) is { } integerRange &&
                     (TryConvertIntegerFromText(number, plan.Type, integerRange, out value) || TryConvertFraction(number, plan.Type, out value)))
                 {
+                    return true;
+                }
+
+                if (plan.IsEnum && node is NativePrimitiveNode { NumberText: { } enumNumber })
+                {
+                    value = NumericUtils.BindEnumNumber(plan.Type, enumNumber.AsSpan());
                     return true;
                 }
 
@@ -1682,6 +1693,9 @@ internal static class NativeTypedMaterializer
         /// </summary>
         public bool BindsScalarTokens { get; private set; }
 
+        /// <summary>Gets whether this is an enum target.</summary>
+        public bool IsEnum { get; private set; }
+
         /// <summary>Gets the value a <c>null</c> token binds to when <see cref="BindsScalarTokens"/> is set.</summary>
         public object? DefaultValue { get; private set; }
 
@@ -1745,6 +1759,7 @@ internal static class NativeTypedMaterializer
             var bindsScalarTokens = type.IsEnum || NumericUtils.IsNumericType(type);
             return new TypePlan(type, PlanKind.Primitive)
             {
+                IsEnum = type.IsEnum,
                 BindsScalarTokens = bindsScalarTokens,
                 DefaultValue = bindsScalarTokens ? Activator.CreateInstance(type) : null
             };
@@ -1753,6 +1768,9 @@ internal static class NativeTypedMaterializer
         public static TypePlan Any(Type type) => new TypePlan(type, PlanKind.Any);
 
         public static TypePlan Deferred(Type type) => new TypePlan(type, PlanKind.Deferred);
+
+        /// <summary>A dictionary target this route cannot key or construct: <c>null</c> binds, any other value fails.</summary>
+        public static TypePlan Reject(Type type) => new TypePlan(type, PlanKind.Reject);
 
         /// <summary>Returns the finished plan of a recursive type, cached on first use.</summary>
         public TypePlan ResolveDeferred() => resolved ??= GetPlan(Type);
@@ -1828,6 +1846,7 @@ internal static class NativeTypedMaterializer
         Array,
         Dictionary,
         Any,
-        Deferred
+        Deferred,
+        Reject
     }
 }

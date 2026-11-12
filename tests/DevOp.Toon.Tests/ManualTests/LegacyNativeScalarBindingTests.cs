@@ -28,6 +28,8 @@ public sealed class LegacyNativeScalarBindingTests
                 data.Add(version, "Level", "null");
                 data.Add(version, "Flags", "\"A, B\"");
                 data.Add(version, "NLevel", "Low");
+                data.Add(version, "Level", "007");
+                data.Add(version, "Level", "2e0");
             }
 
             return data;
@@ -63,6 +65,8 @@ public sealed class LegacyNativeScalarBindingTests
                 data.Add(version, "Dbl", "Infinity", "Value Infinity is not a valid System.Double");
                 data.Add(version, "Flt", "\"NaN\"", "Value NaN is not a valid System.Single");
                 data.Add(version, "Level", "Bogus", "Value Bogus is not a valid DevOp.Toon.Tests.LegacyNativeScalarBindingTests+Level");
+                data.Add(version, "Level", "1e400", "outside");
+                data.Add(version, "Level", "1.5", "Number 1.5 is not an integer (DevOp.Toon.Tests.LegacyNativeScalarBindingTests+Level)");
             }
 
             return data;
@@ -83,7 +87,9 @@ public sealed class LegacyNativeScalarBindingTests
     }
 
     private static string ToJson(string token) =>
-        token is "true" or "false" or "null" || token.StartsWith('"') ? token : $"\"{token}\"";
+        token is "true" or "false" or "null" || token.StartsWith('"') || JsonNumber.IsMatch(token) ? token : $"\"{token}\"";
+
+    private static readonly System.Text.RegularExpressions.Regex JsonNumber = new(@"^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$");
 
     private static void AssertFormatError(string message, Func<object?> decode)
     {
